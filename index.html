@@ -244,11 +244,11 @@
 
   <div class="card">
     <h2>Conexión con Google Sheets</h2>
-    <p class="muted" style="margin-top:0;">Pegá acá la URL de tu Apps Script (ver instrucciones) para que cada cierre finalizado se guarde solo en tu Google Sheet, en una pestaña "Registro" y otra "Movimientos". La URL queda guardada en este navegador.</p>
+    <p class="muted" style="margin-top:0;">La URL del Apps Script ya viene cargada en el código de esta página (se configura una sola vez, no hay que escribirla en cada dispositivo). Cada cambio que hagas — un movimiento, el conteo de efectivo, un total — se sincroniza solo con tu Google Sheet a los pocos segundos, sin tener que tocar "Finalizar". El campo de abajo es solo para el caso puntual de que ESTE dispositivo necesite usar una planilla distinta a la de siempre.</p>
     <div class="row" style="align-items:flex-end;">
       <div class="field" style="flex:3 1 260px;">
-        <label for="sheetUrl">URL del Apps Script (termina en /exec)</label>
-        <input type="text" id="sheetUrl" placeholder="https://script.google.com/macros/s/XXXXX/exec">
+        <label for="sheetUrl">URL alternativa solo para este dispositivo (opcional)</label>
+        <input type="text" id="sheetUrl" placeholder="Dejar en blanco para usar la URL del código">
       </div>
       <div class="field" style="flex:0 0 auto;min-width:0;">
         <button class="btn-secondary" id="btnGuardarUrl" type="button">Guardar URL</button>
@@ -395,6 +395,21 @@
   var LS_NEGOCIO = "cierreCaja_negocio_v1";
   var LS_SHEET_URL = "cierreCaja_sheetUrl_v1";
 
+  // URL de tu Apps Script (la que termina en /exec). Pegala UNA sola vez acá,
+  // en el código, y listo: todos los dispositivos que abran esta página la
+  // van a usar automáticamente, sin tener que escribirla en ningún campo.
+  // Ver README para el paso a paso de cómo conseguir esta URL.
+  var SHEET_URL_DEFAULT = "PEGAR_AQUI_TU_URL_DEL_APPS_SCRIPT";
+
+  function hasValidSheetUrl(url){
+    return !!url && /^https?:\/\//.test(url);
+  }
+
+  // Tiempo de espera (ms) tras el último cambio antes de sincronizar el
+  // borrador con el Google Sheet. Evita mandar un pedido por cada tecla.
+  var AUTOSYNC_DELAY = 2500;
+  var autoSyncTimer = null;
+
   var BILLETES = [100,50,20,10,5];
   var MONEDAS = [2,1,0.5,0.2,0.1,0.05];
   var ROLL_VALUE = {2:50, 1:25, 0.5:20, 0.2:8, 0.1:4, 0.05:2};
@@ -402,6 +417,7 @@
   var IVA_RATES = [21,10,4,0];
 
   var state = {
+    id: null,
     movimientos: [],
     denom: { billetes:{}, monedasSueltas:{}, monedasBlister:{} },
     negocio: "Mi Negocio",
@@ -446,6 +462,7 @@
   // ---------- persistence ----------
   function saveDraft(){
     try{ localStorage.setItem(LS_DRAFT, JSON.stringify(state)); }catch(e){}
+    scheduleAutoSync();
   }
   function loadDraft(){
     try{
@@ -455,6 +472,10 @@
         state = Object.assign(state, parsed);
       }
     }catch(e){}
+    if(!state.id){
+      state.id = uid();
+      try{ localStorage.setItem(LS_DRAFT, JSON.stringify(state)); }catch(e){}
+    }
   }
   function loadNegocio(){
     try{
@@ -464,12 +485,21 @@
   }
   function saveNegocio(){
     try{ localStorage.setItem(LS_NEGOCIO, state.negocio); }catch(e){}
+    scheduleAutoSync();
   }
   function loadSheetUrl(){
-    try{ return localStorage.getItem(LS_SHEET_URL) || ''; }catch(e){ return ''; }
+    // Devuelve la URL "efectiva" a usar: la guardada en este navegador si el
+    // usuario pegó una propia, o si no, la URL por defecto del código.
+    try{
+      var saved = (localStorage.getItem(LS_SHEET_URL) || '').trim();
+      return saved || SHEET_URL_DEFAULT;
+    }catch(e){ return SHEET_URL_DEFAULT; }
   }
   function saveSheetUrl(url){
-    try{ localStorage.setItem(LS_SHEET_URL, url); }catch(e){}
+    try{
+      if(url) localStorage.setItem(LS_SHEET_URL, url);
+      else localStorage.removeItem(LS_SHEET_URL);
+    }catch(e){}
   }
   function getHistorial(){
     try{
@@ -521,6 +551,7 @@
         var v = inp.getAttribute('data-billete');
         state.denom.billetes[v] = num(inp.value);
         recalc();
+        saveDraft();
       });
     });
     monedasBody.querySelectorAll('input').forEach(function(inp){
@@ -533,6 +564,7 @@
           state.denom.monedasBlister[v2] = num(inp.value);
         }
         recalc();
+        saveDraft();
       });
     });
   }
@@ -915,6 +947,7 @@
   });
 
   function resetDraft(){
+    state.id = uid();
     state.movimientos = [];
     state.denom = { billetes:{}, monedasSueltas:{}, monedasBlister:{} };
     state.fecha = todayISO();
@@ -990,10 +1023,10 @@
 
   function refreshSheetStatusIdle(){
     var url = loadSheetUrl();
-    if(url){
-      updateSheetStatus('Conectado a: ' + url);
+    if(hasValidSheetUrl(url)){
+      updateSheetStatus('Conectado a: ' + url + ' · cada cambio se sincroniza solo.');
     } else {
-      updateSheetStatus('Sin configurar todavía.');
+      updateSheetStatus('Falta cargar la URL del Apps Script en el código de la página (ver README).', true);
     }
   }
 
@@ -1005,13 +1038,14 @@
     var url = document.getElementById('sheetUrl').value.trim();
     saveSheetUrl(url);
     refreshSheetStatusIdle();
-    toast(url ? 'URL guardada' : 'URL borrada');
+    toast(url ? 'URL guardada para este dispositivo' : 'Se borró la URL propia de este dispositivo; vuelve a usar la del código');
   });
 
   document.getElementById('btnProbarSheet').addEventListener('click', function(){
-    var url = document.getElementById('sheetUrl').value.trim();
-    if(!url){ toast('Pegá primero la URL del Apps Script'); return; }
-    saveSheetUrl(url);
+    var typed = document.getElementById('sheetUrl').value.trim();
+    var url = typed || loadSheetUrl();
+    if(!hasValidSheetUrl(url)){ toast('Todavía no hay una URL de Apps Script válida'); return; }
+    if(typed) saveSheetUrl(typed);
     updateSheetStatus('Probando conexión...');
     sendToSheet(url, {test:true})
       .then(function(res){
@@ -1039,9 +1073,11 @@
     });
   }
 
-  function buildSheetPayload(snapshot){
+  function buildSheetPayload(snapshot, estado){
     var c = snapshot._calc || {};
     return {
+      id: snapshot.id,
+      estado: estado || 'borrador',
       fecha: snapshot.fecha,
       turno: snapshot.turno === 'noche' ? 'Noche' : 'Mediodía',
       negocio: snapshot.negocio,
@@ -1067,10 +1103,38 @@
     };
   }
 
+  // ---------- sincronización automática del borrador actual ----------
+  function scheduleAutoSync(){
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)) return; // nada cargado todavía: no intentamos mandar
+    clearTimeout(autoSyncTimer);
+    autoSyncTimer = setTimeout(syncDraftToSheet, AUTOSYNC_DELAY);
+  }
+
+  function syncDraftToSheet(){
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)) return;
+    if(!state.id) state.id = uid();
+    sendToSheet(url, buildSheetPayload(state, 'borrador'))
+      .then(function(res){
+        if(res && res.ok){
+          updateSheetStatus('Sincronizado con Google Sheets a las ' + new Date().toLocaleTimeString('es-ES'));
+        } else {
+          updateSheetStatus('El Sheet respondió con un error al sincronizar el borrador.', true);
+        }
+      })
+      .catch(function(){
+        updateSheetStatus('Sin conexión: los cambios quedan guardados en este dispositivo y se sincronizan solos cuando vuelva internet.', true);
+      });
+  }
+
+  // Si se pierde y vuelve la conexión, reintenta mandar el estado actual.
+  window.addEventListener('online', function(){ scheduleAutoSync(); });
+
   function enviarCierreASheet(snapshot, savedAtKey){
     var url = loadSheetUrl();
-    if(!url) return;
-    sendToSheet(url, buildSheetPayload(snapshot))
+    if(!hasValidSheetUrl(url)) return;
+    sendToSheet(url, buildSheetPayload(snapshot, 'finalizado'))
       .then(function(res){
         var hist = getHistorial();
         var idx = hist.findIndex(function(h){ return h.savedAt === savedAtKey; });
@@ -1179,7 +1243,9 @@
     document.getElementById('totalFacturado').value = state.totalFacturado || 0;
     document.getElementById('tpv1').value = state.tpv1 || 0;
     document.getElementById('tpv2').value = state.tpv2 || 0;
-    document.getElementById('sheetUrl').value = loadSheetUrl();
+    document.getElementById('sheetUrl').value = (function(){
+      try{ return localStorage.getItem(LS_SHEET_URL) || ''; }catch(e){ return ''; }
+    })();
     refreshSheetStatusIdle();
     updateFechaLabel();
     buildDenomTables();
