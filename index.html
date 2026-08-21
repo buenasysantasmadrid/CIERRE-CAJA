@@ -217,6 +217,13 @@
         <input type="date" id="fechaCierre">
       </div>
       <div class="field">
+        <label for="turnoCierre">Turno</label>
+        <select id="turnoCierre">
+          <option value="mediodia">Mediodía</option>
+          <option value="noche">Noche</option>
+        </select>
+      </div>
+      <div class="field">
         <label for="fondoFijo">Fondo fijo (€)</label>
         <input type="number" step="0.01" id="fondoFijo" value="0" placeholder="0.00">
       </div>
@@ -233,6 +240,24 @@
         <input type="number" step="0.01" id="tpv2" value="0" placeholder="0.00">
       </div>
     </div>
+  </div>
+
+  <div class="card">
+    <h2>Conexión con Google Sheets</h2>
+    <p class="muted" style="margin-top:0;">Pegá acá la URL de tu Apps Script (ver instrucciones) para que cada cierre finalizado se guarde solo en tu Google Sheet, en una pestaña "Registro" y otra "Movimientos". La URL queda guardada en este navegador.</p>
+    <div class="row" style="align-items:flex-end;">
+      <div class="field" style="flex:3 1 260px;">
+        <label for="sheetUrl">URL del Apps Script (termina en /exec)</label>
+        <input type="text" id="sheetUrl" placeholder="https://script.google.com/macros/s/XXXXX/exec">
+      </div>
+      <div class="field" style="flex:0 0 auto;min-width:0;">
+        <button class="btn-secondary" id="btnGuardarUrl" type="button">Guardar URL</button>
+      </div>
+      <div class="field" style="flex:0 0 auto;min-width:0;">
+        <button class="btn-secondary" id="btnProbarSheet" type="button">Probar conexión</button>
+      </div>
+    </div>
+    <div class="muted" id="sheetStatus" style="margin-top:6px;">Sin configurar todavía.</div>
   </div>
 
   <div class="card">
@@ -368,6 +393,7 @@
   var LS_DRAFT = "cierreCaja_draft_v1";
   var LS_HIST = "cierreCaja_historial_v1";
   var LS_NEGOCIO = "cierreCaja_negocio_v1";
+  var LS_SHEET_URL = "cierreCaja_sheetUrl_v1";
 
   var BILLETES = [100,50,20,10,5];
   var MONEDAS = [2,1,0.5,0.2,0.1,0.05];
@@ -380,11 +406,17 @@
     denom: { billetes:{}, monedasSueltas:{}, monedasBlister:{} },
     negocio: "Mi Negocio",
     fecha: todayISO(),
+    turno: defaultTurno(),
     fondoFijo: 0,
     totalFacturado: 0,
     tpv1: 0,
     tpv2: 0
   };
+
+  function defaultTurno(){
+    var h = new Date().getHours();
+    return h >= 18 ? 'noche' : 'mediodia';
+  }
 
   var editingId = null;
   var currentCategoria = null;
@@ -432,6 +464,12 @@
   }
   function saveNegocio(){
     try{ localStorage.setItem(LS_NEGOCIO, state.negocio); }catch(e){}
+  }
+  function loadSheetUrl(){
+    try{ return localStorage.getItem(LS_SHEET_URL) || ''; }catch(e){ return ''; }
+  }
+  function saveSheetUrl(url){
+    try{ localStorage.setItem(LS_SHEET_URL, url); }catch(e){}
   }
   function getHistorial(){
     try{
@@ -832,6 +870,11 @@
     updateFechaLabel();
     saveDraft();
   });
+  document.getElementById('turnoCierre').addEventListener('change', function(){
+    state.turno = this.value;
+    updateFechaLabel();
+    saveDraft();
+  });
   ['fondoFijo','totalFacturado','tpv1','tpv2'].forEach(function(id){
     document.getElementById(id).addEventListener('input', function(){ recalc(); saveDraft(); });
   });
@@ -839,9 +882,11 @@
   function updateFechaLabel(){
     var lbl = document.getElementById('fechaCierreLabel');
     var f = document.getElementById('fechaCierre').value;
+    var turno = document.getElementById('turnoCierre').value;
+    var turnoLbl = turno === 'noche' ? 'Noche' : 'Mediodía';
     if(f){
       var parts = f.split('-');
-      lbl.textContent = parts[2]+'/'+parts[1]+'/'+parts[0];
+      lbl.textContent = parts[2]+'/'+parts[1]+'/'+parts[0] + ' · ' + turnoLbl;
     }
   }
 
@@ -861,22 +906,26 @@
     var hist = getHistorial();
     var snapshot = JSON.parse(JSON.stringify(state));
     snapshot.savedAt = new Date().toISOString();
+    snapshot.sentToSheet = false;
     hist.push(snapshot);
     saveHistorial(hist);
     resetDraft();
     toast('Cierre guardado en el historial');
+    enviarCierreASheet(snapshot, snapshot.savedAt);
   });
 
   function resetDraft(){
     state.movimientos = [];
     state.denom = { billetes:{}, monedasSueltas:{}, monedasBlister:{} };
     state.fecha = todayISO();
+    state.turno = defaultTurno();
     state.fondoFijo = 0; state.totalFacturado = 0; state.tpv1 = 0; state.tpv2 = 0;
     document.getElementById('fondoFijo').value = 0;
     document.getElementById('totalFacturado').value = 0;
     document.getElementById('tpv1').value = 0;
     document.getElementById('tpv2').value = 0;
     document.getElementById('fechaCierre').value = state.fecha;
+    document.getElementById('turnoCierre').value = state.turno;
     updateFechaLabel();
     buildDenomTables();
     renderMovimientos();
@@ -895,7 +944,7 @@
     recalc();
     var c = state._calc || {};
     var lines = [];
-    lines.push(['Cierre de caja', state.negocio, state.fecha].map(csvEscape).join(';'));
+    lines.push(['Cierre de caja', state.negocio, state.fecha, (state.turno==='noche'?'Noche':'Mediodía')].map(csvEscape).join(';'));
     lines.push('');
     lines.push(['Tipo','Subtipo','Proveedor/Motivo','Responsable','Nº Factura','Fecha','IVA %','Importe'].map(csvEscape).join(';'));
     state.movimientos.forEach(function(m){
@@ -932,6 +981,111 @@
     URL.revokeObjectURL(url);
   });
 
+  // ---------- Google Sheets ----------
+  function updateSheetStatus(msg, isError){
+    var el = document.getElementById('sheetStatus');
+    el.textContent = msg;
+    el.style.color = isError ? 'var(--red)' : '';
+  }
+
+  function refreshSheetStatusIdle(){
+    var url = loadSheetUrl();
+    if(url){
+      updateSheetStatus('Conectado a: ' + url);
+    } else {
+      updateSheetStatus('Sin configurar todavía.');
+    }
+  }
+
+  document.getElementById('sheetUrl').addEventListener('input', function(){
+    // no autosave on every keystroke; explicit button below
+  });
+
+  document.getElementById('btnGuardarUrl').addEventListener('click', function(){
+    var url = document.getElementById('sheetUrl').value.trim();
+    saveSheetUrl(url);
+    refreshSheetStatusIdle();
+    toast(url ? 'URL guardada' : 'URL borrada');
+  });
+
+  document.getElementById('btnProbarSheet').addEventListener('click', function(){
+    var url = document.getElementById('sheetUrl').value.trim();
+    if(!url){ toast('Pegá primero la URL del Apps Script'); return; }
+    saveSheetUrl(url);
+    updateSheetStatus('Probando conexión...');
+    sendToSheet(url, {test:true})
+      .then(function(res){
+        if(res && res.ok){
+          updateSheetStatus('Conexión OK ✓ (' + url + ')');
+          toast('Conexión con Google Sheets OK');
+        } else {
+          updateSheetStatus('Respuesta inesperada del script.', true);
+          toast('El script respondió pero con un error. Revisá el código pegado en Apps Script.');
+        }
+      })
+      .catch(function(err){
+        updateSheetStatus('No se pudo conectar: ' + err.message, true);
+        toast('No se pudo conectar con Google Sheets');
+      });
+  });
+
+  function sendToSheet(url, payload){
+    return fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify(payload)
+    }).then(function(resp){
+      return resp.json().catch(function(){ return {ok:true}; });
+    });
+  }
+
+  function buildSheetPayload(snapshot){
+    var c = snapshot._calc || {};
+    return {
+      fecha: snapshot.fecha,
+      turno: snapshot.turno === 'noche' ? 'Noche' : 'Mediodía',
+      negocio: snapshot.negocio,
+      fondoFijo: snapshot.fondoFijo,
+      totalFacturado: snapshot.totalFacturado,
+      tpv1: snapshot.tpv1,
+      tpv2: snapshot.tpv2,
+      movimientos: (snapshot.movimientos||[]).map(function(m){
+        return {
+          tipo: TIPO_LABEL[m.tipo]||m.tipo,
+          subtipo: SUBTIPO_LABEL[m.subtipo]||'',
+          proveedor: m.proveedor||'', motivo: m.motivo||'',
+          responsable: m.responsable||'', factura: m.factura||'',
+          iva: m.iva, importe: m.importe
+        };
+      }),
+      calc: {
+        empanadas: c.empanadas, facturadoNeto: c.facturadoNeto, ventasEfectivo: c.ventasEfectivo,
+        ingresoEfectivo: c.ingresoEfectivo, gastoEfectivo: c.gastoEfectivo, egreso: c.egreso,
+        esperado: c.esperado, totalContado: c.totalContado, diferencia: c.diferencia,
+        gastoNoEfectivo: c.gastoNoEfectivo
+      }
+    };
+  }
+
+  function enviarCierreASheet(snapshot, savedAtKey){
+    var url = loadSheetUrl();
+    if(!url) return;
+    sendToSheet(url, buildSheetPayload(snapshot))
+      .then(function(res){
+        var hist = getHistorial();
+        var idx = hist.findIndex(function(h){ return h.savedAt === savedAtKey; });
+        if(idx > -1){
+          hist[idx].sentToSheet = !!(res && res.ok);
+          saveHistorial(hist);
+          if(document.getElementById('histOverlay').classList.contains('open')) renderHistorial();
+        }
+        toast(res && res.ok ? 'Cierre enviado a Google Sheets' : 'Guardado local OK, pero el Sheet respondió con error');
+      })
+      .catch(function(){
+        toast('Guardado local OK, pero no se pudo enviar a Google Sheets (revisá conexión)');
+      });
+  }
+
   // ---------- historial ----------
   document.getElementById('btnHistorial').addEventListener('click', function(){
     renderHistorial();
@@ -959,9 +1113,13 @@
       var pillColor = Math.abs(diff) < 0.005 ? 'var(--accent)' : (diff>0 ? 'var(--accent)' : 'var(--red)');
       var div = document.createElement('div');
       div.className = 'history-item';
+      var turnoLbl = h.turno === 'noche' ? 'Noche' : 'Mediodía';
+      var sheetBadge = h.sentToSheet
+        ? '<span class="muted" style="color:var(--accent);">Enviado a Sheet ✓</span>'
+        : '<button class="btn-secondary" data-resend="'+realIdx+'" style="padding:4px 10px;font-size:.75rem;">Reenviar a Sheet</button>';
       div.innerHTML =
         '<div class="history-head" data-idx="'+realIdx+'">' +
-          '<span><strong>'+ (h.fecha||'') +'</strong> <span class="muted">('+ (h.movimientos?h.movimientos.length:0) +' mov.)</span></span>' +
+          '<span><strong>'+ (h.fecha||'') +'</strong> <span class="muted">('+ turnoLbl +' · '+ (h.movimientos?h.movimientos.length:0) +' mov.)</span></span>' +
           '<span class="diff-pill" style="color:'+pillColor+'">'+ (diff>=0?'+':'') + fmt(diff) +'</span>' +
         '</div>' +
         '<div class="history-body" id="histBody_'+realIdx+'">' +
@@ -971,7 +1129,10 @@
             '<div class="lbl">Fondo fijo</div><div class="val">'+fmt(h.fondoFijo||0)+'</div>' +
             '<div class="lbl">Total facturado</div><div class="val">'+fmt(h.totalFacturado||0)+'</div>' +
           '</div>' +
-          '<div style="margin-top:10px;"><button class="btn-danger" data-delhist="'+realIdx+'">Eliminar del historial</button></div>' +
+          '<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+            '<button class="btn-danger" data-delhist="'+realIdx+'">Eliminar del historial</button>' +
+            sheetBadge +
+          '</div>' +
         '</div>';
       list.appendChild(div);
     });
@@ -993,6 +1154,18 @@
         renderHistorial();
       });
     });
+    list.querySelectorAll('[data-resend]').forEach(function(btn){
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        if(!loadSheetUrl()){ toast('Primero configurá la URL del Apps Script arriba'); return; }
+        var idx = parseInt(btn.getAttribute('data-resend'), 10);
+        var h = getHistorial();
+        var snap = h[idx];
+        if(!snap) return;
+        toast('Enviando...');
+        enviarCierreASheet(snap, snap.savedAt);
+      });
+    });
   }
 
   // ---------- init ----------
@@ -1001,10 +1174,13 @@
     loadDraft();
     document.getElementById('negocioNombre').value = state.negocio;
     document.getElementById('fechaCierre').value = state.fecha || todayISO();
+    document.getElementById('turnoCierre').value = state.turno || defaultTurno();
     document.getElementById('fondoFijo').value = state.fondoFijo || 0;
     document.getElementById('totalFacturado').value = state.totalFacturado || 0;
     document.getElementById('tpv1').value = state.tpv1 || 0;
     document.getElementById('tpv2').value = state.tpv2 || 0;
+    document.getElementById('sheetUrl').value = loadSheetUrl();
+    refreshSheetStatusIdle();
     updateFechaLabel();
     buildDenomTables();
     renderMovimientos();
