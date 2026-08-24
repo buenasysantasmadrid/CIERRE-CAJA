@@ -38,6 +38,9 @@
     justify-content:space-between;
     flex-wrap:wrap;
     gap:10px;
+    position:sticky;
+    top:0;
+    z-index:30;
   }
   header .title-block{display:flex;flex-direction:column;gap:2px;}
   header input#negocioNombre{
@@ -97,24 +100,6 @@
   .btn-danger:hover{background:#f6d9d6;}
   .btn-ghost{background:transparent;color:#cfd5de;border:1px solid #3a4150;}
   .btn-ghost:hover{background:#2a313d;}
-  .fab{
-    position:fixed;
-    right:22px;
-    bottom:22px;
-    width:58px;
-    height:58px;
-    border-radius:50%;
-    background:var(--accent);
-    color:#fff;
-    font-size:1.8rem;
-    line-height:1;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    box-shadow:0 6px 16px rgba(0,0,0,.25);
-    z-index:20;
-  }
-  .fab:hover{background:#255c41;}
   table{width:100%;border-collapse:collapse;font-size:.87rem;}
   th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);}
   th{color:var(--ink-soft);font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.03em;}
@@ -187,6 +172,21 @@
   .history-body{display:none;margin-top:10px;font-size:.85rem;}
   .history-body.open{display:block;}
   .muted{color:var(--ink-soft);font-size:.78rem;}
+  .turno-block{border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:22px;background:#fafbfc;}
+  .turno-heading{
+    display:flex;align-items:center;gap:10px;margin:2px 0 14px;
+  }
+  .turno-heading h2{
+    margin:0;font-size:1.05rem;text-transform:uppercase;letter-spacing:.05em;color:var(--ink);
+  }
+  .turno-pill{
+    font-size:.7rem;font-weight:700;padding:3px 10px;border-radius:20px;
+    text-transform:uppercase;letter-spacing:.04em;
+  }
+  .turno-pill.mediodia{background:var(--amber-soft);color:var(--amber);}
+  .turno-pill.noche{background:var(--blue-soft);color:var(--blue);}
+  .section-title{font-size:.82rem;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;margin:16px 0 8px;}
+  .section-title:first-child{margin-top:0;}
   @media (max-width:520px){
     .type-grid{grid-template-columns:repeat(2,1fr);}
     table{font-size:.78rem;}
@@ -210,153 +210,46 @@
 <main>
 
   <div class="card">
-    <h2>Datos del cierre</h2>
+    <h2>Día del cierre</h2>
+    <p class="muted" style="margin-top:0;">Este cierre agrupa el turno Mediodía y el turno Noche del mismo día. Al finalizar, se guardan los dos juntos y se vacía el formulario para el próximo día.</p>
     <div class="row">
-      <div class="field">
+      <div class="field" style="max-width:220px;">
         <label for="fechaCierre">Fecha</label>
         <input type="date" id="fechaCierre">
       </div>
-      <div class="field">
-        <label for="turnoCierre">Turno</label>
-        <select id="turnoCierre">
-          <option value="mediodia">Mediodía</option>
-          <option value="noche">Noche</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="fondoFijo">Fondo fijo (€)</label>
-        <input type="number" step="0.01" id="fondoFijo" value="0" placeholder="0.00">
-      </div>
-      <div class="field">
-        <label for="totalFacturado">Total facturado (€)</label>
-        <input type="number" step="0.01" id="totalFacturado" value="0" placeholder="0.00">
-      </div>
-      <div class="field">
-        <label for="tpv1">Total TPV 1 (€)</label>
-        <input type="number" step="0.01" id="tpv1" value="0" placeholder="0.00">
-      </div>
-      <div class="field">
-        <label for="tpv2">Total TPV 2 (€)</label>
-        <input type="number" step="0.01" id="tpv2" value="0" placeholder="0.00">
-      </div>
     </div>
   </div>
 
-  <div class="card">
-    <h2>Conexión con Google Sheets</h2>
-    <p class="muted" style="margin-top:0;">La URL del Apps Script ya viene cargada en el código de esta página (se configura una sola vez, no hay que escribirla en cada dispositivo). Cada cambio que hagas — un movimiento, el conteo de efectivo, un total — se sincroniza solo con tu Google Sheet a los pocos segundos, sin tener que tocar "Finalizar". El campo de abajo es solo para el caso puntual de que ESTE dispositivo necesite usar una planilla distinta a la de siempre.</p>
-    <div class="row" style="align-items:flex-end;">
-      <div class="field" style="flex:3 1 260px;">
-        <label for="sheetUrl">URL alternativa solo para este dispositivo (opcional)</label>
-        <input type="text" id="sheetUrl" placeholder="Dejar en blanco para usar la URL del código">
-      </div>
-      <div class="field" style="flex:0 0 auto;min-width:0;">
-        <button class="btn-secondary" id="btnGuardarUrl" type="button">Guardar URL</button>
-      </div>
-      <div class="field" style="flex:0 0 auto;min-width:0;">
-        <button class="btn-secondary" id="btnProbarSheet" type="button">Probar conexión</button>
-      </div>
-    </div>
-    <div class="muted" id="sheetStatus" style="margin-top:6px;">Sin configurar todavía.</div>
-  </div>
+  <div id="turnoSections"></div>
 
   <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-      <h2 style="margin:0;">Proveedores</h2>
-      <button class="btn-primary" id="btnAbrirModalProveedores">+ Proveedor</button>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th>Tipo</th>
-          <th>Detalle</th>
-          <th>Fecha</th>
-          <th class="num">Importe</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody id="provBody"></tbody>
-    </table>
-    <div id="provEmpty" class="empty-row">Todavía no agregaste movimientos de proveedores.</div>
-  </div>
-
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-      <h2 style="margin:0;">Otros movimientos</h2>
-      <button class="btn-primary" id="btnAbrirModalOtros">+ Movimiento</button>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th>Tipo</th>
-          <th>Detalle</th>
-          <th>Fecha</th>
-          <th class="num">Importe</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody id="otrosBody"></tbody>
-    </table>
-    <div id="otrosEmpty" class="empty-row">Todavía no agregaste otros movimientos.</div>
-  </div>
-
-  <div class="card">
-    <h2>Conteo de efectivo</h2>
-    <table class="denom-table">
-      <thead>
-        <tr><th>Billetes</th><th>Cantidad</th><th class="num">Subtotal</th></tr>
-      </thead>
-      <tbody id="billetesBody"></tbody>
-    </table>
-    <table class="denom-table" style="margin-top:10px;">
-      <thead>
-        <tr><th>Monedas</th><th>Sueltas (cant.)</th><th>Rollos/blister (cant.)</th><th class="num">Subtotal</th></tr>
-      </thead>
-      <tbody id="monedasBody"></tbody>
-    </table>
-    <div class="subtotal-line total">
-      <span>Total efectivo contado</span>
-      <span id="totalContadoLbl">0,00 €</span>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Resumen y diferencia</h2>
+    <h2>Resumen del día (Mediodía + Noche)</h2>
     <div class="summary-grid">
-      <div class="lbl">Total facturado</div><div class="val" id="rFacturado">0,00 €</div>
-      <div class="lbl">− Empanadas</div><div class="val" id="rEmpanadas">0,00 €</div>
-      <div class="lbl">= Facturado neto</div><div class="val" id="rFacturadoNeto">0,00 €</div>
+      <div class="lbl">Efectivo esperado — Mediodía</div><div class="val" id="diaEsperadoMD">0,00 €</div>
+      <div class="lbl">Efectivo esperado — Noche</div><div class="val" id="diaEsperadoNC">0,00 €</div>
+      <div class="lbl" style="font-weight:700;">Efectivo esperado — Total día</div><div class="val" id="diaEsperadoTotal" style="font-weight:700;">0,00 €</div>
       <div class="divider"></div>
-      <div class="lbl">Fondo fijo</div><div class="val" id="rFondoFijo">0,00 €</div>
-      <div class="lbl">Ventas en efectivo (Facturado neto − TPVs)</div><div class="val" id="rVentasEfectivo">0,00 €</div>
-      <div class="lbl">+ Ingresos en efectivo (cambio, varios)</div><div class="val" id="rIngresos">0,00 €</div>
-      <div class="lbl">− Gastos en efectivo (efectivo + efectivo antiguo)</div><div class="val" id="rGastos">0,00 €</div>
-      <div class="lbl">− Retiros de dinero</div><div class="val" id="rEgresos">0,00 €</div>
-      <div class="divider"></div>
-      <div class="lbl" style="font-weight:700;">Efectivo esperado</div><div class="val" id="rEsperado" style="font-weight:700;">0,00 €</div>
-      <div class="lbl">Efectivo contado</div><div class="val" id="rContado">0,00 €</div>
-      <div class="divider"></div>
-      <div class="lbl muted">Gastos no efectivo (informativo, no afecta caja)</div><div class="val muted" id="rNoEfectivo">0,00 €</div>
+      <div class="lbl">Efectivo contado — Mediodía</div><div class="val" id="diaContadoMD">0,00 €</div>
+      <div class="lbl">Efectivo contado — Noche</div><div class="val" id="diaContadoNC">0,00 €</div>
+      <div class="lbl" style="font-weight:700;">Efectivo contado — Total día</div><div class="val" id="diaContadoTotal" style="font-weight:700;">0,00 €</div>
     </div>
-    <div class="result-box ok" id="resultBox">
-      <div class="diff" id="resultDiff">0,00 €</div>
-      <div class="lbl" id="resultLbl">CUADRA</div>
+    <div class="result-box ok" id="diaResultBox">
+      <div class="diff" id="diaResultDiff">0,00 €</div>
+      <div class="lbl" id="diaResultLbl">CUADRA</div>
     </div>
     <div class="modal-actions" style="margin-top:16px;">
-      <button class="btn-secondary" id="btnLimpiar">Vaciar cierre actual</button>
-      <button class="btn-primary" id="btnFinalizar">Finalizar y guardar en historial</button>
+      <button class="btn-secondary" id="btnLimpiar">Vaciar cierre actual (mediodía + noche)</button>
+      <button class="btn-primary" id="btnFinalizar">Finalizar día y guardar en historial</button>
     </div>
   </div>
 
 </main>
 
-<button class="fab" id="btnAbrirModal" title="Agregar movimiento">+</button>
-
 <!-- Modal nuevo movimiento -->
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal">
     <button class="modal-close" id="modalClose">&times;</button>
-    <h3>Nuevo movimiento</h3>
+    <h3>Nuevo movimiento — <span id="modalTurnoLabel"></span></h3>
 
     <div class="type-grid" id="categoryGrid">
       <button class="type-btn" data-cat="proveedores">Proveedores</button>
@@ -390,15 +283,13 @@
 (function(){
   "use strict";
 
-  var LS_DRAFT = "cierreCaja_draft_v1";
-  var LS_HIST = "cierreCaja_historial_v1";
+  var LS_DRAFT = "cierreCaja_draft_v2";
+  var LS_HIST = "cierreCaja_historial_v2";
   var LS_NEGOCIO = "cierreCaja_negocio_v1";
-  var LS_SHEET_URL = "cierreCaja_sheetUrl_v1";
 
-  // URL de tu Apps Script (la que termina en /exec). Pegala UNA sola vez acá,
-  // en el código, y listo: todos los dispositivos que abran esta página la
-  // van a usar automáticamente, sin tener que escribirla en ningún campo.
-  // Ver README para el paso a paso de cómo conseguir esta URL.
+  // URL de tu Apps Script (la que termina en /exec). Ya está cargada acá,
+  // en el código: todos los dispositivos que abran esta página la usan
+  // automáticamente, sin tener que escribirla en ningún campo.
   var SHEET_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbwMqo496Pn56JBjCHZBcNBBVrO55oR08XB9aLPQzrmr-TRhuAFEPyUESwqSOVGw_2pq2g/exec";
 
   function hasValidSheetUrl(url){
@@ -416,25 +307,31 @@
 
   var IVA_RATES = [21,10,4,0];
 
-  var state = {
-    id: null,
-    movimientos: [],
-    denom: { billetes:{}, monedasSueltas:{}, monedasBlister:{} },
-    negocio: "Mi Negocio",
-    fecha: todayISO(),
-    turno: defaultTurno(),
-    fondoFijo: 0,
-    totalFacturado: 0,
-    tpv1: 0,
-    tpv2: 0
-  };
+  var TURNOS = ['mediodia','noche'];
+  var TURNO_LABEL = {mediodia:'Mediodía', noche:'Noche'};
 
-  function defaultTurno(){
-    var h = new Date().getHours();
-    return h >= 18 ? 'noche' : 'mediodia';
+  function crearTurnoVacio(){
+    return {
+      id: null,
+      movimientos: [],
+      denom: { billetes:{}, monedasSueltas:{}, monedasBlister:{} },
+      fondoFijo: 0,
+      totalFacturado: 0,
+      tpv1: 0,
+      tpv2: 0
+    };
   }
 
+  var state = {
+    negocio: "Mi Negocio",
+    fecha: todayISO(),
+    mediodia: crearTurnoVacio(),
+    noche: crearTurnoVacio()
+  };
+
   var editingId = null;
+  var editingTurno = null;
+  var modalTurno = null;
   var currentCategoria = null;
   var currentTipo = null;
   var currentSubtipo = null;
@@ -459,6 +356,12 @@
     return isFinite(n) ? n : 0;
   }
 
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
   // ---------- persistence ----------
   function saveDraft(){
     try{ localStorage.setItem(LS_DRAFT, JSON.stringify(state)); }catch(e){}
@@ -469,11 +372,18 @@
       var raw = localStorage.getItem(LS_DRAFT);
       if(raw){
         var parsed = JSON.parse(raw);
-        state = Object.assign(state, parsed);
+        state.negocio = parsed.negocio || state.negocio;
+        state.fecha = parsed.fecha || state.fecha;
+        TURNOS.forEach(function(t){
+          if(parsed[t]) state[t] = Object.assign(crearTurnoVacio(), parsed[t]);
+        });
       }
     }catch(e){}
-    if(!state.id){
-      state.id = uid();
+    var changed = false;
+    TURNOS.forEach(function(t){
+      if(!state[t].id){ state[t].id = uid(); changed = true; }
+    });
+    if(changed){
       try{ localStorage.setItem(LS_DRAFT, JSON.stringify(state)); }catch(e){}
     }
   }
@@ -488,18 +398,8 @@
     scheduleAutoSync();
   }
   function loadSheetUrl(){
-    // Devuelve la URL "efectiva" a usar: la guardada en este navegador si el
-    // usuario pegó una propia, o si no, la URL por defecto del código.
-    try{
-      var saved = (localStorage.getItem(LS_SHEET_URL) || '').trim();
-      return saved || SHEET_URL_DEFAULT;
-    }catch(e){ return SHEET_URL_DEFAULT; }
-  }
-  function saveSheetUrl(url){
-    try{
-      if(url) localStorage.setItem(LS_SHEET_URL, url);
-      else localStorage.removeItem(LS_SHEET_URL);
-    }catch(e){}
+    // La URL siempre es la que está fija en el código de esta página.
+    return SHEET_URL_DEFAULT;
   }
   function getHistorial(){
     try{
@@ -521,36 +421,106 @@
     toastTimer = setTimeout(function(){ t.classList.remove('show'); }, 2200);
   }
 
+  // ---------- turno section markup ----------
+  function turnoSectionHTML(t){
+    var label = TURNO_LABEL[t];
+    var pillClass = t;
+    return '' +
+    '<div class="turno-block" data-turno="'+t+'">' +
+      '<div class="turno-heading"><h2>Cierre — '+label+'</h2><span class="turno-pill '+pillClass+'">'+label+'</span></div>' +
+
+      '<div class="row" style="margin-bottom:6px;">' +
+        '<div class="field"><label for="fondoFijo_'+t+'">Fondo fijo (€)</label><input type="number" step="0.01" id="fondoFijo_'+t+'" value="0" placeholder="0.00"></div>' +
+        '<div class="field"><label for="totalFacturado_'+t+'">Total facturado (€)</label><input type="number" step="0.01" id="totalFacturado_'+t+'" value="0" placeholder="0.00"></div>' +
+        '<div class="field"><label for="tpv1_'+t+'">Total TPV 1 (€)</label><input type="number" step="0.01" id="tpv1_'+t+'" value="0" placeholder="0.00"></div>' +
+        '<div class="field"><label for="tpv2_'+t+'">Total TPV 2 (€)</label><input type="number" step="0.01" id="tpv2_'+t+'" value="0" placeholder="0.00"></div>' +
+      '</div>' +
+
+      '<div class="section-title">Proveedores</div>' +
+      '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">' +
+        '<button class="btn-primary" data-add-prov="'+t+'">+ Proveedor</button>' +
+      '</div>' +
+      '<table>' +
+        '<thead><tr><th>Tipo</th><th>Detalle</th><th>Fecha</th><th class="num">Importe</th><th></th></tr></thead>' +
+        '<tbody id="provBody_'+t+'"></tbody>' +
+      '</table>' +
+      '<div id="provEmpty_'+t+'" class="empty-row">Todavía no agregaste movimientos de proveedores.</div>' +
+
+      '<div class="section-title">Otros movimientos</div>' +
+      '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">' +
+        '<button class="btn-primary" data-add-otros="'+t+'">+ Movimiento</button>' +
+      '</div>' +
+      '<table>' +
+        '<thead><tr><th>Tipo</th><th>Detalle</th><th>Fecha</th><th class="num">Importe</th><th></th></tr></thead>' +
+        '<tbody id="otrosBody_'+t+'"></tbody>' +
+      '</table>' +
+      '<div id="otrosEmpty_'+t+'" class="empty-row">Todavía no agregaste otros movimientos.</div>' +
+
+      '<div class="section-title">Conteo de efectivo</div>' +
+      '<table class="denom-table">' +
+        '<thead><tr><th>Billetes</th><th>Cantidad</th><th class="num">Subtotal</th></tr></thead>' +
+        '<tbody id="billetesBody_'+t+'"></tbody>' +
+      '</table>' +
+      '<table class="denom-table" style="margin-top:10px;">' +
+        '<thead><tr><th>Monedas</th><th>Sueltas (cant.)</th><th>Rollos/blister (cant.)</th><th class="num">Subtotal</th></tr></thead>' +
+        '<tbody id="monedasBody_'+t+'"></tbody>' +
+      '</table>' +
+      '<div class="subtotal-line total"><span>Total efectivo contado</span><span id="totalContadoLbl_'+t+'">0,00 €</span></div>' +
+
+      '<div class="section-title">Resumen y diferencia — '+label+'</div>' +
+      '<div class="summary-grid">' +
+        '<div class="lbl">Total facturado</div><div class="val" id="rFacturado_'+t+'">0,00 €</div>' +
+        '<div class="lbl">− Empanadas</div><div class="val" id="rEmpanadas_'+t+'">0,00 €</div>' +
+        '<div class="lbl">= Facturado neto</div><div class="val" id="rFacturadoNeto_'+t+'">0,00 €</div>' +
+        '<div class="divider"></div>' +
+        '<div class="lbl">Fondo fijo</div><div class="val" id="rFondoFijo_'+t+'">0,00 €</div>' +
+        '<div class="lbl">Ventas en efectivo (Facturado neto − TPVs)</div><div class="val" id="rVentasEfectivo_'+t+'">0,00 €</div>' +
+        '<div class="lbl">+ Ingresos en efectivo (cambio, varios)</div><div class="val" id="rIngresos_'+t+'">0,00 €</div>' +
+        '<div class="lbl">− Gastos en efectivo (efectivo + efectivo antiguo)</div><div class="val" id="rGastos_'+t+'">0,00 €</div>' +
+        '<div class="lbl">− Retiros de dinero</div><div class="val" id="rEgresos_'+t+'">0,00 €</div>' +
+        '<div class="divider"></div>' +
+        '<div class="lbl" style="font-weight:700;">Efectivo esperado</div><div class="val" id="rEsperado_'+t+'" style="font-weight:700;">0,00 €</div>' +
+        '<div class="lbl">Efectivo contado</div><div class="val" id="rContado_'+t+'">0,00 €</div>' +
+        '<div class="divider"></div>' +
+        '<div class="lbl muted">Gastos no efectivo (informativo, no afecta caja)</div><div class="val muted" id="rNoEfectivo_'+t+'">0,00 €</div>' +
+      '</div>' +
+      '<div class="result-box ok" id="resultBox_'+t+'">' +
+        '<div class="diff" id="resultDiff_'+t+'">0,00 €</div>' +
+        '<div class="lbl" id="resultLbl_'+t+'">CUADRA</div>' +
+      '</div>' +
+    '</div>';
+  }
+
   // ---------- denom tables ----------
-  function buildDenomTables(){
-    var billetesBody = document.getElementById('billetesBody');
+  function buildDenomTables(t){
+    var billetesBody = document.getElementById('billetesBody_'+t);
     billetesBody.innerHTML = '';
     BILLETES.forEach(function(v){
       var tr = document.createElement('tr');
       tr.innerHTML =
         '<td class="denom-label">'+v.toLocaleString('es-ES')+' €</td>' +
-        '<td><input type="number" min="0" step="1" data-billete="'+v+'" value="'+(state.denom.billetes[v]||0)+'"></td>' +
-        '<td class="num" id="billeteSub_'+v+'">0,00 €</td>';
+        '<td><input type="number" min="0" step="1" data-billete="'+v+'" value="'+(state[t].denom.billetes[v]||0)+'"></td>' +
+        '<td class="num" id="billeteSub_'+t+'_'+v+'">0,00 €</td>';
       billetesBody.appendChild(tr);
     });
 
-    var monedasBody = document.getElementById('monedasBody');
+    var monedasBody = document.getElementById('monedasBody_'+t);
     monedasBody.innerHTML = '';
     MONEDAS.forEach(function(v){
       var tr = document.createElement('tr');
       tr.innerHTML =
         '<td class="denom-label">'+v.toLocaleString('es-ES')+' €<br><span class="muted">rollo = '+fmt(ROLL_VALUE[v])+'</span></td>' +
-        '<td><input type="number" min="0" step="1" data-moneda-suelta="'+v+'" value="'+(state.denom.monedasSueltas[v]||0)+'"></td>' +
-        '<td><input type="number" min="0" step="1" data-moneda-blister="'+v+'" value="'+(state.denom.monedasBlister[v]||0)+'"></td>' +
-        '<td class="num" id="monedaSub_'+v+'">0,00 €</td>';
+        '<td><input type="number" min="0" step="1" data-moneda-suelta="'+v+'" value="'+(state[t].denom.monedasSueltas[v]||0)+'"></td>' +
+        '<td><input type="number" min="0" step="1" data-moneda-blister="'+v+'" value="'+(state[t].denom.monedasBlister[v]||0)+'"></td>' +
+        '<td class="num" id="monedaSub_'+t+'_'+v+'">0,00 €</td>';
       monedasBody.appendChild(tr);
     });
 
     billetesBody.querySelectorAll('input').forEach(function(inp){
       inp.addEventListener('input', function(){
         var v = inp.getAttribute('data-billete');
-        state.denom.billetes[v] = num(inp.value);
-        recalc();
+        state[t].denom.billetes[v] = num(inp.value);
+        recalc(t);
         saveDraft();
       });
     });
@@ -558,12 +528,12 @@
       inp.addEventListener('input', function(){
         if(inp.hasAttribute('data-moneda-suelta')){
           var v = inp.getAttribute('data-moneda-suelta');
-          state.denom.monedasSueltas[v] = num(inp.value);
+          state[t].denom.monedasSueltas[v] = num(inp.value);
         } else {
           var v2 = inp.getAttribute('data-moneda-blister');
-          state.denom.monedasBlister[v2] = num(inp.value);
+          state[t].denom.monedasBlister[v2] = num(inp.value);
         }
-        recalc();
+        recalc(t);
         saveDraft();
       });
     });
@@ -586,7 +556,7 @@
     return (m.motivo || '(sin motivo)') + (m.responsable ? ' · '+m.responsable : '');
   }
 
-  function renderMovTable(bodyId, emptyId, list){
+  function renderMovTable(bodyId, emptyId, list, t){
     var body = document.getElementById(bodyId);
     var empty = document.getElementById(emptyId);
     body.innerHTML = '';
@@ -611,30 +581,24 @@
     body.querySelectorAll('[data-del]').forEach(function(btn){
       btn.addEventListener('click', function(){
         var id = btn.getAttribute('data-del');
-        state.movimientos = state.movimientos.filter(function(m){ return m.id !== id; });
-        renderMovimientos(); recalc(); saveDraft();
+        state[t].movimientos = state[t].movimientos.filter(function(m){ return m.id !== id; });
+        renderMovimientos(t); recalc(t); saveDraft();
       });
     });
     body.querySelectorAll('[data-edit]').forEach(function(btn){
       btn.addEventListener('click', function(){
         var id = btn.getAttribute('data-edit');
-        var m = state.movimientos.find(function(x){ return x.id === id; });
-        if(m) openModal(m);
+        var m = state[t].movimientos.find(function(x){ return x.id === id; });
+        if(m) openModal(m, null, t);
       });
     });
   }
 
-  function renderMovimientos(){
-    var proveedores = state.movimientos.filter(function(m){ return m.tipo === 'gasto'; });
-    var otros = state.movimientos.filter(function(m){ return m.tipo !== 'gasto'; });
-    renderMovTable('provBody', 'provEmpty', proveedores);
-    renderMovTable('otrosBody', 'otrosEmpty', otros);
-  }
-
-  function escapeHtml(s){
-    return String(s).replace(/[&<>"']/g, function(c){
-      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
-    });
+  function renderMovimientos(t){
+    var proveedores = state[t].movimientos.filter(function(m){ return m.tipo === 'gasto'; });
+    var otros = state[t].movimientos.filter(function(m){ return m.tipo !== 'gasto'; });
+    renderMovTable('provBody_'+t, 'provEmpty_'+t, proveedores, t);
+    renderMovTable('otrosBody_'+t, 'otrosEmpty_'+t, otros, t);
   }
 
   // ---------- modal / form ----------
@@ -642,8 +606,11 @@
   var OTROS_TIPOS = [{k:'ingreso',l:'Ingreso'},{k:'egreso',l:'Egreso'},{k:'empanadas',l:'Empanadas'}];
   var INGRESO_SUBTYPES = [{k:'cambio',l:'Cambio'},{k:'varios',l:'Varios'}];
 
-  function openModal(existing, presetCategoria){
+  function openModal(existing, presetCategoria, turno){
     editingId = existing ? existing.id : null;
+    editingTurno = existing ? turno : null;
+    modalTurno = turno;
+    document.getElementById('modalTurnoLabel').textContent = TURNO_LABEL[turno] || '';
     document.getElementById('modalOverlay').classList.add('open');
     var cat = existing ? (existing.tipo === 'gasto' ? 'proveedores' : 'otros') : (presetCategoria || null);
     if(cat){
@@ -658,7 +625,8 @@
   }
   function closeModal(){
     document.getElementById('modalOverlay').classList.remove('open');
-    editingId = null; currentCategoria = null; currentTipo = null; currentSubtipo = null;
+    editingId = null; editingTurno = null; modalTurno = null;
+    currentCategoria = null; currentTipo = null; currentSubtipo = null;
   }
 
   function renderCategoryButtons(){
@@ -768,6 +736,7 @@
 
   document.getElementById('modalGuardar').addEventListener('click', function(){
     if(!currentTipo){ toast('Elegí un tipo de movimiento'); return; }
+    if(!modalTurno){ toast('Error interno: no se sabe a qué turno pertenece'); return; }
     var data = collectForm();
     var importe = num(data.importe);
     if(!importe){ toast('Ingresá un importe válido'); return; }
@@ -785,17 +754,18 @@
       responsable: data.responsable || ''
     };
 
+    var t = modalTurno;
     if(editingId){
-      var idx = state.movimientos.findIndex(function(m){ return m.id === editingId; });
-      if(idx > -1) state.movimientos[idx] = mov;
+      var idx = state[t].movimientos.findIndex(function(m){ return m.id === editingId; });
+      if(idx > -1) state[t].movimientos[idx] = mov;
     } else {
-      state.movimientos.push(mov);
+      state[t].movimientos.push(mov);
     }
     saveDraft();
-    renderMovimientos();
-    recalc();
+    renderMovimientos(t);
+    recalc(t);
     closeModal();
-    toast('Movimiento guardado');
+    toast('Movimiento guardado (' + TURNO_LABEL[t] + ')');
   });
 
   document.querySelectorAll('#categoryGrid .type-btn').forEach(function(btn){
@@ -809,36 +779,33 @@
   document.getElementById('modalOverlay').addEventListener('click', function(e){
     if(e.target === this) closeModal();
   });
-  document.getElementById('btnAbrirModal').addEventListener('click', function(){ openModal(null); });
-  document.getElementById('btnAbrirModalProveedores').addEventListener('click', function(){ openModal(null, 'proveedores'); });
-  document.getElementById('btnAbrirModalOtros').addEventListener('click', function(){ openModal(null, 'otros'); });
 
   // ---------- calculations ----------
-  function recalc(){
+  function recalc(t){
     var totalBilletes = 0;
     BILLETES.forEach(function(v){
-      var qty = state.denom.billetes[v] || 0;
+      var qty = state[t].denom.billetes[v] || 0;
       var sub = qty * v;
       totalBilletes += sub;
-      var el = document.getElementById('billeteSub_'+v);
+      var el = document.getElementById('billeteSub_'+t+'_'+v);
       if(el) el.textContent = fmt(sub);
     });
 
     var totalMonedas = 0;
     MONEDAS.forEach(function(v){
-      var qty = state.denom.monedasSueltas[v] || 0;
-      var rollos = state.denom.monedasBlister[v] || 0;
+      var qty = state[t].denom.monedasSueltas[v] || 0;
+      var rollos = state[t].denom.monedasBlister[v] || 0;
       var sub = (qty * v) + (rollos * (ROLL_VALUE[v]||0));
       totalMonedas += sub;
-      var el = document.getElementById('monedaSub_'+v);
+      var el = document.getElementById('monedaSub_'+t+'_'+v);
       if(el) el.textContent = fmt(sub);
     });
 
     var totalContado = totalBilletes + totalMonedas;
-    document.getElementById('totalContadoLbl').textContent = fmt(totalContado);
+    document.getElementById('totalContadoLbl_'+t).textContent = fmt(totalContado);
 
     var gastoEfectivo = 0, gastoNoEfectivo = 0, ingresoEfectivo = 0, egreso = 0, empanadas = 0;
-    state.movimientos.forEach(function(m){
+    state[t].movimientos.forEach(function(m){
       if(m.tipo === 'gasto'){
         if(m.subtipo === 'no_efectivo') gastoNoEfectivo += m.importe;
         else gastoEfectivo += m.importe; // efectivo + efectivo_antiguo
@@ -851,31 +818,31 @@
       }
     });
 
-    var fondoFijo = num(document.getElementById('fondoFijo').value);
-    var totalFacturado = num(document.getElementById('totalFacturado').value);
-    var tpv1 = num(document.getElementById('tpv1').value);
-    var tpv2 = num(document.getElementById('tpv2').value);
+    var fondoFijo = num(document.getElementById('fondoFijo_'+t).value);
+    var totalFacturado = num(document.getElementById('totalFacturado_'+t).value);
+    var tpv1 = num(document.getElementById('tpv1_'+t).value);
+    var tpv2 = num(document.getElementById('tpv2_'+t).value);
     var facturadoNeto = totalFacturado - empanadas;
     var ventasEfectivo = facturadoNeto - (tpv1 + tpv2);
 
     var esperado = fondoFijo + ventasEfectivo + ingresoEfectivo - gastoEfectivo - egreso;
     var diferencia = totalContado - esperado;
 
-    document.getElementById('rFondoFijo').textContent = fmt(fondoFijo);
-    document.getElementById('rFacturado').textContent = fmt(totalFacturado);
-    document.getElementById('rEmpanadas').textContent = '− ' + fmt(empanadas);
-    document.getElementById('rFacturadoNeto').textContent = fmt(facturadoNeto);
-    document.getElementById('rVentasEfectivo').textContent = fmt(ventasEfectivo);
-    document.getElementById('rIngresos').textContent = fmt(ingresoEfectivo);
-    document.getElementById('rGastos').textContent = fmt(gastoEfectivo);
-    document.getElementById('rEgresos').textContent = fmt(egreso);
-    document.getElementById('rEsperado').textContent = fmt(esperado);
-    document.getElementById('rContado').textContent = fmt(totalContado);
-    document.getElementById('rNoEfectivo').textContent = fmt(gastoNoEfectivo);
+    document.getElementById('rFondoFijo_'+t).textContent = fmt(fondoFijo);
+    document.getElementById('rFacturado_'+t).textContent = fmt(totalFacturado);
+    document.getElementById('rEmpanadas_'+t).textContent = '− ' + fmt(empanadas);
+    document.getElementById('rFacturadoNeto_'+t).textContent = fmt(facturadoNeto);
+    document.getElementById('rVentasEfectivo_'+t).textContent = fmt(ventasEfectivo);
+    document.getElementById('rIngresos_'+t).textContent = fmt(ingresoEfectivo);
+    document.getElementById('rGastos_'+t).textContent = fmt(gastoEfectivo);
+    document.getElementById('rEgresos_'+t).textContent = fmt(egreso);
+    document.getElementById('rEsperado_'+t).textContent = fmt(esperado);
+    document.getElementById('rContado_'+t).textContent = fmt(totalContado);
+    document.getElementById('rNoEfectivo_'+t).textContent = fmt(gastoNoEfectivo);
 
-    var box = document.getElementById('resultBox');
-    var diffEl = document.getElementById('resultDiff');
-    var lblEl = document.getElementById('resultLbl');
+    var box = document.getElementById('resultBox_'+t);
+    var diffEl = document.getElementById('resultDiff_'+t);
+    var lblEl = document.getElementById('resultLbl_'+t);
     diffEl.textContent = (diferencia >= 0 ? '+' : '') + fmt(diferencia);
     if(Math.abs(diferencia) < 0.005){
       box.className = 'result-box ok'; lblEl.textContent = 'CUADRA';
@@ -885,11 +852,45 @@
       box.className = 'result-box bad'; lblEl.textContent = 'FALTA EFECTIVO';
     }
 
-    state.fondoFijo = fondoFijo;
-    state.totalFacturado = totalFacturado;
-    state.tpv1 = tpv1;
-    state.tpv2 = tpv2;
-    state._calc = {totalBilletes, totalMonedas, totalContado, gastoEfectivo, gastoNoEfectivo, ingresoEfectivo, egreso, empanadas, facturadoNeto, ventasEfectivo, esperado, diferencia};
+    state[t].fondoFijo = fondoFijo;
+    state[t].totalFacturado = totalFacturado;
+    state[t].tpv1 = tpv1;
+    state[t].tpv2 = tpv2;
+    state[t]._calc = {totalBilletes:totalBilletes, totalMonedas:totalMonedas, totalContado:totalContado,
+      gastoEfectivo:gastoEfectivo, gastoNoEfectivo:gastoNoEfectivo, ingresoEfectivo:ingresoEfectivo,
+      egreso:egreso, empanadas:empanadas, facturadoNeto:facturadoNeto, ventasEfectivo:ventasEfectivo,
+      esperado:esperado, diferencia:diferencia};
+
+    recalcDia();
+  }
+
+  function recalcDia(){
+    var cMD = (state.mediodia && state.mediodia._calc) || {};
+    var cNC = (state.noche && state.noche._calc) || {};
+    var espMD = cMD.esperado || 0, espNC = cNC.esperado || 0;
+    var contMD = cMD.totalContado || 0, contNC = cNC.totalContado || 0;
+    var espTotal = espMD + espNC;
+    var contTotal = contMD + contNC;
+    var diffTotal = contTotal - espTotal;
+
+    document.getElementById('diaEsperadoMD').textContent = fmt(espMD);
+    document.getElementById('diaEsperadoNC').textContent = fmt(espNC);
+    document.getElementById('diaEsperadoTotal').textContent = fmt(espTotal);
+    document.getElementById('diaContadoMD').textContent = fmt(contMD);
+    document.getElementById('diaContadoNC').textContent = fmt(contNC);
+    document.getElementById('diaContadoTotal').textContent = fmt(contTotal);
+
+    var box = document.getElementById('diaResultBox');
+    var diffEl = document.getElementById('diaResultDiff');
+    var lblEl = document.getElementById('diaResultLbl');
+    diffEl.textContent = (diffTotal >= 0 ? '+' : '') + fmt(diffTotal);
+    if(Math.abs(diffTotal) < 0.005){
+      box.className = 'result-box ok'; lblEl.textContent = 'CUADRA (TOTAL DÍA)';
+    } else if(diffTotal > 0){
+      box.className = 'result-box ok'; lblEl.textContent = 'SOBRA EFECTIVO (TOTAL DÍA)';
+    } else {
+      box.className = 'result-box bad'; lblEl.textContent = 'FALTA EFECTIVO (TOTAL DÍA)';
+    }
   }
 
   // ---------- header fields ----------
@@ -902,37 +903,42 @@
     updateFechaLabel();
     saveDraft();
   });
-  document.getElementById('turnoCierre').addEventListener('change', function(){
-    state.turno = this.value;
-    updateFechaLabel();
-    saveDraft();
-  });
-  ['fondoFijo','totalFacturado','tpv1','tpv2'].forEach(function(id){
-    document.getElementById(id).addEventListener('input', function(){ recalc(); saveDraft(); });
-  });
 
   function updateFechaLabel(){
     var lbl = document.getElementById('fechaCierreLabel');
     var f = document.getElementById('fechaCierre').value;
-    var turno = document.getElementById('turnoCierre').value;
-    var turnoLbl = turno === 'noche' ? 'Noche' : 'Mediodía';
     if(f){
       var parts = f.split('-');
-      lbl.textContent = parts[2]+'/'+parts[1]+'/'+parts[0] + ' · ' + turnoLbl;
+      lbl.textContent = parts[2]+'/'+parts[1]+'/'+parts[0];
     }
+  }
+
+  function wireTurnoEvents(t){
+    ['fondoFijo','totalFacturado','tpv1','tpv2'].forEach(function(base){
+      document.getElementById(base+'_'+t).addEventListener('input', function(){ recalc(t); saveDraft(); });
+    });
+    document.querySelector('[data-add-prov="'+t+'"]').addEventListener('click', function(){
+      openModal(null, 'proveedores', t);
+    });
+    document.querySelector('[data-add-otros="'+t+'"]').addEventListener('click', function(){
+      openModal(null, 'otros', t);
+    });
   }
 
   // ---------- limpiar / finalizar ----------
   document.getElementById('btnLimpiar').addEventListener('click', function(){
-    if(!confirm('¿Vaciar todos los movimientos y datos del cierre actual? Esta acción no se puede deshacer.')) return;
+    if(!confirm('¿Vaciar todos los movimientos y datos del día actual (mediodía y noche)? Esta acción no se puede deshacer.')) return;
     resetDraft();
-    toast('Cierre vaciado');
+    toast('Cierre del día vaciado');
   });
 
   document.getElementById('btnFinalizar').addEventListener('click', function(){
-    if(state.movimientos.length === 0 && state._calc && state._calc.totalContado === 0){
-      if(!confirm('No cargaste movimientos ni efectivo contado. ¿Guardar igual en el historial?')) return;
-    } else if(!confirm('¿Finalizar y guardar este cierre en el historial? Se vaciará el formulario para el próximo cierre.')){
+    var sinDatos = TURNOS.every(function(t){
+      return state[t].movimientos.length === 0 && state[t]._calc && state[t]._calc.totalContado === 0;
+    });
+    if(sinDatos){
+      if(!confirm('No cargaste movimientos ni efectivo contado en ninguno de los dos turnos. ¿Guardar igual en el historial?')) return;
+    } else if(!confirm('¿Finalizar y guardar el cierre del día (mediodía + noche) en el historial? Se vaciará el formulario para el próximo día.')){
       return;
     }
     var hist = getHistorial();
@@ -942,27 +948,25 @@
     hist.push(snapshot);
     saveHistorial(hist);
     resetDraft();
-    toast('Cierre guardado en el historial');
+    toast('Cierre del día guardado en el historial');
     enviarCierreASheet(snapshot, snapshot.savedAt);
   });
 
   function resetDraft(){
-    state.id = uid();
-    state.movimientos = [];
-    state.denom = { billetes:{}, monedasSueltas:{}, monedasBlister:{} };
+    state.mediodia = crearTurnoVacio(); state.mediodia.id = uid();
+    state.noche = crearTurnoVacio(); state.noche.id = uid();
     state.fecha = todayISO();
-    state.turno = defaultTurno();
-    state.fondoFijo = 0; state.totalFacturado = 0; state.tpv1 = 0; state.tpv2 = 0;
-    document.getElementById('fondoFijo').value = 0;
-    document.getElementById('totalFacturado').value = 0;
-    document.getElementById('tpv1').value = 0;
-    document.getElementById('tpv2').value = 0;
     document.getElementById('fechaCierre').value = state.fecha;
-    document.getElementById('turnoCierre').value = state.turno;
     updateFechaLabel();
-    buildDenomTables();
-    renderMovimientos();
-    recalc();
+    TURNOS.forEach(function(t){
+      document.getElementById('fondoFijo_'+t).value = 0;
+      document.getElementById('totalFacturado_'+t).value = 0;
+      document.getElementById('tpv1_'+t).value = 0;
+      document.getElementById('tpv2_'+t).value = 0;
+      buildDenomTables(t);
+      renderMovimientos(t);
+      recalc(t);
+    });
     saveDraft();
   }
 
@@ -974,33 +978,42 @@
   }
 
   document.getElementById('btnExportar').addEventListener('click', function(){
-    recalc();
-    var c = state._calc || {};
+    TURNOS.forEach(recalc);
     var lines = [];
-    lines.push(['Cierre de caja', state.negocio, state.fecha, (state.turno==='noche'?'Noche':'Mediodía')].map(csvEscape).join(';'));
+    lines.push(['Cierre de caja', state.negocio, state.fecha].map(csvEscape).join(';'));
     lines.push('');
-    lines.push(['Tipo','Subtipo','Proveedor/Motivo','Responsable','Nº Factura','Fecha','IVA %','Importe'].map(csvEscape).join(';'));
-    state.movimientos.forEach(function(m){
-      lines.push([
-        TIPO_LABEL[m.tipo], SUBTIPO_LABEL[m.subtipo]||'', (m.proveedor||m.motivo||''),
-        m.responsable||'', m.factura||'', m.fecha||'', (m.iva!=null?m.iva:''), m.importe.toFixed(2)
-      ].map(csvEscape).join(';'));
+    TURNOS.forEach(function(t){
+      var c = state[t]._calc || {};
+      lines.push(['=== ' + TURNO_LABEL[t].toUpperCase() + ' ==='].map(csvEscape).join(';'));
+      lines.push(['Tipo','Subtipo','Proveedor/Motivo','Responsable','Nº Factura','Fecha','IVA %','Importe'].map(csvEscape).join(';'));
+      state[t].movimientos.forEach(function(m){
+        lines.push([
+          TIPO_LABEL[m.tipo], SUBTIPO_LABEL[m.subtipo]||'', (m.proveedor||m.motivo||''),
+          m.responsable||'', m.factura||'', m.fecha||'', (m.iva!=null?m.iva:''), m.importe.toFixed(2)
+        ].map(csvEscape).join(';'));
+      });
+      lines.push('');
+      lines.push(['Fondo fijo', state[t].fondoFijo.toFixed(2)].map(csvEscape).join(';'));
+      lines.push(['Total facturado', state[t].totalFacturado.toFixed(2)].map(csvEscape).join(';'));
+      lines.push(['Empanadas (se restan del facturado)', (c.empanadas||0).toFixed(2)].map(csvEscape).join(';'));
+      lines.push(['Facturado neto', (c.facturadoNeto||0).toFixed(2)].map(csvEscape).join(';'));
+      lines.push(['TPV 1', state[t].tpv1.toFixed(2)].map(csvEscape).join(';'));
+      lines.push(['TPV 2', state[t].tpv2.toFixed(2)].map(csvEscape).join(';'));
+      lines.push(['Ventas en efectivo', (c.ventasEfectivo||0).toFixed(2)].map(csvEscape).join(';'));
+      lines.push(['Ingresos efectivo', (c.ingresoEfectivo||0).toFixed(2)].map(csvEscape).join(';'));
+      lines.push(['Gastos efectivo', (c.gastoEfectivo||0).toFixed(2)].map(csvEscape).join(';'));
+      lines.push(['Retiros', (c.egreso||0).toFixed(2)].map(csvEscape).join(';'));
+      lines.push(['Efectivo esperado', (c.esperado||0).toFixed(2)].map(csvEscape).join(';'));
+      lines.push(['Efectivo contado', (c.totalContado||0).toFixed(2)].map(csvEscape).join(';'));
+      lines.push(['Diferencia', (c.diferencia||0).toFixed(2)].map(csvEscape).join(';'));
+      lines.push(['Gastos no efectivo (informativo)', (c.gastoNoEfectivo||0).toFixed(2)].map(csvEscape).join(';'));
+      lines.push('');
     });
-    lines.push('');
-    lines.push(['Fondo fijo', c.esperado!=null ? state.fondoFijo.toFixed(2) : ''].map(csvEscape).join(';'));
-    lines.push(['Total facturado', state.totalFacturado.toFixed(2)].map(csvEscape).join(';'));
-    lines.push(['Empanadas (se restan del facturado)', (c.empanadas||0).toFixed(2)].map(csvEscape).join(';'));
-    lines.push(['Facturado neto', (c.facturadoNeto||0).toFixed(2)].map(csvEscape).join(';'));
-    lines.push(['TPV 1', state.tpv1.toFixed(2)].map(csvEscape).join(';'));
-    lines.push(['TPV 2', state.tpv2.toFixed(2)].map(csvEscape).join(';'));
-    lines.push(['Ventas en efectivo', (c.ventasEfectivo||0).toFixed(2)].map(csvEscape).join(';'));
-    lines.push(['Ingresos efectivo', (c.ingresoEfectivo||0).toFixed(2)].map(csvEscape).join(';'));
-    lines.push(['Gastos efectivo', (c.gastoEfectivo||0).toFixed(2)].map(csvEscape).join(';'));
-    lines.push(['Retiros', (c.egreso||0).toFixed(2)].map(csvEscape).join(';'));
-    lines.push(['Efectivo esperado', (c.esperado||0).toFixed(2)].map(csvEscape).join(';'));
-    lines.push(['Efectivo contado', (c.totalContado||0).toFixed(2)].map(csvEscape).join(';'));
-    lines.push(['Diferencia', (c.diferencia||0).toFixed(2)].map(csvEscape).join(';'));
-    lines.push(['Gastos no efectivo (informativo)', (c.gastoNoEfectivo||0).toFixed(2)].map(csvEscape).join(';'));
+    var cMD = state.mediodia._calc || {}, cNC = state.noche._calc || {};
+    lines.push(['=== TOTAL DÍA ==='].map(csvEscape).join(';'));
+    lines.push(['Efectivo esperado día', ((cMD.esperado||0)+(cNC.esperado||0)).toFixed(2)].map(csvEscape).join(';'));
+    lines.push(['Efectivo contado día', ((cMD.totalContado||0)+(cNC.totalContado||0)).toFixed(2)].map(csvEscape).join(';'));
+    lines.push(['Diferencia día', (((cMD.totalContado||0)+(cNC.totalContado||0)) - ((cMD.esperado||0)+(cNC.esperado||0))).toFixed(2)].map(csvEscape).join(';'));
 
     var csv = "﻿" + lines.join('\n');
     var blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
@@ -1015,53 +1028,14 @@
   });
 
   // ---------- Google Sheets ----------
-  function updateSheetStatus(msg, isError){
-    var el = document.getElementById('sheetStatus');
-    el.textContent = msg;
-    el.style.color = isError ? 'var(--red)' : '';
+  // La sincronización es silenciosa: no hay panel de estado en la página
+  // (la URL está fija en el código y siempre es la misma). Si alguna vez
+  // hace falta diagnosticar un problema, estos mensajes quedan igual en la
+  // consola del navegador (F12 → Consola).
+  function logSheetStatus(msg, isError){
+    if(isError) console.warn('[Cierre de Caja · Sheets] ' + msg);
+    else console.log('[Cierre de Caja · Sheets] ' + msg);
   }
-
-  function refreshSheetStatusIdle(){
-    var url = loadSheetUrl();
-    if(hasValidSheetUrl(url)){
-      updateSheetStatus('Conectado a: ' + url + ' · cada cambio se sincroniza solo.');
-    } else {
-      updateSheetStatus('Falta cargar la URL del Apps Script en el código de la página (ver README).', true);
-    }
-  }
-
-  document.getElementById('sheetUrl').addEventListener('input', function(){
-    // no autosave on every keystroke; explicit button below
-  });
-
-  document.getElementById('btnGuardarUrl').addEventListener('click', function(){
-    var url = document.getElementById('sheetUrl').value.trim();
-    saveSheetUrl(url);
-    refreshSheetStatusIdle();
-    toast(url ? 'URL guardada para este dispositivo' : 'Se borró la URL propia de este dispositivo; vuelve a usar la del código');
-  });
-
-  document.getElementById('btnProbarSheet').addEventListener('click', function(){
-    var typed = document.getElementById('sheetUrl').value.trim();
-    var url = typed || loadSheetUrl();
-    if(!hasValidSheetUrl(url)){ toast('Todavía no hay una URL de Apps Script válida'); return; }
-    if(typed) saveSheetUrl(typed);
-    updateSheetStatus('Probando conexión...');
-    sendToSheet(url, {test:true})
-      .then(function(res){
-        if(res && res.ok){
-          updateSheetStatus('Conexión OK ✓ (' + url + ')');
-          toast('Conexión con Google Sheets OK');
-        } else {
-          updateSheetStatus('Respuesta inesperada del script.', true);
-          toast('El script respondió pero con un error. Revisá el código pegado en Apps Script.');
-        }
-      })
-      .catch(function(err){
-        updateSheetStatus('No se pudo conectar: ' + err.message, true);
-        toast('No se pudo conectar con Google Sheets');
-      });
-  });
 
   function sendToSheet(url, payload){
     return fetch(url, {
@@ -1073,19 +1047,14 @@
     });
   }
 
-  function buildSheetPayload(snapshot, estado){
-    var c = snapshot._calc || {};
+  function buildTurnoPayload(turnoState, estado){
+    var s = turnoState || crearTurnoVacio();
+    var c = s._calc || {};
     return {
-      id: snapshot.id,
+      id: s.id,
       estado: estado || 'borrador',
-      fecha: snapshot.fecha,
-      turno: snapshot.turno === 'noche' ? 'Noche' : 'Mediodía',
-      negocio: snapshot.negocio,
-      fondoFijo: snapshot.fondoFijo,
-      totalFacturado: snapshot.totalFacturado,
-      tpv1: snapshot.tpv1,
-      tpv2: snapshot.tpv2,
-      movimientos: (snapshot.movimientos||[]).map(function(m){
+      fondoFijo: s.fondoFijo, totalFacturado: s.totalFacturado, tpv1: s.tpv1, tpv2: s.tpv2,
+      movimientos: (s.movimientos||[]).map(function(m){
         return {
           tipo: TIPO_LABEL[m.tipo]||m.tipo,
           subtipo: SUBTIPO_LABEL[m.subtipo]||'',
@@ -1103,6 +1072,14 @@
     };
   }
 
+  function buildSheetPayload(snapshot, estado){
+    var payload = { fecha: snapshot.fecha, negocio: snapshot.negocio };
+    TURNOS.forEach(function(t){
+      payload[t] = buildTurnoPayload(snapshot[t], estado);
+    });
+    return payload;
+  }
+
   // ---------- sincronización automática del borrador actual ----------
   function scheduleAutoSync(){
     var url = loadSheetUrl();
@@ -1114,18 +1091,24 @@
   function syncDraftToSheet(){
     var url = loadSheetUrl();
     if(!hasValidSheetUrl(url)) return;
-    if(!state.id) state.id = uid();
+    TURNOS.forEach(function(t){ if(!state[t].id) state[t].id = uid(); });
     sendToSheet(url, buildSheetPayload(state, 'borrador'))
       .then(function(res){
         if(res && res.ok){
-          updateSheetStatus('Sincronizado con Google Sheets a las ' + new Date().toLocaleTimeString('es-ES'));
+          logSheetStatus('Sincronizado a las ' + new Date().toLocaleTimeString('es-ES') + ' · pestaña "' + fechaTabName(state.fecha) + '"');
         } else {
-          updateSheetStatus('El Sheet respondió con un error al sincronizar el borrador.', true);
+          logSheetStatus('El Sheet respondió con un error al sincronizar el borrador.', true);
         }
       })
       .catch(function(){
-        updateSheetStatus('Sin conexión: los cambios quedan guardados en este dispositivo y se sincronizan solos cuando vuelva internet.', true);
+        logSheetStatus('Sin conexión: los cambios quedan guardados en este dispositivo y se sincronizan solos cuando vuelva internet.', true);
       });
+  }
+
+  function fechaTabName(fechaISO){
+    if(!fechaISO) return '';
+    var p = fechaISO.split('-');
+    return p[2]+'-'+p[1]+'-'+p[0];
   }
 
   // Si se pierde y vuelve la conexión, reintenta mandar el estado actual.
@@ -1143,7 +1126,7 @@
           saveHistorial(hist);
           if(document.getElementById('histOverlay').classList.contains('open')) renderHistorial();
         }
-        toast(res && res.ok ? 'Cierre enviado a Google Sheets' : 'Guardado local OK, pero el Sheet respondió con error');
+        toast(res && res.ok ? 'Cierre del día enviado a Google Sheets' : 'Guardado local OK, pero el Sheet respondió con error');
       })
       .catch(function(){
         toast('Guardado local OK, pero no se pudo enviar a Google Sheets (revisá conexión)');
@@ -1172,26 +1155,27 @@
     list.innerHTML = '';
     hist.slice().reverse().forEach(function(h, i){
       var realIdx = hist.length - 1 - i;
-      var c = h._calc || {};
-      var diff = c.diferencia || 0;
+      var cMD = (h.mediodia && h.mediodia._calc) || {};
+      var cNC = (h.noche && h.noche._calc) || {};
+      var diff = (cMD.diferencia||0) + (cNC.diferencia||0);
+      var movCount = ((h.mediodia&&h.mediodia.movimientos)?h.mediodia.movimientos.length:0) + ((h.noche&&h.noche.movimientos)?h.noche.movimientos.length:0);
       var pillColor = Math.abs(diff) < 0.005 ? 'var(--accent)' : (diff>0 ? 'var(--accent)' : 'var(--red)');
       var div = document.createElement('div');
       div.className = 'history-item';
-      var turnoLbl = h.turno === 'noche' ? 'Noche' : 'Mediodía';
       var sheetBadge = h.sentToSheet
         ? '<span class="muted" style="color:var(--accent);">Enviado a Sheet ✓</span>'
         : '<button class="btn-secondary" data-resend="'+realIdx+'" style="padding:4px 10px;font-size:.75rem;">Reenviar a Sheet</button>';
       div.innerHTML =
         '<div class="history-head" data-idx="'+realIdx+'">' +
-          '<span><strong>'+ (h.fecha||'') +'</strong> <span class="muted">('+ turnoLbl +' · '+ (h.movimientos?h.movimientos.length:0) +' mov.)</span></span>' +
+          '<span><strong>'+ (h.fecha||'') +'</strong> <span class="muted">(Mediodía + Noche · '+ movCount +' mov.)</span></span>' +
           '<span class="diff-pill" style="color:'+pillColor+'">'+ (diff>=0?'+':'') + fmt(diff) +'</span>' +
         '</div>' +
         '<div class="history-body" id="histBody_'+realIdx+'">' +
           '<div class="summary-grid">' +
-            '<div class="lbl">Efectivo esperado</div><div class="val">'+fmt(c.esperado||0)+'</div>' +
-            '<div class="lbl">Efectivo contado</div><div class="val">'+fmt(c.totalContado||0)+'</div>' +
-            '<div class="lbl">Fondo fijo</div><div class="val">'+fmt(h.fondoFijo||0)+'</div>' +
-            '<div class="lbl">Total facturado</div><div class="val">'+fmt(h.totalFacturado||0)+'</div>' +
+            '<div class="lbl">Esperado mediodía / noche</div><div class="val">'+fmt(cMD.esperado||0)+' / '+fmt(cNC.esperado||0)+'</div>' +
+            '<div class="lbl">Contado mediodía / noche</div><div class="val">'+fmt(cMD.totalContado||0)+' / '+fmt(cNC.totalContado||0)+'</div>' +
+            '<div class="lbl">Fondo fijo mediodía / noche</div><div class="val">'+fmt((h.mediodia&&h.mediodia.fondoFijo)||0)+' / '+fmt((h.noche&&h.noche.fondoFijo)||0)+'</div>' +
+            '<div class="lbl">Total facturado mediodía / noche</div><div class="val">'+fmt((h.mediodia&&h.mediodia.totalFacturado)||0)+' / '+fmt((h.noche&&h.noche.totalFacturado)||0)+'</div>' +
           '</div>' +
           '<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
             '<button class="btn-danger" data-delhist="'+realIdx+'">Eliminar del historial</button>' +
@@ -1221,7 +1205,7 @@
     list.querySelectorAll('[data-resend]').forEach(function(btn){
       btn.addEventListener('click', function(e){
         e.stopPropagation();
-        if(!loadSheetUrl()){ toast('Primero configurá la URL del Apps Script arriba'); return; }
+        if(!hasValidSheetUrl(loadSheetUrl())){ toast('No hay una URL de Apps Script válida cargada en el código'); return; }
         var idx = parseInt(btn.getAttribute('data-resend'), 10);
         var h = getHistorial();
         var snap = h[idx];
@@ -1238,19 +1222,24 @@
     loadDraft();
     document.getElementById('negocioNombre').value = state.negocio;
     document.getElementById('fechaCierre').value = state.fecha || todayISO();
-    document.getElementById('turnoCierre').value = state.turno || defaultTurno();
-    document.getElementById('fondoFijo').value = state.fondoFijo || 0;
-    document.getElementById('totalFacturado').value = state.totalFacturado || 0;
-    document.getElementById('tpv1').value = state.tpv1 || 0;
-    document.getElementById('tpv2').value = state.tpv2 || 0;
-    document.getElementById('sheetUrl').value = (function(){
-      try{ return localStorage.getItem(LS_SHEET_URL) || ''; }catch(e){ return ''; }
-    })();
-    refreshSheetStatusIdle();
+
+    document.getElementById('turnoSections').innerHTML = TURNOS.map(turnoSectionHTML).join('');
+
+    TURNOS.forEach(function(t){
+      document.getElementById('fondoFijo_'+t).value = state[t].fondoFijo || 0;
+      document.getElementById('totalFacturado_'+t).value = state[t].totalFacturado || 0;
+      document.getElementById('tpv1_'+t).value = state[t].tpv1 || 0;
+      document.getElementById('tpv2_'+t).value = state[t].tpv2 || 0;
+      wireTurnoEvents(t);
+      buildDenomTables(t);
+      renderMovimientos(t);
+    });
+
+    logSheetStatus('URL configurada: ' + loadSheetUrl());
     updateFechaLabel();
-    buildDenomTables();
-    renderMovimientos();
-    recalc();
+
+    TURNOS.forEach(recalc);
+    recalcDia();
   }
 
   init();
