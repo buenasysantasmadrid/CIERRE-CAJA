@@ -309,7 +309,12 @@
   var MONEDAS = [2,1,0.5,0.2,0.1,0.05];
   var ROLL_VALUE = {2:50, 1:25, 0.5:20, 0.2:8, 0.1:4, 0.05:2.5};
 
-  var IVA_RATES = [21,10,4,0];
+  var PROVEEDORES_CONOCIDOS = [
+    "Varios","Frutapro","Mercandalucia","Polleria","Super","Las 3B","Dia Carne","Extras",
+    "Alimentos Australes","cbg","Atlanta","cream de luxe","Disbesa","Duo Harinero","Envapro",
+    "Franco Arg","Gabarrera","Gamo","Hughes","Iberolactal","La Jaula","Mercadona","Monbake",
+    "Delta Cafe","Terrevileña","Vino"
+  ];
 
   var TURNOS = ['mediodia','noche'];
   var TURNO_LABEL = {mediodia:'Mediodía', noche:'Noche'};
@@ -329,7 +334,35 @@
   function crearDiaVacio(fecha, negocio){
     var md = crearTurnoVacio(); md.id = uid();
     var nc = crearTurnoVacio(); nc.id = uid();
+    md.fondoFijo = fondoFijoSugerido(fecha);
     return { negocio: negocio || "Mi Negocio", fecha: fecha, mediodia: md, noche: nc };
+  }
+
+  // Fondo fijo sugerido para un día nuevo: el efectivo contado al cerrar el
+  // día anterior. Si ese día se trabajó Noche (tiene efectivo contado > 0),
+  // se toma de Noche; si solo se trabajó Mediodía, se toma de Mediodía. Es
+  // solo un valor inicial — se puede editar como cualquier otro campo, y no
+  // se vuelve a recalcular después (no pisa lo que el usuario haya tocado).
+  function fechaAnterior(fechaISO){
+    var partes = String(fechaISO || '').split('-').map(Number);
+    if(partes.length !== 3 || partes.some(isNaN)) return null;
+    var d = new Date(partes[0], partes[1]-1, partes[2]);
+    d.setDate(d.getDate() - 1);
+    var mm = String(d.getMonth()+1).padStart(2,'0');
+    var dd = String(d.getDate()).padStart(2,'0');
+    return d.getFullYear() + '-' + mm + '-' + dd;
+  }
+  function fondoFijoSugerido(fecha){
+    var ayerFecha = fechaAnterior(fecha);
+    if(!ayerFecha) return 0;
+    var store = getDiasStore();
+    var ayer = store[ayerFecha];
+    if(!ayer) return 0;
+    var cMD = (ayer.mediodia && ayer.mediodia._calc) || {};
+    var cNC = (ayer.noche && ayer.noche._calc) || {};
+    var contadoNoche = cNC.totalContado || 0;
+    var contadoMediodia = cMD.totalContado || 0;
+    return contadoNoche > 0 ? contadoNoche : contadoMediodia;
   }
 
   var state = crearDiaVacio(todayISO(), "Mi Negocio");
@@ -589,7 +622,7 @@
       var subLabel = SUBTIPO_LABEL[m.subtipo] || '';
       tr.innerHTML =
         '<td><span class="tag '+tagClass+'">'+TIPO_LABEL[m.tipo]+'</span><br><span class="muted">'+subLabel+'</span></td>' +
-        '<td>'+escapeHtml(detalleTexto(m))+(m.tipo==='gasto' && m.iva!=null ? ' <span class="muted">(IVA '+m.iva+'%)</span>' : '')+'</td>' +
+        '<td>'+escapeHtml(detalleTexto(m))+(m.tipo==='gasto' && m.iva!=null ? ' <span class="muted">(IVA '+fmt(m.iva)+')</span>' : '')+'</td>' +
         '<td>'+ (m.fecha||'') +'</td>' +
         '<td class="num">'+fmt(m.importe)+'</td>' +
         '<td><button class="icon-btn" data-edit="'+m.id+'">✎</button><button class="icon-btn" data-del="'+m.id+'">🗑</button></td>';
@@ -714,11 +747,11 @@
     var f = existing || {};
     var html = '';
     if(tipo === 'gasto'){
-      html += field('Proveedor','proveedor','text', f.proveedor||'');
+      html += proveedorField(f.proveedor||'');
       html += field('Nº de factura','factura','text', f.factura||'');
       html += field('Fecha','fecha','date', f.fecha||todayISO());
       html += field('Importe total (€)','importe','number', (f.importe!=null?f.importe:''), '0.00');
-      html += ivaField(f.iva!=null?f.iva:21);
+      html += field('IVA (importe en €)','iva','number', (f.iva!=null?f.iva:''), '0.00');
     } else if(tipo === 'ingreso' || tipo === 'egreso'){
       html += field('Motivo','motivo','text', f.motivo||'');
       html += field('Responsable','responsable','text', f.responsable||'');
@@ -729,6 +762,16 @@
       html += field('Importe (€)','importe','number', (f.importe!=null?f.importe:''), '0.00');
     }
     container.innerHTML = '<div class="row">'+html+'</div>';
+
+    var selProv = document.getElementById('proveedorSelect');
+    if(selProv){
+      var otroInput = document.getElementById('proveedorOtroInput');
+      selProv.addEventListener('change', function(){
+        var esOtro = selProv.value === '__otro__';
+        otroInput.style.display = esOtro ? 'block' : 'none';
+        if(esOtro) otroInput.focus();
+      });
+    }
   }
 
   function field(label, key, type, val, placeholder){
@@ -736,11 +779,22 @@
       '<input type="'+type+'" data-field="'+key+'" value="'+ (val===undefined?'':escapeHtml(val)) +'" placeholder="'+(placeholder||'')+'"></div>';
   }
 
-  function ivaField(selected){
-    var opts = IVA_RATES.map(function(r){
-      return '<option value="'+r+'" '+(r===selected?'selected':'')+'>'+r+'%</option>';
+  // Desplegable de proveedores conocidos + opción "Otro" para escribir uno
+  // nuevo que todavía no esté en la lista.
+  function proveedorField(selected){
+    var yaConocido = PROVEEDORES_CONOCIDOS.indexOf(selected) > -1;
+    var opts = '<option value="">Elegir proveedor…</option>';
+    opts += PROVEEDORES_CONOCIDOS.map(function(p){
+      return '<option value="'+escapeHtml(p)+'" '+(p===selected?'selected':'')+'>'+escapeHtml(p)+'</option>';
     }).join('');
-    return '<div class="field"><label>IVA</label><select data-field="iva">'+opts+'</select></div>';
+    var esOtro = !!selected && !yaConocido;
+    opts += '<option value="__otro__" '+(esOtro?'selected':'')+'>Otro (escribir)</option>';
+    return '<div class="field">' +
+      '<label>Proveedor</label>' +
+      '<select data-field="proveedor" id="proveedorSelect">'+opts+'</select>' +
+      '<input type="text" data-field="proveedorOtro" id="proveedorOtroInput" placeholder="Nombre del proveedor" ' +
+        'value="'+(esOtro?escapeHtml(selected):'')+'" style="margin-top:6px;'+(esOtro?'':'display:none;')+'">' +
+    '</div>';
   }
 
   function collectForm(){
@@ -759,15 +813,21 @@
     var importe = num(data.importe);
     if(!importe){ toast('Ingresá un importe válido'); return; }
 
+    var proveedorFinal = data.proveedor || '';
+    if(proveedorFinal === '__otro__'){
+      proveedorFinal = (data.proveedorOtro || '').trim();
+    }
+    if(currentTipo === 'gasto' && !proveedorFinal){ toast('Elegí o escribí un proveedor'); return; }
+
     var mov = {
       id: editingId || uid(),
       tipo: currentTipo,
       subtipo: currentSubtipo,
       importe: importe,
       fecha: data.fecha || todayISO(),
-      proveedor: data.proveedor || '',
+      proveedor: proveedorFinal,
       factura: data.factura || '',
-      iva: data.iva!=null ? num(data.iva) : null,
+      iva: (data.iva !== undefined && data.iva !== '') ? num(data.iva) : null,
       motivo: data.motivo || '',
       responsable: data.responsable || ''
     };
@@ -998,11 +1058,11 @@
     TURNOS.forEach(function(t){
       var c = state[t]._calc || {};
       lines.push(['=== ' + TURNO_LABEL[t].toUpperCase() + ' ==='].map(csvEscape).join(';'));
-      lines.push(['Tipo','Subtipo','Proveedor/Motivo','Responsable','Nº Factura','Fecha','IVA %','Importe'].map(csvEscape).join(';'));
+      lines.push(['Tipo','Subtipo','Proveedor/Motivo','Responsable','Nº Factura','Fecha','IVA (€)','Importe'].map(csvEscape).join(';'));
       state[t].movimientos.forEach(function(m){
         lines.push([
           TIPO_LABEL[m.tipo], SUBTIPO_LABEL[m.subtipo]||'', (m.proveedor||m.motivo||''),
-          m.responsable||'', m.factura||'', m.fecha||'', (m.iva!=null?m.iva:''), m.importe.toFixed(2)
+          m.responsable||'', m.factura||'', m.fecha||'', (m.iva!=null?m.iva.toFixed(2):''), m.importe.toFixed(2)
         ].map(csvEscape).join(';'));
       });
       lines.push('');
