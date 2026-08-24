@@ -194,6 +194,17 @@
   .btn-toggle{font-size:.78rem;padding:7px 14px;white-space:nowrap;}
   .collapse{display:none;margin-top:10px;}
   .collapse.open{display:block;}
+  .scan-box{border:1px solid var(--line);border-radius:10px;padding:12px;background:#fafbfc;}
+  .scan-box .section-title-row{margin:0 0 4px;}
+  .scan-actions{display:flex;gap:8px;flex-wrap:wrap;}
+  .scan-preview{display:flex;gap:12px;align-items:flex-start;margin-top:10px;}
+  .scan-thumb{width:84px;height:104px;object-fit:cover;border-radius:6px;border:1px solid var(--line);flex-shrink:0;}
+  .scan-meta{flex:1;min-width:0;}
+  .scan-status{display:flex;align-items:center;gap:8px;font-size:.82rem;color:var(--ink-soft);margin-bottom:8px;}
+  .scan-spinner{width:12px;height:12px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:scanspin .7s linear infinite;flex-shrink:0;}
+  @keyframes scanspin{to{transform:rotate(360deg);}}
+  .scan-error{font-size:.8rem;color:var(--red);background:var(--red-soft);border:1px solid #f0c9c5;padding:7px 9px;border-radius:6px;margin-bottom:8px;}
+  .scan-ok{font-size:.8rem;color:var(--accent);margin-bottom:8px;}
   @media (max-width:520px){
     .type-grid{grid-template-columns:repeat(2,1fr);}
     table{font-size:.78rem;}
@@ -286,6 +297,7 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 (function(){
   "use strict";
@@ -301,6 +313,15 @@
   function hasValidSheetUrl(url){
     return !!url && /^https?:\/\//.test(url);
   }
+
+  // Config del "Libro de Facturas" (Supabase) para poder leer una factura
+  // por foto y volcar los datos en el formulario de Proveedores. Mismos
+  // valores que ya usa esa herramienta.
+  var SUPABASE_URL = "https://clvcknwgyyfdvzbgwvxg.supabase.co";
+  var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsdmNrbndneXlmZHZ6Ymd3dnhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYxMDExOTEsImV4cCI6MjEwMTY3NzE5MX0.JBUbPZ6mr0g07qAkrGKIT3Kdt5Qjm68PX46u-C4DT7o";
+  var SCAN_EDGE_FUNCTION_URL = "https://clvcknwgyyfdvzbgwvxg.supabase.co/functions/v1/rapid-task";
+  var scanImageBase64 = null;
+  var scanMediaType = null;
 
   // Tiempo de espera (ms) tras el último cambio antes de sincronizar el
   // borrador con el Google Sheet. Evita mandar un pedido por cada tecla.
@@ -327,7 +348,6 @@
       movimientos: [],
       denom: { billetes:{}, monedasSueltas:{}, monedasBlister:{} },
       fondoFijo: 0,
-      fondoFijoInfo: '',
       totalFacturado: 0,
       tpv1: 0,
       tpv2: 0
@@ -377,6 +397,9 @@
   var currentCategoria = null;
   var currentTipo = null;
   var currentSubtipo = null;
+  // Estado de la calculadora de cambio (Ingreso → Cambio): billete/moneda,
+  // denominación, sueltas/blister, cantidad.
+  var cambioState = { modo:null, denom:null, subModo:null, cantidad:null };
 
   function todayISO(){
     var d = new Date();
@@ -480,9 +503,10 @@
       '<div class="turno-heading"><h2>'+label+'</h2><span class="turno-pill '+pillClass+'">'+label+'</span></div>' +
 
       '<div class="section-title-row">' +
-        '<span class="section-title">Cierre</span>' +
+        '<span class="section-title">Contar cierre</span>' +
         '<button type="button" class="btn-secondary btn-toggle" data-toggle-cierre="'+t+'" id="cierreToggleBtn_'+t+'">Completar cierre</button>' +
       '</div>' +
+      '<div class="subtotal-line total"><span>Total efectivo contado</span><span id="totalContadoLbl_'+t+'">0,00 €</span></div>' +
       '<div class="collapse" id="cierreContent_'+t+'">' +
         (t==='noche'
           ? '<p class="muted" style="margin-top:0;">Acá va la lectura de TODO el día (no solo de la noche): el número que marca la caja/TPV al cerrar, acumulado desde la mañana. Más abajo, en "Resumen y diferencia", el sistema calcula solo la parte que corresponde a Noche restando lo que ya cargaste en Mediodía.</p>'
@@ -500,11 +524,16 @@
               '<div class="field"><label for="tpv1_'+t+'">Total TPV 1 (€)</label><input type="number" step="0.01" id="tpv1_'+t+'" value="0" placeholder="0.00"></div>' +
               '<div class="field"><label for="tpv2_'+t+'">Total TPV 2 (€)</label><input type="number" step="0.01" id="tpv2_'+t+'" value="0" placeholder="0.00"></div>'
           ) +
-          (t==='mediodia'
-            ? '<div class="field" style="flex:2 1 240px;"><label for="fondoFijoInfo_'+t+'">Info del fondo fijo</label><input type="text" id="fondoFijoInfo_'+t+'" placeholder="Nota u observación (opcional)"></div>'
-            : ''
-          ) +
         '</div>' +
+        '<div class="section-title">Conteo de efectivo</div>' +
+        '<table class="denom-table">' +
+          '<thead><tr><th>Billetes</th><th>Cantidad</th><th class="num">Subtotal</th></tr></thead>' +
+          '<tbody id="billetesBody_'+t+'"></tbody>' +
+        '</table>' +
+        '<table class="denom-table" style="margin-top:10px;">' +
+          '<thead><tr><th>Monedas</th><th>Sueltas (cant.)</th><th>Rollos/blister (cant.)</th><th class="num">Subtotal</th></tr></thead>' +
+          '<tbody id="monedasBody_'+t+'"></tbody>' +
+        '</table>' +
       '</div>' +
 
       '<div class="section-title">Proveedores</div>' +
@@ -526,22 +555,6 @@
         '<tbody id="otrosBody_'+t+'"></tbody>' +
       '</table>' +
       '<div id="otrosEmpty_'+t+'" class="empty-row">Todavía no agregaste otros movimientos.</div>' +
-
-      '<div class="section-title-row">' +
-        '<span class="section-title">Conteo de efectivo</span>' +
-        '<button type="button" class="btn-secondary btn-toggle" data-toggle-denom="'+t+'" id="denomToggleBtn_'+t+'">Contar billetes y monedas</button>' +
-      '</div>' +
-      '<div class="subtotal-line total"><span>Total efectivo contado</span><span id="totalContadoLbl_'+t+'">0,00 €</span></div>' +
-      '<div class="collapse" id="denomContent_'+t+'">' +
-        '<table class="denom-table" style="margin-top:10px;">' +
-          '<thead><tr><th>Billetes</th><th>Cantidad</th><th class="num">Subtotal</th></tr></thead>' +
-          '<tbody id="billetesBody_'+t+'"></tbody>' +
-        '</table>' +
-        '<table class="denom-table" style="margin-top:10px;">' +
-          '<thead><tr><th>Monedas</th><th>Sueltas (cant.)</th><th>Rollos/blister (cant.)</th><th class="num">Subtotal</th></tr></thead>' +
-          '<tbody id="monedasBody_'+t+'"></tbody>' +
-        '</table>' +
-      '</div>' +
 
       '<div class="section-title">Resumen y diferencia — '+label+'</div>' +
       '<div class="summary-grid">' +
@@ -630,7 +643,8 @@
   var TIPO_LABEL = {gasto:'Gasto', ingreso:'Ingreso', egreso:'Egreso', empanadas:'Empanadas'};
   var SUBTIPO_LABEL = {
     efectivo:'Efectivo', no_efectivo:'No efectivo', efectivo_antiguo:'Efectivo antiguo',
-    cambio:'Cambio', varios:'Varios', retiro:'Retiro de dinero', empanadas:'Empanadas'
+    cambio:'Cambio', ingreso_arroba:'Ingreso @', empanadas_ing:'Empanadas', empleados:'Empleados',
+    varios:'Varios', retiro:'Retiro de dinero', empanadas:'Empanadas'
   };
 
   function detalleTexto(m){
@@ -658,7 +672,7 @@
       var subLabel = SUBTIPO_LABEL[m.subtipo] || '';
       tr.innerHTML =
         '<td><span class="tag '+tagClass+'">'+TIPO_LABEL[m.tipo]+'</span><br><span class="muted">'+subLabel+'</span></td>' +
-        '<td>'+escapeHtml(detalleTexto(m))+(m.tipo==='gasto' && m.iva!=null ? ' <span class="muted">(IVA '+fmt(m.iva)+')</span>' : '')+'</td>' +
+        '<td>'+escapeHtml(detalleTexto(m))+(m.tipo==='gasto' && m.iva!=null ? ' <span class="muted">(IVA '+fmt(m.iva)+')</span>' : '')+(m.tipo==='gasto' && m.info ? ' <span class="muted">· '+escapeHtml(m.info)+'</span>' : '')+'</td>' +
         '<td>'+ (m.fecha||'') +'</td>' +
         '<td class="num">'+fmt(m.importe)+'</td>' +
         '<td><button class="icon-btn" data-edit="'+m.id+'">✎</button><button class="icon-btn" data-del="'+m.id+'">🗑</button></td>';
@@ -691,7 +705,13 @@
   // ---------- modal / form ----------
   var GASTO_SUBTYPES = [{k:'efectivo',l:'Efectivo'},{k:'no_efectivo',l:'No efectivo'},{k:'efectivo_antiguo',l:'Efectivo antiguo'}];
   var OTROS_TIPOS = [{k:'ingreso',l:'Ingreso'},{k:'egreso',l:'Egreso'},{k:'empanadas',l:'Empanadas'}];
-  var INGRESO_SUBTYPES = [{k:'cambio',l:'Cambio'},{k:'varios',l:'Varios'}];
+  var INGRESO_SUBTYPES = [
+    {k:'cambio',l:'Cambio'},
+    {k:'ingreso_arroba',l:'Ingreso @'},
+    {k:'empanadas_ing',l:'Empanadas'},
+    {k:'empleados',l:'Empleados'},
+    {k:'varios',l:'Varios'}
+  ];
 
   function openModal(existing, presetCategoria, turno){
     editingId = existing ? existing.id : null;
@@ -714,6 +734,8 @@
     document.getElementById('modalOverlay').classList.remove('open');
     editingId = null; editingTurno = null; modalTurno = null;
     currentCategoria = null; currentTipo = null; currentSubtipo = null;
+    scanImageBase64 = null; scanMediaType = null;
+    cambioState = { modo:null, denom:null, subModo:null, cantidad:null };
   }
 
   function renderCategoryButtons(){
@@ -769,7 +791,12 @@
     l3.innerHTML = '';
     if(tipo === 'ingreso'){
       currentSubtipo = existing && existing.subtipo ? existing.subtipo : 'cambio';
-      renderChipRow(l3, INGRESO_SUBTYPES, currentSubtipo, function(k){ currentSubtipo = k; });
+      renderChipRow(l3, INGRESO_SUBTYPES, currentSubtipo, function(k){
+        var valoresActuales = capturarValoresFormActuales();
+        currentSubtipo = k;
+        cambioState = { modo:null, denom:null, subModo:null, cantidad:null };
+        renderFormFields(tipo, Object.assign({}, existing, valoresActuales));
+      });
     } else if(tipo === 'egreso'){
       currentSubtipo = 'retiro';
     } else if(tipo === 'empanadas'){
@@ -778,19 +805,35 @@
     renderFormFields(tipo, existing);
   }
 
+  // Junta los valores que ya están tipeados en el formulario actual, para
+  // no perderlos si se re-renderiza al cambiar de subtipo (ej. Cambio).
+  function capturarValoresFormActuales(){
+    var vals = {};
+    document.querySelectorAll('#formFields [data-field]').forEach(function(inp){
+      vals[inp.getAttribute('data-field')] = inp.value;
+    });
+    return vals;
+  }
+
   function renderFormFields(tipo, existing){
     var container = document.getElementById('formFields');
     var f = existing || {};
     var html = '';
     if(tipo === 'gasto'){
+      html += scanBoxHTML();
       html += proveedorField(f.proveedor||'');
       html += field('Nº de factura','factura','text', f.factura||'');
       html += field('Fecha','fecha','date', f.fecha||todayISO());
+      html += '<div class="field" style="flex:1 1 100%;"><label>Info</label><input type="text" data-field="info" value="'+(f.info?escapeHtml(f.info):'')+'" placeholder="Detalle, observación, lo que haga falta anotar"></div>';
       html += field('Importe total (€)','importe','number', (f.importe!=null?f.importe:''), '0.00');
       html += field('IVA (importe en €)','iva','number', (f.iva!=null?f.iva:''), '0.00');
     } else if(tipo === 'ingreso' || tipo === 'egreso'){
+      if(tipo === 'ingreso' && currentSubtipo === 'cambio'){
+        html += cambioCalculatorHTML();
+      }
       html += field('Motivo','motivo','text', f.motivo||'');
       html += field('Responsable','responsable','text', f.responsable||'');
+      html += '<div class="field" style="flex:1 1 100%;"><label>Info</label><input type="text" data-field="info" value="'+(f.info?escapeHtml(f.info):'')+'" placeholder="Detalle, observación"></div>';
       html += field('Importe (€)','importe','number', (f.importe!=null?f.importe:''), '0.00');
     } else if(tipo === 'empanadas'){
       html += field('Proveedor','proveedor','text', f.proveedor||'');
@@ -808,11 +851,360 @@
         if(mostrar) otroInput.focus();
       });
     }
+    if(tipo === 'gasto') wireScanUI();
+    if(tipo === 'ingreso' && currentSubtipo === 'cambio') renderCambioCalculator();
   }
 
   function field(label, key, type, val, placeholder){
     return '<div class="field"><label>'+label+'</label>' +
       '<input type="'+type+'" data-field="'+key+'" value="'+ (val===undefined?'':escapeHtml(val)) +'" placeholder="'+(placeholder||'')+'"></div>';
+  }
+
+  // ---------- Calculadora de cambio (Ingreso → Cambio) ----------
+  var CAMBIO_BILLETES = [50,20,10,5];
+  var CAMBIO_MONEDAS = [2,1,0.5,0.2,0.1];
+
+  function cambioCalculatorHTML(){
+    return '<div class="field" style="flex:1 1 100%;">' +
+      '<div class="scan-box" id="cambioBox">' +
+        '<div class="section-title" style="margin:0 0 8px;">Calculadora de cambio</div>' +
+        '<div class="subtype-row" id="cambioModoRow"></div>' +
+        '<div class="subtype-row" id="cambioDenomRow"></div>' +
+        '<div class="subtype-row" id="cambioSubModoRow"></div>' +
+        '<div id="cambioCantidadRow"></div>' +
+        '<div class="subtotal-line total" style="margin-top:6px;"><span>Total calculado</span><span id="cambioResultVal">0,00 €</span></div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function renderCambioCalculator(){
+    var box = document.getElementById('cambioBox');
+    if(!box) return;
+
+    renderChipRow(document.getElementById('cambioModoRow'),
+      [{k:'billete',l:'Billetes'},{k:'moneda',l:'Monedas'}], cambioState.modo, function(k){
+        cambioState.modo = k; cambioState.denom = null; cambioState.subModo = null; cambioState.cantidad = null;
+        renderCambioCalculator();
+      });
+
+    var denomRow = document.getElementById('cambioDenomRow');
+    var subModoRow = document.getElementById('cambioSubModoRow');
+    var cantidadRow = document.getElementById('cambioCantidadRow');
+    denomRow.innerHTML = ''; subModoRow.innerHTML = ''; cantidadRow.innerHTML = '';
+
+    if(cambioState.modo === 'billete'){
+      renderChipRow(denomRow, CAMBIO_BILLETES.map(function(v){ return {k:String(v), l:v+'€'}; }),
+        cambioState.denom!=null?String(cambioState.denom):null, function(k){
+          cambioState.denom = Number(k); cambioState.cantidad = null;
+          renderCambioCalculator();
+        });
+      if(cambioState.denom != null){
+        renderCantidadPicker(cantidadRow, [10,20,30,40]);
+      }
+    } else if(cambioState.modo === 'moneda'){
+      renderChipRow(denomRow, CAMBIO_MONEDAS.map(function(v){ return {k:String(v), l:v.toLocaleString('es-ES')+'€'}; }),
+        cambioState.denom!=null?String(cambioState.denom):null, function(k){
+          cambioState.denom = Number(k); cambioState.subModo = null; cambioState.cantidad = null;
+          renderCambioCalculator();
+        });
+      if(cambioState.denom != null){
+        renderChipRow(subModoRow, [{k:'sueltas',l:'Sueltas'},{k:'blister',l:'Blister'}], cambioState.subModo, function(k){
+          cambioState.subModo = k; cambioState.cantidad = null;
+          renderCambioCalculator();
+        });
+        if(cambioState.subModo){
+          var presets = cambioState.subModo === 'blister' ? [1,2,3] : [10,20,30,40];
+          renderCantidadPicker(cantidadRow, presets);
+        }
+      }
+    }
+
+    actualizarResultadoCambio();
+  }
+
+  function renderCantidadPicker(container, presets){
+    var chipsHtml = presets.map(function(n){
+      return '<button type="button" class="subtype-chip cambio-cant-chip" data-cant="'+n+'"'+
+        (cambioState.cantidad===n?' style="border-color:var(--accent);background:var(--accent-soft);color:var(--accent);"':'')+
+        '>'+n+'</button>';
+    }).join('');
+    container.innerHTML =
+      '<div class="subtype-row">' + chipsHtml + '</div>' +
+      '<div class="field" style="max-width:160px;"><label>Otra cantidad</label><input type="number" min="0" step="1" id="cambioCantidadCustom" placeholder="Cantidad"></div>';
+
+    container.querySelectorAll('.cambio-cant-chip').forEach(function(chip){
+      chip.addEventListener('click', function(){
+        cambioState.cantidad = Number(chip.getAttribute('data-cant'));
+        document.getElementById('cambioCantidadCustom').value = '';
+        container.querySelectorAll('.cambio-cant-chip').forEach(function(c){ c.style.cssText = ''; });
+        chip.style.cssText = 'border-color:var(--accent);background:var(--accent-soft);color:var(--accent);';
+        actualizarResultadoCambio();
+      });
+    });
+    var customInput = document.getElementById('cambioCantidadCustom');
+    if(cambioState.cantidad && presets.indexOf(cambioState.cantidad) === -1){
+      customInput.value = cambioState.cantidad;
+    }
+    customInput.addEventListener('input', function(){
+      var v = num(customInput.value);
+      cambioState.cantidad = v > 0 ? v : null;
+      container.querySelectorAll('.cambio-cant-chip').forEach(function(c){ c.style.cssText = ''; });
+      actualizarResultadoCambio();
+    });
+  }
+
+  function actualizarResultadoCambio(){
+    var resultEl = document.getElementById('cambioResultVal');
+    if(!resultEl) return;
+    var total = 0, infoTexto = '';
+
+    if(cambioState.modo === 'billete' && cambioState.denom != null && cambioState.cantidad){
+      total = cambioState.denom * cambioState.cantidad;
+      infoTexto = cambioState.denom + '€ x ' + cambioState.cantidad + ' billetes';
+    } else if(cambioState.modo === 'moneda' && cambioState.denom != null && cambioState.subModo && cambioState.cantidad){
+      if(cambioState.subModo === 'blister'){
+        var valorRollo = ROLL_VALUE[cambioState.denom] || 0;
+        total = valorRollo * cambioState.cantidad;
+        infoTexto = cambioState.cantidad + ' blister de ' + cambioState.denom.toLocaleString('es-ES') + '€ (' + fmt(valorRollo) + ' c/u)';
+      } else {
+        total = cambioState.denom * cambioState.cantidad;
+        infoTexto = cambioState.denom.toLocaleString('es-ES') + '€ x ' + cambioState.cantidad + ' monedas';
+      }
+    }
+
+    resultEl.textContent = fmt(total);
+
+    if(total > 0){
+      var importeEl = document.querySelector('#formFields [data-field="importe"]');
+      var infoEl = document.querySelector('#formFields [data-field="info"]');
+      if(importeEl) importeEl.value = total;
+      if(infoEl) infoEl.value = infoTexto;
+    }
+  }
+
+  // ---------- Escanear factura (Libro de Facturas / Supabase) ----------
+  function scanBoxHTML(){
+    return '<div class="field" style="flex:1 1 100%;">' +
+      '<div class="scan-box">' +
+        '<div class="section-title-row">' +
+          '<span class="section-title">Escanear factura</span>' +
+          '<button type="button" class="btn-secondary btn-toggle" id="scanToggleBtn">Usar foto</button>' +
+        '</div>' +
+        '<div class="collapse" id="scanContent">' +
+          '<div class="scan-actions">' +
+            '<button type="button" id="scanBtnCamera">Tomar foto</button>' +
+            '<button type="button" id="scanBtnUpload">Subir imagen</button>' +
+          '</div>' +
+          '<input type="file" id="scanFileCamera" accept="image/*" capture="environment" style="display:none;">' +
+          '<input type="file" id="scanFileUpload" accept="image/*" style="display:none;">' +
+          '<div class="scan-preview" id="scanPreviewRow" style="display:none;">' +
+            '<img id="scanThumb" class="scan-thumb" alt="Vista previa de la factura">' +
+            '<div class="scan-meta">' +
+              '<div class="scan-status" id="scanStatusLine" style="display:none;"><span class="scan-spinner"></span><span id="scanStatusText">Leyendo la factura…</span></div>' +
+              '<div class="scan-error" id="scanErrorLine" style="display:none;"></div>' +
+              '<div class="scan-ok" id="scanOkLine" style="display:none;">Datos volcados en el formulario ✓ — revisalos antes de guardar.</div>' +
+              '<div class="scan-actions">' +
+                '<button type="button" class="btn-primary" id="scanBtnExtract">Extraer datos</button>' +
+                '<button type="button" id="scanBtnResetImg">Elegir otra foto</button>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function wireScanUI(){
+    scanImageBase64 = null;
+    scanMediaType = null;
+
+    var toggleBtn = document.getElementById('scanToggleBtn');
+    var content = document.getElementById('scanContent');
+    toggleBtn.addEventListener('click', function(){
+      var abrir = !content.classList.contains('open');
+      content.classList.toggle('open', abrir);
+      this.textContent = abrir ? 'Ocultar' : 'Usar foto';
+    });
+
+    var fileCamera = document.getElementById('scanFileCamera');
+    var fileUpload = document.getElementById('scanFileUpload');
+    document.getElementById('scanBtnCamera').addEventListener('click', function(){ fileCamera.click(); });
+    document.getElementById('scanBtnUpload').addEventListener('click', function(){ fileUpload.click(); });
+    fileCamera.addEventListener('change', function(e){ handleScanFile(e.target.files[0]); });
+    fileUpload.addEventListener('change', function(e){ handleScanFile(e.target.files[0]); });
+
+    document.getElementById('scanBtnExtract').addEventListener('click', extractInvoiceViaAI);
+    document.getElementById('scanBtnResetImg').addEventListener('click', resetScanPreview);
+  }
+
+  function handleScanFile(file){
+    if(!file || !file.type.startsWith('image/')) return;
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var img = new Image();
+      img.onload = function(){
+        var MAX_DIM = 1600;
+        var width = img.width, height = img.height;
+        if(width > MAX_DIM || height > MAX_DIM){
+          if(width > height){ height = Math.round(height * (MAX_DIM/width)); width = MAX_DIM; }
+          else{ width = Math.round(width * (MAX_DIM/height)); height = MAX_DIM; }
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        var resizedDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        scanMediaType = 'image/jpeg';
+        scanImageBase64 = resizedDataUrl.split(',')[1];
+
+        var thumb = document.getElementById('scanThumb');
+        if(thumb){
+          thumb.src = resizedDataUrl;
+          document.getElementById('scanPreviewRow').style.display = 'flex';
+          document.getElementById('scanErrorLine').style.display = 'none';
+          document.getElementById('scanOkLine').style.display = 'none';
+          document.getElementById('scanBtnExtract').disabled = false;
+        }
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function resetScanPreview(){
+    scanImageBase64 = null;
+    scanMediaType = null;
+    var row = document.getElementById('scanPreviewRow');
+    if(row) row.style.display = 'none';
+    var fc = document.getElementById('scanFileCamera'); if(fc) fc.value = '';
+    var fu = document.getElementById('scanFileUpload'); if(fu) fu.value = '';
+  }
+
+  function extractInvoiceViaAI(){
+    if(!scanImageBase64){ toast('Elegí o sacá una foto primero'); return; }
+    var btn = document.getElementById('scanBtnExtract');
+    btn.disabled = true;
+    document.getElementById('scanStatusLine').style.display = 'flex';
+    document.getElementById('scanStatusText').textContent = 'Leyendo la factura…';
+    document.getElementById('scanErrorLine').style.display = 'none';
+    document.getElementById('scanOkLine').style.display = 'none';
+
+    fetch(SCAN_EDGE_FUNCTION_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify({ imageBase64: scanImageBase64, mediaType: scanMediaType })
+    })
+    .then(function(resp){
+      return resp.json().then(function(parsed){
+        if(!resp.ok) throw new Error(parsed.error || ('Error del servidor (' + resp.status + ')'));
+        return parsed;
+      });
+    })
+    .then(function(parsed){
+      document.getElementById('scanStatusLine').style.display = 'none';
+      aplicarDatosFactura(parsed);
+      document.getElementById('scanOkLine').style.display = 'block';
+      toast('Datos de la factura cargados');
+    })
+    .catch(function(err){
+      document.getElementById('scanStatusLine').style.display = 'none';
+      document.getElementById('scanErrorLine').style.display = 'block';
+      document.getElementById('scanErrorLine').textContent = 'No se pudieron leer los datos automáticamente. Completá a mano abajo. (' + (err.message||'error desconocido') + ')';
+    })
+    .finally(function(){
+      btn.disabled = false;
+    });
+  }
+
+  // Vuelca lo que devolvió la IA en los campos del formulario de Proveedores
+  // que ya está abierto — no guarda solo, el usuario revisa y confirma con
+  // "Guardar movimiento" como siempre.
+  function aplicarDatosFactura(data){
+    data = data || {};
+
+    var nombreExtraido = (data.proveedor || '').trim();
+    if(nombreExtraido){
+      var sel = document.getElementById('proveedorSelect');
+      var match = PROVEEDORES_CONOCIDOS.filter(function(p){
+        return p.toLowerCase() === nombreExtraido.toLowerCase();
+      })[0];
+      if(sel){
+        if(match){
+          sel.value = match;
+        } else {
+          sel.value = '__otro__';
+          var otroInput = document.getElementById('proveedorOtroInput');
+          if(otroInput) otroInput.value = nombreExtraido;
+        }
+        sel.dispatchEvent(new Event('change', {bubbles:true}));
+      }
+    }
+
+    var facturaEl = document.querySelector('#formFields [data-field="factura"]');
+    if(facturaEl && data.numero_factura) facturaEl.value = data.numero_factura;
+
+    var fechaISO = normalizarFechaFactura(data.fecha);
+    if(fechaISO){
+      var fechaEl = document.querySelector('#formFields [data-field="fecha"]');
+      if(fechaEl) fechaEl.value = fechaISO;
+    }
+
+    if(data.importe_total != null && data.importe_total !== ''){
+      var importeEl = document.querySelector('#formFields [data-field="importe"]');
+      if(importeEl) importeEl.value = parsearNumeroFactura(data.importe_total);
+    }
+
+    if(data.importe_iva != null && data.importe_iva !== ''){
+      var ivaEl = document.querySelector('#formFields [data-field="iva"]');
+      if(ivaEl) ivaEl.value = parsearNumeroFactura(data.importe_iva);
+    }
+
+    var notas = [];
+    if(data.base_imponible != null && data.base_imponible !== ''){
+      notas.push('Base imponible: ' + fmt(parsearNumeroFactura(data.base_imponible)));
+    }
+    if(data.tipo_iva != null && data.tipo_iva !== ''){
+      notas.push('IVA ' + data.tipo_iva + '%');
+    }
+    if(notas.length){
+      var infoEl = document.querySelector('#formFields [data-field="info"]');
+      if(infoEl && !infoEl.value) infoEl.value = notas.join(' · ');
+    }
+  }
+
+  // Convierte "1.234,56" o "1234.56" o 1234.56 a número. Si viene con coma
+  // y sin punto, la coma es el separador decimal.
+  function parsearNumeroFactura(v){
+    if(typeof v === 'number') return v;
+    var s = String(v).trim();
+    var tieneComa = s.indexOf(',') > -1;
+    var tienePunto = s.indexOf('.') > -1;
+    if(tieneComa && tienePunto){
+      // formato europeo con miles: "1.234,56" -> punto de miles, coma decimal
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else if(tieneComa){
+      // solo coma: es el separador decimal, ej "121,00"
+      s = s.replace(',', '.');
+    }
+    var n = parseFloat(s);
+    return isFinite(n) ? n : 0;
+  }
+
+  // Acepta "YYYY-MM-DD" tal cual, o "DD/MM/YYYY" / "DD-MM-YYYY" y las
+  // convierte. Si el formato no se reconoce, no toca el campo de fecha.
+  function normalizarFechaFactura(v){
+    if(!v) return null;
+    var s = String(v).trim();
+    if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    var m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if(m){
+      var dd = ('0'+m[1]).slice(-2), mm = ('0'+m[2]).slice(-2), yyyy = m[3];
+      return yyyy + '-' + mm + '-' + dd;
+    }
+    return null;
   }
 
   // "Otro" siempre pide escribir el nombre. "Varios" también: es una
@@ -874,6 +1266,7 @@
       fecha: data.fecha || todayISO(),
       proveedor: proveedorFinal,
       factura: data.factura || '',
+      info: data.info || '',
       iva: (data.iva !== undefined && data.iva !== '') ? num(data.iva) : null,
       motivo: data.motivo || '',
       responsable: data.responsable || ''
@@ -1067,8 +1460,6 @@
     state.mediodia.fondoFijo = fondoFijoSugerido(state.fecha); // siempre del día anterior, no editable
     TURNOS.forEach(function(t){
       document.getElementById('fondoFijo_'+t).value = state[t].fondoFijo || 0;
-      var infoEl = document.getElementById('fondoFijoInfo_'+t);
-      if(infoEl) infoEl.value = state[t].fondoFijoInfo || '';
       document.getElementById('totalFacturado_'+t).value = state[t].totalFacturado || 0;
       document.getElementById('tpv1_'+t).value = state[t].tpv1 || 0;
       document.getElementById('tpv2_'+t).value = state[t].tpv2 || 0;
@@ -1112,13 +1503,6 @@
         saveDraft();
       });
     });
-    var infoEl = document.getElementById('fondoFijoInfo_'+t);
-    if(infoEl){
-      infoEl.addEventListener('input', function(){
-        state[t].fondoFijoInfo = infoEl.value;
-        saveDraft();
-      });
-    }
     document.querySelector('[data-add-prov="'+t+'"]').addEventListener('click', function(){
       openModal(null, 'proveedores', t);
     });
@@ -1130,12 +1514,6 @@
       var abrir = !el.classList.contains('open');
       el.classList.toggle('open', abrir);
       this.textContent = abrir ? 'Ocultar cierre' : 'Completar cierre';
-    });
-    document.getElementById('denomToggleBtn_'+t).addEventListener('click', function(){
-      var el = document.getElementById('denomContent_'+t);
-      var abrir = !el.classList.contains('open');
-      el.classList.toggle('open', abrir);
-      this.textContent = abrir ? 'Ocultar billetes y monedas' : 'Contar billetes y monedas';
     });
   }
 
@@ -1164,16 +1542,15 @@
     TURNOS.forEach(function(t){
       var c = state[t]._calc || {};
       lines.push(['=== ' + TURNO_LABEL[t].toUpperCase() + ' ==='].map(csvEscape).join(';'));
-      lines.push(['Tipo','Subtipo','Proveedor/Motivo','Responsable','Nº Factura','Fecha','IVA (€)','Importe'].map(csvEscape).join(';'));
+      lines.push(['Tipo','Subtipo','Proveedor/Motivo','Responsable','Nº Factura','Info','Fecha','IVA (€)','Importe'].map(csvEscape).join(';'));
       state[t].movimientos.forEach(function(m){
         lines.push([
           TIPO_LABEL[m.tipo], SUBTIPO_LABEL[m.subtipo]||'', (m.proveedor||m.motivo||''),
-          m.responsable||'', m.factura||'', m.fecha||'', (m.iva!=null?m.iva.toFixed(2):''), m.importe.toFixed(2)
+          m.responsable||'', m.factura||'', m.info||'', m.fecha||'', (m.iva!=null?m.iva.toFixed(2):''), m.importe.toFixed(2)
         ].map(csvEscape).join(';'));
       });
       lines.push('');
       lines.push(['Fondo fijo', state[t].fondoFijo.toFixed(2)].map(csvEscape).join(';'));
-      if(state[t].fondoFijoInfo) lines.push(['Info del fondo fijo', state[t].fondoFijoInfo].map(csvEscape).join(';'));
       lines.push(['Total facturado', state[t].totalFacturado.toFixed(2)].map(csvEscape).join(';'));
       lines.push(['Empanadas (se restan del facturado)', (c.empanadas||0).toFixed(2)].map(csvEscape).join(';'));
       lines.push(['Facturado neto', (c.facturadoNeto||0).toFixed(2)].map(csvEscape).join(';'));
@@ -1233,14 +1610,14 @@
     return {
       id: s.id,
       estado: 'Sincronizado',
-      fondoFijo: s.fondoFijo, fondoFijoInfo: s.fondoFijoInfo || '', totalFacturado: s.totalFacturado, tpv1: s.tpv1, tpv2: s.tpv2,
+      fondoFijo: s.fondoFijo, totalFacturado: s.totalFacturado, tpv1: s.tpv1, tpv2: s.tpv2,
       denom: s.denom,
       movimientos: (s.movimientos||[]).map(function(m){
         return {
           tipo: TIPO_LABEL[m.tipo]||m.tipo,
           subtipo: SUBTIPO_LABEL[m.subtipo]||'',
           proveedor: m.proveedor||'', motivo: m.motivo||'',
-          responsable: m.responsable||'', factura: m.factura||'',
+          responsable: m.responsable||'', factura: m.factura||'', info: m.info||'',
           iva: m.iva, importe: m.importe
         };
       }),
