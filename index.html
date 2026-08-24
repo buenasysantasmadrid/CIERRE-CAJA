@@ -83,6 +83,7 @@
     width:100%;
   }
   input:focus,select:focus{outline:2px solid var(--accent);outline-offset:0;border-color:var(--accent);}
+  input.input-readonly{background:#eef0f3;color:var(--ink-soft);cursor:not-allowed;}
   button{
     cursor:pointer;
     border:none;
@@ -325,6 +326,7 @@
       movimientos: [],
       denom: { billetes:{}, monedasSueltas:{}, monedasBlister:{} },
       fondoFijo: 0,
+      fondoFijoInfo: '',
       totalFacturado: 0,
       tpv1: 0,
       tpv2: 0
@@ -334,15 +336,16 @@
   function crearDiaVacio(fecha, negocio){
     var md = crearTurnoVacio(); md.id = uid();
     var nc = crearTurnoVacio(); nc.id = uid();
-    md.fondoFijo = fondoFijoSugerido(fecha);
     return { negocio: negocio || "Mi Negocio", fecha: fecha, mediodia: md, noche: nc };
   }
 
-  // Fondo fijo sugerido para un día nuevo: el efectivo contado al cerrar el
-  // día anterior. Si ese día se trabajó Noche (tiene efectivo contado > 0),
-  // se toma de Noche; si solo se trabajó Mediodía, se toma de Mediodía. Es
-  // solo un valor inicial — se puede editar como cualquier otro campo, y no
-  // se vuelve a recalcular después (no pisa lo que el usuario haya tocado).
+  // Fondo fijo de Mediodía: viene SIEMPRE del cierre del día anterior — no
+  // se puede editar a mano, por eso el campo queda de solo lectura. Si ese
+  // día anterior se trabajó Noche (tiene efectivo contado > 0), se toma de
+  // Noche; si solo se trabajó Mediodía, se toma de Mediodía. Se recalcula
+  // cada vez que se abre el día (no queda "pegado" a un valor viejo): si
+  // corregís el conteo de ayer, el fondo fijo de hoy se actualiza solo la
+  // próxima vez que entrés a este día.
   function fechaAnterior(fechaISO){
     var partes = String(fechaISO || '').split('-').map(Number);
     if(partes.length !== 3 || partes.some(isNaN)) return null;
@@ -476,10 +479,17 @@
       '<div class="turno-heading"><h2>Cierre — '+label+'</h2><span class="turno-pill '+pillClass+'">'+label+'</span></div>' +
 
       '<div class="row" style="margin-bottom:6px;">' +
-        '<div class="field"><label for="fondoFijo_'+t+'">Fondo fijo (€)</label><input type="number" step="0.01" id="fondoFijo_'+t+'" value="0" placeholder="0.00"></div>' +
+        (t==='mediodia'
+          ? '<div class="field"><label for="fondoFijo_'+t+'">Fondo fijo (€) — del día anterior</label><input type="number" step="0.01" id="fondoFijo_'+t+'" value="0" placeholder="0.00" readonly class="input-readonly"></div>'
+          : '<div class="field"><label for="fondoFijo_'+t+'">Fondo fijo (€)</label><input type="number" step="0.01" id="fondoFijo_'+t+'" value="0" placeholder="0.00"></div>'
+        ) +
         '<div class="field"><label for="totalFacturado_'+t+'">Total facturado (€)</label><input type="number" step="0.01" id="totalFacturado_'+t+'" value="0" placeholder="0.00"></div>' +
         '<div class="field"><label for="tpv1_'+t+'">Total TPV 1 (€)</label><input type="number" step="0.01" id="tpv1_'+t+'" value="0" placeholder="0.00"></div>' +
         '<div class="field"><label for="tpv2_'+t+'">Total TPV 2 (€)</label><input type="number" step="0.01" id="tpv2_'+t+'" value="0" placeholder="0.00"></div>' +
+        (t==='mediodia'
+          ? '<div class="field" style="flex:2 1 240px;"><label for="fondoFijoInfo_'+t+'">Info del fondo fijo</label><input type="text" id="fondoFijoInfo_'+t+'" placeholder="Nota u observación (opcional)"></div>'
+          : ''
+        ) +
       '</div>' +
 
       '<div class="section-title">Proveedores</div>' +
@@ -767,9 +777,9 @@
     if(selProv){
       var otroInput = document.getElementById('proveedorOtroInput');
       selProv.addEventListener('change', function(){
-        var esOtro = selProv.value === '__otro__';
-        otroInput.style.display = esOtro ? 'block' : 'none';
-        if(esOtro) otroInput.focus();
+        var mostrar = necesitaProveedorLibre(selProv.value);
+        otroInput.style.display = mostrar ? 'block' : 'none';
+        if(mostrar) otroInput.focus();
       });
     }
   }
@@ -779,21 +789,32 @@
       '<input type="'+type+'" data-field="'+key+'" value="'+ (val===undefined?'':escapeHtml(val)) +'" placeholder="'+(placeholder||'')+'"></div>';
   }
 
+  // "Otro" siempre pide escribir el nombre. "Varios" también: es una
+  // categoría genérica, no un proveedor puntual, así que cuando se elige
+  // igual hay que escribir a quién correspondió — eso es lo que después
+  // aparece en la columna "Proveedor" del Google Sheet.
+  function necesitaProveedorLibre(valor){
+    return valor === '__otro__' || valor === 'Varios';
+  }
+
   // Desplegable de proveedores conocidos + opción "Otro" para escribir uno
-  // nuevo que todavía no esté en la lista.
+  // nuevo que todavía no esté en la lista. Si se elige "Varios" también se
+  // pide el nombre real (ver necesitaProveedorLibre).
   function proveedorField(selected){
     var yaConocido = PROVEEDORES_CONOCIDOS.indexOf(selected) > -1;
     var opts = '<option value="">Elegir proveedor…</option>';
     opts += PROVEEDORES_CONOCIDOS.map(function(p){
       return '<option value="'+escapeHtml(p)+'" '+(p===selected?'selected':'')+'>'+escapeHtml(p)+'</option>';
     }).join('');
-    var esOtro = !!selected && !yaConocido;
-    opts += '<option value="__otro__" '+(esOtro?'selected':'')+'>Otro (escribir)</option>';
+    var esCustom = !!selected && !yaConocido; // el valor guardado no está en la lista -> se cargó como "Otro"
+    opts += '<option value="__otro__" '+(esCustom?'selected':'')+'>Otro (escribir)</option>';
+    var mostrarTexto = necesitaProveedorLibre(selected) || esCustom;
+    var valorTexto = esCustom ? selected : '';
     return '<div class="field">' +
       '<label>Proveedor</label>' +
       '<select data-field="proveedor" id="proveedorSelect">'+opts+'</select>' +
       '<input type="text" data-field="proveedorOtro" id="proveedorOtroInput" placeholder="Nombre del proveedor" ' +
-        'value="'+(esOtro?escapeHtml(selected):'')+'" style="margin-top:6px;'+(esOtro?'':'display:none;')+'">' +
+        'value="'+escapeHtml(valorTexto)+'" style="margin-top:6px;'+(mostrarTexto?'':'display:none;')+'">' +
     '</div>';
   }
 
@@ -814,7 +835,7 @@
     if(!importe){ toast('Ingresá un importe válido'); return; }
 
     var proveedorFinal = data.proveedor || '';
-    if(proveedorFinal === '__otro__'){
+    if(necesitaProveedorLibre(proveedorFinal)){
       proveedorFinal = (data.proveedorOtro || '').trim();
     }
     if(currentTipo === 'gasto' && !proveedorFinal){ toast('Elegí o escribí un proveedor'); return; }
@@ -993,8 +1014,11 @@
 
   function aplicarEstadoATurnos(){
     document.getElementById('negocioNombre').value = state.negocio;
+    state.mediodia.fondoFijo = fondoFijoSugerido(state.fecha); // siempre del día anterior, no editable
     TURNOS.forEach(function(t){
       document.getElementById('fondoFijo_'+t).value = state[t].fondoFijo || 0;
+      var infoEl = document.getElementById('fondoFijoInfo_'+t);
+      if(infoEl) infoEl.value = state[t].fondoFijoInfo || '';
       document.getElementById('totalFacturado_'+t).value = state[t].totalFacturado || 0;
       document.getElementById('tpv1_'+t).value = state[t].tpv1 || 0;
       document.getElementById('tpv2_'+t).value = state[t].tpv2 || 0;
@@ -1019,6 +1043,13 @@
     ['fondoFijo','totalFacturado','tpv1','tpv2'].forEach(function(base){
       document.getElementById(base+'_'+t).addEventListener('input', function(){ recalc(t); saveDraft(); });
     });
+    var infoEl = document.getElementById('fondoFijoInfo_'+t);
+    if(infoEl){
+      infoEl.addEventListener('input', function(){
+        state[t].fondoFijoInfo = infoEl.value;
+        saveDraft();
+      });
+    }
     document.querySelector('[data-add-prov="'+t+'"]').addEventListener('click', function(){
       openModal(null, 'proveedores', t);
     });
@@ -1067,6 +1098,7 @@
       });
       lines.push('');
       lines.push(['Fondo fijo', state[t].fondoFijo.toFixed(2)].map(csvEscape).join(';'));
+      if(state[t].fondoFijoInfo) lines.push(['Info del fondo fijo', state[t].fondoFijoInfo].map(csvEscape).join(';'));
       lines.push(['Total facturado', state[t].totalFacturado.toFixed(2)].map(csvEscape).join(';'));
       lines.push(['Empanadas (se restan del facturado)', (c.empanadas||0).toFixed(2)].map(csvEscape).join(';'));
       lines.push(['Facturado neto', (c.facturadoNeto||0).toFixed(2)].map(csvEscape).join(';'));
@@ -1126,7 +1158,7 @@
     return {
       id: s.id,
       estado: 'Sincronizado',
-      fondoFijo: s.fondoFijo, totalFacturado: s.totalFacturado, tpv1: s.tpv1, tpv2: s.tpv2,
+      fondoFijo: s.fondoFijo, fondoFijoInfo: s.fondoFijoInfo || '', totalFacturado: s.totalFacturado, tpv1: s.tpv1, tpv2: s.tpv2,
       denom: s.denom,
       movimientos: (s.movimientos||[]).map(function(m){
         return {
@@ -1306,26 +1338,13 @@
   function init(){
     loadNegocio();
     loadDraft();
-    document.getElementById('negocioNombre').value = state.negocio;
     document.getElementById('fechaCierre').value = state.fecha || todayISO();
 
     document.getElementById('turnoSections').innerHTML = TURNOS.map(turnoSectionHTML).join('');
-
-    TURNOS.forEach(function(t){
-      document.getElementById('fondoFijo_'+t).value = state[t].fondoFijo || 0;
-      document.getElementById('totalFacturado_'+t).value = state[t].totalFacturado || 0;
-      document.getElementById('tpv1_'+t).value = state[t].tpv1 || 0;
-      document.getElementById('tpv2_'+t).value = state[t].tpv2 || 0;
-      wireTurnoEvents(t);
-      buildDenomTables(t);
-      renderMovimientos(t);
-    });
+    TURNOS.forEach(wireTurnoEvents);
+    aplicarEstadoATurnos();
 
     logSheetStatus('URL configurada: ' + loadSheetUrl());
-    updateFechaLabel();
-
-    TURNOS.forEach(recalc);
-    recalcDia();
   }
 
   init();
