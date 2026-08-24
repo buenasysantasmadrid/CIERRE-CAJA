@@ -84,6 +84,7 @@
   }
   input:focus,select:focus{outline:2px solid var(--accent);outline-offset:0;border-color:var(--accent);}
   input.input-readonly{background:#eef0f3;color:var(--ink-soft);cursor:not-allowed;}
+  .fecha-grande{font-size:1.7rem;font-weight:800;color:var(--ink);margin-bottom:14px;letter-spacing:-.01em;}
   button{
     cursor:pointer;
     border:none;
@@ -217,7 +218,7 @@
 
   <div class="card">
     <h2>Día del cierre</h2>
-    <p class="muted" style="margin-top:0;">Elegí la fecha para ver o cargar el cierre de ese día (Mediodía y Noche juntos). Todo se guarda solo, a medida que lo cargás — cambiando de fecha se abre otro día, sin tener que finalizar ni vaciar nada.</p>
+    <div class="fecha-grande" id="fechaGrande"></div>
     <div class="row">
       <div class="field" style="max-width:220px;">
         <label for="fechaCierre">Fecha</label>
@@ -476,20 +477,34 @@
     var pillClass = t;
     return '' +
     '<div class="turno-block" data-turno="'+t+'">' +
-      '<div class="turno-heading"><h2>Cierre — '+label+'</h2><span class="turno-pill '+pillClass+'">'+label+'</span></div>' +
+      '<div class="turno-heading"><h2>'+label+'</h2><span class="turno-pill '+pillClass+'">'+label+'</span></div>' +
 
-      '<div class="row" style="margin-bottom:6px;">' +
-        (t==='mediodia'
-          ? '<div class="field"><label for="fondoFijo_'+t+'">Fondo fijo (€) — del día anterior</label><input type="number" step="0.01" id="fondoFijo_'+t+'" value="0" placeholder="0.00" readonly class="input-readonly"></div>'
-          : '<div class="field"><label for="fondoFijo_'+t+'">Fondo fijo (€)</label><input type="number" step="0.01" id="fondoFijo_'+t+'" value="0" placeholder="0.00"></div>'
-        ) +
-        '<div class="field"><label for="totalFacturado_'+t+'">Total facturado (€)</label><input type="number" step="0.01" id="totalFacturado_'+t+'" value="0" placeholder="0.00"></div>' +
-        '<div class="field"><label for="tpv1_'+t+'">Total TPV 1 (€)</label><input type="number" step="0.01" id="tpv1_'+t+'" value="0" placeholder="0.00"></div>' +
-        '<div class="field"><label for="tpv2_'+t+'">Total TPV 2 (€)</label><input type="number" step="0.01" id="tpv2_'+t+'" value="0" placeholder="0.00"></div>' +
-        (t==='mediodia'
-          ? '<div class="field" style="flex:2 1 240px;"><label for="fondoFijoInfo_'+t+'">Info del fondo fijo</label><input type="text" id="fondoFijoInfo_'+t+'" placeholder="Nota u observación (opcional)"></div>'
-          : ''
-        ) +
+      '<div class="section-title-row">' +
+        '<span class="section-title">Cierre</span>' +
+        '<button type="button" class="btn-secondary btn-toggle" data-toggle-cierre="'+t+'" id="cierreToggleBtn_'+t+'">Completar cierre</button>' +
+      '</div>' +
+      '<div class="collapse" id="cierreContent_'+t+'">' +
+        (t==='noche'
+          ? '<p class="muted" style="margin-top:0;">Acá va la lectura de TODO el día (no solo de la noche): el número que marca la caja/TPV al cerrar, acumulado desde la mañana. Más abajo, en "Resumen y diferencia", el sistema calcula solo la parte que corresponde a Noche restando lo que ya cargaste en Mediodía.</p>'
+          : '') +
+        '<div class="row" style="margin-bottom:6px;">' +
+          (t==='mediodia'
+            ? '<div class="field"><label for="fondoFijo_'+t+'">Fondo fijo (€) — del día anterior</label><input type="number" step="0.01" id="fondoFijo_'+t+'" value="0" placeholder="0.00" readonly class="input-readonly"></div>'
+            : '<div class="field"><label for="fondoFijo_'+t+'">Fondo fijo (€)</label><input type="number" step="0.01" id="fondoFijo_'+t+'" value="0" placeholder="0.00"></div>'
+          ) +
+          (t==='noche'
+            ? '<div class="field"><label for="totalFacturado_'+t+'">Total facturado — día completo (€)</label><input type="number" step="0.01" id="totalFacturado_'+t+'" value="0" placeholder="0.00"></div>' +
+              '<div class="field"><label for="tpv1_'+t+'">TPV 1 — día completo (€)</label><input type="number" step="0.01" id="tpv1_'+t+'" value="0" placeholder="0.00"></div>' +
+              '<div class="field"><label for="tpv2_'+t+'">TPV 2 — día completo (€)</label><input type="number" step="0.01" id="tpv2_'+t+'" value="0" placeholder="0.00"></div>'
+            : '<div class="field"><label for="totalFacturado_'+t+'">Total facturado (€)</label><input type="number" step="0.01" id="totalFacturado_'+t+'" value="0" placeholder="0.00"></div>' +
+              '<div class="field"><label for="tpv1_'+t+'">Total TPV 1 (€)</label><input type="number" step="0.01" id="tpv1_'+t+'" value="0" placeholder="0.00"></div>' +
+              '<div class="field"><label for="tpv2_'+t+'">Total TPV 2 (€)</label><input type="number" step="0.01" id="tpv2_'+t+'" value="0" placeholder="0.00"></div>'
+          ) +
+          (t==='mediodia'
+            ? '<div class="field" style="flex:2 1 240px;"><label for="fondoFijoInfo_'+t+'">Info del fondo fijo</label><input type="text" id="fondoFijoInfo_'+t+'" placeholder="Nota u observación (opcional)"></div>'
+            : ''
+          ) +
+        '</div>' +
       '</div>' +
 
       '<div class="section-title">Proveedores</div>' +
@@ -530,11 +545,22 @@
 
       '<div class="section-title">Resumen y diferencia — '+label+'</div>' +
       '<div class="summary-grid">' +
-        '<div class="lbl">Total facturado</div><div class="val" id="rFacturado_'+t+'">0,00 €</div>' +
+        (t==='noche'
+          ? '<div class="lbl">Total facturado — día completo</div><div class="val" id="rFacturadoDiaCompleto_'+t+'">0,00 €</div>' +
+            '<div class="lbl">− Total facturado Mediodía</div><div class="val" id="rFacturadoRestaMD_'+t+'">0,00 €</div>' +
+            '<div class="lbl" style="font-weight:600;">= Facturado propio de Noche</div><div class="val" id="rFacturado_'+t+'" style="font-weight:600;">0,00 €</div>'
+          : '<div class="lbl">Total facturado</div><div class="val" id="rFacturado_'+t+'">0,00 €</div>'
+        ) +
         '<div class="lbl">− Empanadas</div><div class="val" id="rEmpanadas_'+t+'">0,00 €</div>' +
         '<div class="lbl">= Facturado neto</div><div class="val" id="rFacturadoNeto_'+t+'">0,00 €</div>' +
         '<div class="divider"></div>' +
         '<div class="lbl">Fondo fijo</div><div class="val" id="rFondoFijo_'+t+'">0,00 €</div>' +
+        (t==='noche'
+          ? '<div class="lbl">TPV 1 (día completo − Mediodía)</div><div class="val" id="rTpv1DiaCompleto_'+t+'">0,00 €</div>' +
+            '<div class="lbl" style="font-weight:600;">= TPV 1 propio de Noche</div><div class="val" id="rTpv1RestaMD_'+t+'" style="font-weight:600;">0,00 €</div>' +
+            '<div class="lbl">TPV 2 (día completo − Mediodía)</div><div class="val" id="rTpv2DiaCompleto_'+t+'">0,00 €</div>' +
+            '<div class="lbl" style="font-weight:600;">= TPV 2 propio de Noche</div><div class="val" id="rTpv2RestaMD_'+t+'" style="font-weight:600;">0,00 €</div>'
+          : '') +
         '<div class="lbl">Ventas en efectivo (Facturado neto − TPVs)</div><div class="val" id="rVentasEfectivo_'+t+'">0,00 €</div>' +
         '<div class="lbl">+ Ingresos en efectivo (cambio, varios)</div><div class="val" id="rIngresos_'+t+'">0,00 €</div>' +
         '<div class="lbl">− Gastos en efectivo (efectivo + efectivo antiguo)</div><div class="val" id="rGastos_'+t+'">0,00 €</div>' +
@@ -921,14 +947,37 @@
     var totalFacturado = num(document.getElementById('totalFacturado_'+t).value);
     var tpv1 = num(document.getElementById('tpv1_'+t).value);
     var tpv2 = num(document.getElementById('tpv2_'+t).value);
-    var facturadoNeto = totalFacturado - empanadas;
-    var ventasEfectivo = facturadoNeto - (tpv1 + tpv2);
+
+    // En Noche, lo que se ingresa es la lectura acumulada de TODO el día,
+    // así que la parte "propia" de Noche es ese total menos lo que ya se
+    // cargó en Mediodía (igual que en la planilla original).
+    var totalFacturadoPropio = totalFacturado;
+    var tpv1Propio = tpv1;
+    var tpv2Propio = tpv2;
+    if(t === 'noche'){
+      var mdFacturado = (state.mediodia && state.mediodia.totalFacturado) || 0;
+      var mdTpv1 = (state.mediodia && state.mediodia.tpv1) || 0;
+      var mdTpv2 = (state.mediodia && state.mediodia.tpv2) || 0;
+      totalFacturadoPropio = Math.max(0, totalFacturado - mdFacturado);
+      tpv1Propio = Math.max(0, tpv1 - mdTpv1);
+      tpv2Propio = Math.max(0, tpv2 - mdTpv2);
+
+      document.getElementById('rFacturadoDiaCompleto_noche').textContent = fmt(totalFacturado);
+      document.getElementById('rFacturadoRestaMD_noche').textContent = '− ' + fmt(mdFacturado);
+      document.getElementById('rTpv1DiaCompleto_noche').textContent = fmt(tpv1) + ' − ' + fmt(mdTpv1);
+      document.getElementById('rTpv1RestaMD_noche').textContent = fmt(tpv1Propio);
+      document.getElementById('rTpv2DiaCompleto_noche').textContent = fmt(tpv2) + ' − ' + fmt(mdTpv2);
+      document.getElementById('rTpv2RestaMD_noche').textContent = fmt(tpv2Propio);
+    }
+
+    var facturadoNeto = totalFacturadoPropio - empanadas;
+    var ventasEfectivo = facturadoNeto - (tpv1Propio + tpv2Propio);
 
     var esperado = fondoFijo + ventasEfectivo + ingresoEfectivo - gastoEfectivo - egreso;
     var diferencia = totalContado - esperado;
 
     document.getElementById('rFondoFijo_'+t).textContent = fmt(fondoFijo);
-    document.getElementById('rFacturado_'+t).textContent = fmt(totalFacturado);
+    document.getElementById('rFacturado_'+t).textContent = fmt(totalFacturadoPropio);
     document.getElementById('rEmpanadas_'+t).textContent = '− ' + fmt(empanadas);
     document.getElementById('rFacturadoNeto_'+t).textContent = fmt(facturadoNeto);
     document.getElementById('rVentasEfectivo_'+t).textContent = fmt(ventasEfectivo);
@@ -958,7 +1007,8 @@
     state[t]._calc = {totalBilletes:totalBilletes, totalMonedas:totalMonedas, totalContado:totalContado,
       gastoEfectivo:gastoEfectivo, gastoNoEfectivo:gastoNoEfectivo, ingresoEfectivo:ingresoEfectivo,
       egreso:egreso, empanadas:empanadas, facturadoNeto:facturadoNeto, ventasEfectivo:ventasEfectivo,
-      esperado:esperado, diferencia:diferencia};
+      esperado:esperado, diferencia:diferencia,
+      totalFacturadoPropio:totalFacturadoPropio, tpv1Propio:tpv1Propio, tpv2Propio:tpv2Propio};
 
     recalcDia();
   }
@@ -1030,6 +1080,15 @@
     recalcDia();
   }
 
+  var DIAS_SEMANA = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+  var MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  function formatearFechaLarga(fechaISO){
+    var partes = String(fechaISO||'').split('-').map(Number);
+    if(partes.length !== 3 || partes.some(isNaN)) return '';
+    var d = new Date(partes[0], partes[1]-1, partes[2]);
+    return DIAS_SEMANA[d.getDay()] + ' ' + partes[2] + ' de ' + MESES[partes[1]-1] + ' de ' + partes[0];
+  }
+
   function updateFechaLabel(){
     var lbl = document.getElementById('fechaCierreLabel');
     var f = document.getElementById('fechaCierre').value;
@@ -1037,11 +1096,21 @@
       var parts = f.split('-');
       lbl.textContent = parts[2]+'/'+parts[1]+'/'+parts[0];
     }
+    var grande = document.getElementById('fechaGrande');
+    if(grande) grande.textContent = formatearFechaLarga(f);
   }
 
   function wireTurnoEvents(t){
     ['fondoFijo','totalFacturado','tpv1','tpv2'].forEach(function(base){
-      document.getElementById(base+'_'+t).addEventListener('input', function(){ recalc(t); saveDraft(); });
+      document.getElementById(base+'_'+t).addEventListener('input', function(){
+        recalc(t);
+        // Noche calcula su propia parte restando lo ya cargado en Mediodía,
+        // así que si se edita Mediodía hay que refrescar también Noche.
+        if(t === 'mediodia' && (base === 'totalFacturado' || base === 'tpv1' || base === 'tpv2')){
+          recalc('noche');
+        }
+        saveDraft();
+      });
     });
     var infoEl = document.getElementById('fondoFijoInfo_'+t);
     if(infoEl){
@@ -1055,6 +1124,12 @@
     });
     document.querySelector('[data-add-otros="'+t+'"]').addEventListener('click', function(){
       openModal(null, 'otros', t);
+    });
+    document.getElementById('cierreToggleBtn_'+t).addEventListener('click', function(){
+      var el = document.getElementById('cierreContent_'+t);
+      var abrir = !el.classList.contains('open');
+      el.classList.toggle('open', abrir);
+      this.textContent = abrir ? 'Ocultar cierre' : 'Completar cierre';
     });
     document.getElementById('denomToggleBtn_'+t).addEventListener('click', function(){
       var el = document.getElementById('denomContent_'+t);
