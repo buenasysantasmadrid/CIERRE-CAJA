@@ -466,8 +466,11 @@
     scheduleAutoSync();
   }
   function loadDraft(){
+    var store = getDiasStore();
+    var esNuevo = !store[state.fecha];
     state = cargarDia(state.fecha);
     guardarDiaActual();
+    if(esNuevo) intentarCargarDesdeSheet(state.fecha);
   }
   function loadNegocio(){
     try{
@@ -1448,11 +1451,14 @@
 
   function cambiarDia(nuevaFecha){
     guardarDiaActual(); // se guarda lo que había en el día que se estaba viendo
+    var store = getDiasStore();
+    var esNuevo = !store[nuevaFecha];
     state = cargarDia(nuevaFecha);
     document.getElementById('fechaCierre').value = state.fecha;
     aplicarEstadoATurnos();
     guardarDiaActual(); // asegura que el día nuevo (si no existía) quede creado
     scheduleAutoSync();
+    if(esNuevo) intentarCargarDesdeSheet(nuevaFecha);
   }
 
   function aplicarEstadoATurnos(){
@@ -1621,6 +1627,12 @@
           iva: m.iva, importe: m.importe
         };
       }),
+      // Copia SIN transformar de los movimientos (mismas claves internas
+      // que usa la app: tipo 'gasto'/'ingreso'/..., con id y fecha propios).
+      // No se muestra en ningún lado del Sheet — solo viaja adentro de
+      // "Datos JSON (uso interno)" para poder reconstruir el día tal cual
+      // si se abre desde otro dispositivo.
+      movimientosRaw: s.movimientos||[],
       calc: {
         empanadas: c.empanadas, facturadoNeto: c.facturadoNeto, ventasEfectivo: c.ventasEfectivo,
         ingresoEfectivo: c.ingresoEfectivo, gastoEfectivo: c.gastoEfectivo, egreso: c.egreso,
@@ -1659,11 +1671,24 @@
           logSheetStatus('Sincronizado a las ' + new Date().toLocaleTimeString('es-ES') + ' · pestaña "' + fechaTabName(state.fecha) + '"');
         } else {
           logSheetStatus('El Sheet respondió con un error al sincronizar.', true);
+          avisarFalloSyncUnaVez('El Sheet respondió con un error al guardar. Revisá que el Apps Script esté actualizado (F12 → Consola para más detalle).');
         }
       })
       .catch(function(){
         logSheetStatus('Sin conexión: los cambios quedan guardados en este dispositivo y se sincronizan solos cuando vuelva internet.', true);
+        avisarFalloSyncUnaVez('Sin conexión con Google Sheets — se guarda en este dispositivo y se sincroniza solo cuando vuelva internet.');
       });
+  }
+
+  // Avisa por toast que falló la sincronización, pero como máximo una vez
+  // cada 20 segundos — así, si hay muchos cambios seguidos sin conexión, no
+  // se llena la pantalla de avisos repetidos.
+  var ultimoAvisoFalloSync = 0;
+  function avisarFalloSyncUnaVez(msg){
+    var ahora = Date.now();
+    if(ahora - ultimoAvisoFalloSync < 20000) return;
+    ultimoAvisoFalloSync = ahora;
+    toast(msg);
   }
 
   function fechaTabName(fechaISO){
@@ -1687,6 +1712,54 @@
       .catch(function(){
         toast('No se pudo enviar a Google Sheets (revisá conexión)');
       });
+  }
+
+  // Cuando se abre un día que este dispositivo todavía no tiene guardado
+  // localmente (por ejemplo, la primera vez que se abre la app en un
+  // celular nuevo, o un día que se cargó desde otra compu), intenta
+  // traerlo del Google Sheet. Si lo encuentra y en este dispositivo no se
+  // cargó nada mientras tanto, lo aplica a la pantalla.
+  function intentarCargarDesdeSheet(fecha){
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)) return;
+    var getUrl = url + (url.indexOf('?') > -1 ? '&' : '?') + 'fecha=' + encodeURIComponent(fecha);
+    try{
+      fetch(getUrl)
+        .then(function(resp){ return resp.json(); })
+        .then(function(data){
+          if(!data || !data.ok || !data.encontrado) return; // no hay nada guardado en el Sheet para esa fecha
+          if(state.fecha !== fecha) return; // el usuario ya cambió de día mientras se consultaba
+
+          var yaHayDatosLocales = TURNOS.some(function(t){
+            var s = state[t];
+            return (s.movimientos && s.movimientos.length) || s.totalFacturado || s.tpv1 || s.tpv2;
+          });
+          if(yaHayDatosLocales) return; // ya se cargó algo en este dispositivo mientras tanto: no lo pisamos
+
+          var diaDesdeSheet = {
+            negocio: state.negocio,
+            fecha: fecha,
+            mediodia: data.mediodia ? Object.assign(crearTurnoVacio(), data.mediodia) : crearTurnoVacio(),
+            noche: data.noche ? Object.assign(crearTurnoVacio(), data.noche) : crearTurnoVacio()
+          };
+          if(!diaDesdeSheet.mediodia.id) diaDesdeSheet.mediodia.id = uid();
+          if(!diaDesdeSheet.noche.id) diaDesdeSheet.noche.id = uid();
+
+          state = diaDesdeSheet;
+          aplicarEstadoATurnos();
+          guardarDiaActual();
+          toast('Se trajeron los datos de ' + fecha + ' desde Google Sheets');
+          logSheetStatus('Día ' + fecha + ' cargado desde el Sheet.');
+        })
+        .catch(function(err){
+          logSheetStatus('No se pudo consultar el Sheet para traer el día ' + fecha + ': ' + err.message, true);
+        });
+    }catch(err){
+      // Si fetch ni siquiera se pudo invocar (entorno raro, etc.), que no
+      // rompa el resto de la app — esto es una mejora opcional, no algo de
+      // lo que dependa el funcionamiento básico.
+      logSheetStatus('No se pudo consultar el Sheet para traer el día ' + fecha + ': ' + err.message, true);
+    }
   }
 
   // ---------- otros días ----------
