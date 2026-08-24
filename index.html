@@ -1721,20 +1721,53 @@
   // cargó nada mientras tanto, lo aplica a la pantalla.
   function intentarCargarDesdeSheet(fecha){
     var url = loadSheetUrl();
-    if(!hasValidSheetUrl(url)) return;
+    if(!hasValidSheetUrl(url)){
+      logSheetStatus('No se intenta traer el día ' + fecha + ' porque no hay URL de Apps Script válida.', true);
+      return;
+    }
     var getUrl = url + (url.indexOf('?') > -1 ? '&' : '?') + 'fecha=' + encodeURIComponent(fecha);
+    logSheetStatus('Consultando el Sheet por el día ' + fecha + '...');
     try{
       fetch(getUrl)
-        .then(function(resp){ return resp.json(); })
+        .then(function(resp){
+          logSheetStatus('El Sheet respondió (status ' + resp.status + ') a la consulta de ' + fecha + '.');
+          return resp.json();
+        })
         .then(function(data){
-          if(!data || !data.ok || !data.encontrado) return; // no hay nada guardado en el Sheet para esa fecha
-          if(state.fecha !== fecha) return; // el usuario ya cambió de día mientras se consultaba
+          logSheetStatus('Contenido de la respuesta para ' + fecha + ': ' + JSON.stringify(data));
+
+          if(!data || !data.ok){
+            logSheetStatus('La respuesta no fue válida (¿el Apps Script está actualizado y con una implementación nueva?).', true);
+            return;
+          }
+          if(data.error){
+            logSheetStatus('El Sheet avisó un problema: ' + data.error, true);
+            return;
+          }
+          if(data.encontrado === undefined){
+            // La respuesta no tiene el campo "encontrado" para nada: es la
+            // señal de que el Apps Script todavía es la versión vieja (sin
+            // soporte para leer un día), no de que falte el dato.
+            logSheetStatus('El Apps Script respondió sin el campo "encontrado" — parece que todavía tiene la versión vieja, sin el doGet que lee un día. Hay que pegar el .gs actualizado y crear una Nueva versión de la implementación.', true);
+            return;
+          }
+          if(!data.encontrado){
+            logSheetStatus('El Sheet no tiene guardado el día ' + fecha + ' (o esa fila se guardó con una versión del script sin la columna "Datos JSON (uso interno)", así que no se puede traer).');
+            return;
+          }
+          if(state.fecha !== fecha){
+            logSheetStatus('Se encontraron datos de ' + fecha + ', pero ya se cambió de día en pantalla — no se aplican.');
+            return;
+          }
 
           var yaHayDatosLocales = TURNOS.some(function(t){
             var s = state[t];
             return (s.movimientos && s.movimientos.length) || s.totalFacturado || s.tpv1 || s.tpv2;
           });
-          if(yaHayDatosLocales) return; // ya se cargó algo en este dispositivo mientras tanto: no lo pisamos
+          if(yaHayDatosLocales){
+            logSheetStatus('Se encontraron datos de ' + fecha + ' en el Sheet, pero este dispositivo ya tenía algo cargado — no se pisa.');
+            return;
+          }
 
           var diaDesdeSheet = {
             negocio: state.negocio,
@@ -1749,7 +1782,7 @@
           aplicarEstadoATurnos();
           guardarDiaActual();
           toast('Se trajeron los datos de ' + fecha + ' desde Google Sheets');
-          logSheetStatus('Día ' + fecha + ' cargado desde el Sheet.');
+          logSheetStatus('Día ' + fecha + ' aplicado a la pantalla correctamente.');
         })
         .catch(function(err){
           logSheetStatus('No se pudo consultar el Sheet para traer el día ' + fecha + ': ' + err.message, true);
