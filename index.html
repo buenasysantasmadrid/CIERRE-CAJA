@@ -187,6 +187,11 @@
   .turno-pill.noche{background:var(--blue-soft);color:var(--blue);}
   .section-title{font-size:.82rem;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;margin:16px 0 8px;}
   .section-title:first-child{margin-top:0;}
+  .section-title-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:16px 0 4px;flex-wrap:wrap;}
+  .section-title-row .section-title{margin:0;}
+  .btn-toggle{font-size:.78rem;padding:7px 14px;white-space:nowrap;}
+  .collapse{display:none;margin-top:10px;}
+  .collapse.open{display:block;}
   @media (max-width:520px){
     .type-grid{grid-template-columns:repeat(2,1fr);}
     table{font-size:.78rem;}
@@ -464,16 +469,21 @@
       '</table>' +
       '<div id="otrosEmpty_'+t+'" class="empty-row">Todavía no agregaste otros movimientos.</div>' +
 
-      '<div class="section-title">Conteo de efectivo</div>' +
-      '<table class="denom-table">' +
-        '<thead><tr><th>Billetes</th><th>Cantidad</th><th class="num">Subtotal</th></tr></thead>' +
-        '<tbody id="billetesBody_'+t+'"></tbody>' +
-      '</table>' +
-      '<table class="denom-table" style="margin-top:10px;">' +
-        '<thead><tr><th>Monedas</th><th>Sueltas (cant.)</th><th>Rollos/blister (cant.)</th><th class="num">Subtotal</th></tr></thead>' +
-        '<tbody id="monedasBody_'+t+'"></tbody>' +
-      '</table>' +
+      '<div class="section-title-row">' +
+        '<span class="section-title">Conteo de efectivo</span>' +
+        '<button type="button" class="btn-secondary btn-toggle" data-toggle-denom="'+t+'" id="denomToggleBtn_'+t+'">Contar billetes y monedas</button>' +
+      '</div>' +
       '<div class="subtotal-line total"><span>Total efectivo contado</span><span id="totalContadoLbl_'+t+'">0,00 €</span></div>' +
+      '<div class="collapse" id="denomContent_'+t+'">' +
+        '<table class="denom-table" style="margin-top:10px;">' +
+          '<thead><tr><th>Billetes</th><th>Cantidad</th><th class="num">Subtotal</th></tr></thead>' +
+          '<tbody id="billetesBody_'+t+'"></tbody>' +
+        '</table>' +
+        '<table class="denom-table" style="margin-top:10px;">' +
+          '<thead><tr><th>Monedas</th><th>Sueltas (cant.)</th><th>Rollos/blister (cant.)</th><th class="num">Subtotal</th></tr></thead>' +
+          '<tbody id="monedasBody_'+t+'"></tbody>' +
+        '</table>' +
+      '</div>' +
 
       '<div class="section-title">Resumen y diferencia — '+label+'</div>' +
       '<div class="summary-grid">' +
@@ -954,6 +964,12 @@
     });
     document.querySelector('[data-add-otros="'+t+'"]').addEventListener('click', function(){
       openModal(null, 'otros', t);
+    });
+    document.getElementById('denomToggleBtn_'+t).addEventListener('click', function(){
+      var el = document.getElementById('denomContent_'+t);
+      var abrir = !el.classList.contains('open');
+      el.classList.toggle('open', abrir);
+      this.textContent = abrir ? 'Ocultar billetes y monedas' : 'Contar billetes y monedas';
     });
   }
 
