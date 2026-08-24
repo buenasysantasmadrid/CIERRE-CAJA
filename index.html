@@ -202,7 +202,7 @@
     <span class="sub">Cierre de caja — <span id="fechaCierreLabel"></span></span>
   </div>
   <div class="header-actions">
-    <button class="btn-ghost" id="btnHistorial" style="color:#e7e9ee;border-color:#454c5a;">Historial</button>
+    <button class="btn-ghost" id="btnHistorial" style="color:#e7e9ee;border-color:#454c5a;">Otros días</button>
     <button class="btn-ghost" id="btnExportar" style="color:#e7e9ee;border-color:#454c5a;">Exportar CSV</button>
   </div>
 </header>
@@ -211,7 +211,7 @@
 
   <div class="card">
     <h2>Día del cierre</h2>
-    <p class="muted" style="margin-top:0;">Este cierre agrupa el turno Mediodía y el turno Noche del mismo día. Al finalizar, se guardan los dos juntos y se vacía el formulario para el próximo día.</p>
+    <p class="muted" style="margin-top:0;">Elegí la fecha para ver o cargar el cierre de ese día (Mediodía y Noche juntos). Todo se guarda solo, a medida que lo cargás — cambiando de fecha se abre otro día, sin tener que finalizar ni vaciar nada.</p>
     <div class="row">
       <div class="field" style="max-width:220px;">
         <label for="fechaCierre">Fecha</label>
@@ -238,8 +238,7 @@
       <div class="lbl" id="diaResultLbl">CUADRA</div>
     </div>
     <div class="modal-actions" style="margin-top:16px;">
-      <button class="btn-secondary" id="btnLimpiar">Vaciar cierre actual (mediodía + noche)</button>
-      <button class="btn-primary" id="btnFinalizar">Finalizar día y guardar en historial</button>
+      <button class="btn-secondary" id="btnLimpiar">Vaciar este día (mediodía + noche)</button>
     </div>
   </div>
 
@@ -272,7 +271,8 @@
 <div class="modal-overlay" id="histOverlay">
   <div class="modal" style="max-width:640px;">
     <button class="modal-close" id="histClose">&times;</button>
-    <h3>Historial de cierres</h3>
+    <h3>Otros días</h3>
+    <p class="muted" style="margin-top:-8px;">Tocá un día para abrirlo. Los cambios de cualquier día se guardan solos, no hace falta "cerrar" uno para pasar al siguiente.</p>
     <div id="histList"></div>
   </div>
 </div>
@@ -283,8 +283,7 @@
 (function(){
   "use strict";
 
-  var LS_DRAFT = "cierreCaja_draft_v2";
-  var LS_HIST = "cierreCaja_historial_v2";
+  var LS_DIAS = "cierreCaja_dias_v1";
   var LS_NEGOCIO = "cierreCaja_negocio_v1";
 
   // URL de tu Apps Script (la que termina en /exec). Ya está cargada acá,
@@ -303,7 +302,7 @@
 
   var BILLETES = [100,50,20,10,5];
   var MONEDAS = [2,1,0.5,0.2,0.1,0.05];
-  var ROLL_VALUE = {2:50, 1:25, 0.5:20, 0.2:8, 0.1:4, 0.05:2};
+  var ROLL_VALUE = {2:50, 1:25, 0.5:20, 0.2:8, 0.1:4, 0.05:2.5};
 
   var IVA_RATES = [21,10,4,0];
 
@@ -322,12 +321,13 @@
     };
   }
 
-  var state = {
-    negocio: "Mi Negocio",
-    fecha: todayISO(),
-    mediodia: crearTurnoVacio(),
-    noche: crearTurnoVacio()
-  };
+  function crearDiaVacio(fecha, negocio){
+    var md = crearTurnoVacio(); md.id = uid();
+    var nc = crearTurnoVacio(); nc.id = uid();
+    return { negocio: negocio || "Mi Negocio", fecha: fecha, mediodia: md, noche: nc };
+  }
+
+  var state = crearDiaVacio(todayISO(), "Mi Negocio");
 
   var editingId = null;
   var editingTurno = null;
@@ -363,29 +363,46 @@
   }
 
   // ---------- persistence ----------
+  // Cada día vive bajo su propia clave de fecha en LS_DIAS, así que cambiar
+  // la fecha del formulario simplemente abre (o crea) otra entrada — nada
+  // se pierde ni hace falta "cerrar" un día para pasar al siguiente.
+  function getDiasStore(){
+    try{
+      var raw = localStorage.getItem(LS_DIAS);
+      return raw ? JSON.parse(raw) : {};
+    }catch(e){ return {}; }
+  }
+  function saveDiasStore(store){
+    try{ localStorage.setItem(LS_DIAS, JSON.stringify(store)); }catch(e){}
+  }
+  function guardarDiaActual(){
+    var store = getDiasStore();
+    store[state.fecha] = state;
+    saveDiasStore(store);
+  }
+  function cargarDia(fecha){
+    var store = getDiasStore();
+    if(store[fecha]){
+      var d = store[fecha];
+      var dia = {
+        negocio: state.negocio, // el negocio es una config global, no por día
+        fecha: fecha,
+        mediodia: Object.assign(crearTurnoVacio(), d.mediodia || {}),
+        noche: Object.assign(crearTurnoVacio(), d.noche || {})
+      };
+      if(!dia.mediodia.id) dia.mediodia.id = uid();
+      if(!dia.noche.id) dia.noche.id = uid();
+      return dia;
+    }
+    return crearDiaVacio(fecha, state.negocio);
+  }
   function saveDraft(){
-    try{ localStorage.setItem(LS_DRAFT, JSON.stringify(state)); }catch(e){}
+    guardarDiaActual();
     scheduleAutoSync();
   }
   function loadDraft(){
-    try{
-      var raw = localStorage.getItem(LS_DRAFT);
-      if(raw){
-        var parsed = JSON.parse(raw);
-        state.negocio = parsed.negocio || state.negocio;
-        state.fecha = parsed.fecha || state.fecha;
-        TURNOS.forEach(function(t){
-          if(parsed[t]) state[t] = Object.assign(crearTurnoVacio(), parsed[t]);
-        });
-      }
-    }catch(e){}
-    var changed = false;
-    TURNOS.forEach(function(t){
-      if(!state[t].id){ state[t].id = uid(); changed = true; }
-    });
-    if(changed){
-      try{ localStorage.setItem(LS_DRAFT, JSON.stringify(state)); }catch(e){}
-    }
+    state = cargarDia(state.fecha);
+    guardarDiaActual();
   }
   function loadNegocio(){
     try{
@@ -395,20 +412,11 @@
   }
   function saveNegocio(){
     try{ localStorage.setItem(LS_NEGOCIO, state.negocio); }catch(e){}
-    scheduleAutoSync();
+    saveDraft();
   }
   function loadSheetUrl(){
     // La URL siempre es la que está fija en el código de esta página.
     return SHEET_URL_DEFAULT;
-  }
-  function getHistorial(){
-    try{
-      var raw = localStorage.getItem(LS_HIST);
-      return raw ? JSON.parse(raw) : [];
-    }catch(e){ return []; }
-  }
-  function saveHistorial(arr){
-    try{ localStorage.setItem(LS_HIST, JSON.stringify(arr)); }catch(e){}
   }
 
   // ---------- toast ----------
@@ -899,10 +907,34 @@
     saveNegocio();
   });
   document.getElementById('fechaCierre').addEventListener('input', function(){
-    state.fecha = this.value;
-    updateFechaLabel();
-    saveDraft();
+    var nuevaFecha = this.value;
+    if(!nuevaFecha || nuevaFecha === state.fecha) return;
+    cambiarDia(nuevaFecha);
   });
+
+  function cambiarDia(nuevaFecha){
+    guardarDiaActual(); // se guarda lo que había en el día que se estaba viendo
+    state = cargarDia(nuevaFecha);
+    document.getElementById('fechaCierre').value = state.fecha;
+    aplicarEstadoATurnos();
+    guardarDiaActual(); // asegura que el día nuevo (si no existía) quede creado
+    scheduleAutoSync();
+  }
+
+  function aplicarEstadoATurnos(){
+    document.getElementById('negocioNombre').value = state.negocio;
+    TURNOS.forEach(function(t){
+      document.getElementById('fondoFijo_'+t).value = state[t].fondoFijo || 0;
+      document.getElementById('totalFacturado_'+t).value = state[t].totalFacturado || 0;
+      document.getElementById('tpv1_'+t).value = state[t].tpv1 || 0;
+      document.getElementById('tpv2_'+t).value = state[t].tpv2 || 0;
+      buildDenomTables(t);
+      renderMovimientos(t);
+      recalc(t);
+    });
+    updateFechaLabel();
+    recalcDia();
+  }
 
   function updateFechaLabel(){
     var lbl = document.getElementById('fechaCierreLabel');
@@ -925,50 +957,15 @@
     });
   }
 
-  // ---------- limpiar / finalizar ----------
+  // ---------- vaciar (utilidad opcional, no hace falta para pasar de día) ----------
   document.getElementById('btnLimpiar').addEventListener('click', function(){
-    if(!confirm('¿Vaciar todos los movimientos y datos del día actual (mediodía y noche)? Esta acción no se puede deshacer.')) return;
-    resetDraft();
+    if(!confirm('¿Vaciar todos los movimientos y datos del día ' + state.fecha + ' (mediodía y noche)? Esta acción no se puede deshacer.')) return;
+    var fechaActual = state.fecha;
+    state = crearDiaVacio(fechaActual, state.negocio);
+    aplicarEstadoATurnos();
+    saveDraft();
     toast('Cierre del día vaciado');
   });
-
-  document.getElementById('btnFinalizar').addEventListener('click', function(){
-    var sinDatos = TURNOS.every(function(t){
-      return state[t].movimientos.length === 0 && state[t]._calc && state[t]._calc.totalContado === 0;
-    });
-    if(sinDatos){
-      if(!confirm('No cargaste movimientos ni efectivo contado en ninguno de los dos turnos. ¿Guardar igual en el historial?')) return;
-    } else if(!confirm('¿Finalizar y guardar el cierre del día (mediodía + noche) en el historial? Se vaciará el formulario para el próximo día.')){
-      return;
-    }
-    var hist = getHistorial();
-    var snapshot = JSON.parse(JSON.stringify(state));
-    snapshot.savedAt = new Date().toISOString();
-    snapshot.sentToSheet = false;
-    hist.push(snapshot);
-    saveHistorial(hist);
-    resetDraft();
-    toast('Cierre del día guardado en el historial');
-    enviarCierreASheet(snapshot, snapshot.savedAt);
-  });
-
-  function resetDraft(){
-    state.mediodia = crearTurnoVacio(); state.mediodia.id = uid();
-    state.noche = crearTurnoVacio(); state.noche.id = uid();
-    state.fecha = todayISO();
-    document.getElementById('fechaCierre').value = state.fecha;
-    updateFechaLabel();
-    TURNOS.forEach(function(t){
-      document.getElementById('fondoFijo_'+t).value = 0;
-      document.getElementById('totalFacturado_'+t).value = 0;
-      document.getElementById('tpv1_'+t).value = 0;
-      document.getElementById('tpv2_'+t).value = 0;
-      buildDenomTables(t);
-      renderMovimientos(t);
-      recalc(t);
-    });
-    saveDraft();
-  }
 
   // ---------- export CSV ----------
   function csvEscape(v){
@@ -1047,13 +1044,14 @@
     });
   }
 
-  function buildTurnoPayload(turnoState, estado){
+  function buildTurnoPayload(turnoState){
     var s = turnoState || crearTurnoVacio();
     var c = s._calc || {};
     return {
       id: s.id,
-      estado: estado || 'borrador',
+      estado: 'Sincronizado',
       fondoFijo: s.fondoFijo, totalFacturado: s.totalFacturado, tpv1: s.tpv1, tpv2: s.tpv2,
+      denom: s.denom,
       movimientos: (s.movimientos||[]).map(function(m){
         return {
           tipo: TIPO_LABEL[m.tipo]||m.tipo,
@@ -1072,15 +1070,18 @@
     };
   }
 
-  function buildSheetPayload(snapshot, estado){
-    var payload = { fecha: snapshot.fecha, negocio: snapshot.negocio };
+  function buildSheetPayload(dia){
+    var payload = { fecha: dia.fecha, negocio: dia.negocio };
     TURNOS.forEach(function(t){
-      payload[t] = buildTurnoPayload(snapshot[t], estado);
+      payload[t] = buildTurnoPayload(dia[t]);
     });
     return payload;
   }
 
-  // ---------- sincronización automática del borrador actual ----------
+  // ---------- sincronización automática ----------
+  // No hay "finalizar": cada cambio (en cualquier día) se manda solo, con
+  // una pequeña pausa para no saturar. El día que esté abierto en pantalla
+  // es el que se sincroniza en cada ciclo.
   function scheduleAutoSync(){
     var url = loadSheetUrl();
     if(!hasValidSheetUrl(url)) return; // nada cargado todavía: no intentamos mandar
@@ -1092,12 +1093,12 @@
     var url = loadSheetUrl();
     if(!hasValidSheetUrl(url)) return;
     TURNOS.forEach(function(t){ if(!state[t].id) state[t].id = uid(); });
-    sendToSheet(url, buildSheetPayload(state, 'borrador'))
+    sendToSheet(url, buildSheetPayload(state))
       .then(function(res){
         if(res && res.ok){
           logSheetStatus('Sincronizado a las ' + new Date().toLocaleTimeString('es-ES') + ' · pestaña "' + fechaTabName(state.fecha) + '"');
         } else {
-          logSheetStatus('El Sheet respondió con un error al sincronizar el borrador.', true);
+          logSheetStatus('El Sheet respondió con un error al sincronizar.', true);
         }
       })
       .catch(function(){
@@ -1111,31 +1112,27 @@
     return p[2]+'-'+p[1]+'-'+p[0];
   }
 
-  // Si se pierde y vuelve la conexión, reintenta mandar el estado actual.
+  // Si se pierde y vuelve la conexión, reintenta mandar el día actual.
   window.addEventListener('online', function(){ scheduleAutoSync(); });
 
-  function enviarCierreASheet(snapshot, savedAtKey){
+  // Fuerza el envío de un día puntual (no necesariamente el que está abierto
+  // en pantalla) — lo usa el botón "Reenviar a Sheet" de "Otros días".
+  function enviarDiaASheet(dia){
     var url = loadSheetUrl();
     if(!hasValidSheetUrl(url)) return;
-    sendToSheet(url, buildSheetPayload(snapshot, 'finalizado'))
+    sendToSheet(url, buildSheetPayload(dia))
       .then(function(res){
-        var hist = getHistorial();
-        var idx = hist.findIndex(function(h){ return h.savedAt === savedAtKey; });
-        if(idx > -1){
-          hist[idx].sentToSheet = !!(res && res.ok);
-          saveHistorial(hist);
-          if(document.getElementById('histOverlay').classList.contains('open')) renderHistorial();
-        }
-        toast(res && res.ok ? 'Cierre del día enviado a Google Sheets' : 'Guardado local OK, pero el Sheet respondió con error');
+        toast(res && res.ok ? 'Día sincronizado con Google Sheets' : 'El Sheet respondió con un error');
       })
       .catch(function(){
-        toast('Guardado local OK, pero no se pudo enviar a Google Sheets (revisá conexión)');
+        toast('No se pudo enviar a Google Sheets (revisá conexión)');
       });
   }
 
-  // ---------- historial ----------
+  // ---------- otros días ----------
   document.getElementById('btnHistorial').addEventListener('click', function(){
-    renderHistorial();
+    guardarDiaActual(); // así el día abierto aparece al día en la lista
+    renderOtrosDias();
     document.getElementById('histOverlay').classList.add('open');
   });
   document.getElementById('histClose').addEventListener('click', function(){
@@ -1145,32 +1142,31 @@
     if(e.target === this) this.classList.remove('open');
   });
 
-  function renderHistorial(){
-    var hist = getHistorial();
+  function renderOtrosDias(){
+    var store = getDiasStore();
+    var fechas = Object.keys(store).sort().reverse(); // más reciente primero
     var list = document.getElementById('histList');
-    if(hist.length === 0){
-      list.innerHTML = '<p class="muted">Todavía no guardaste ningún cierre.</p>';
+    if(fechas.length === 0){
+      list.innerHTML = '<p class="muted">Todavía no hay ningún día guardado.</p>';
       return;
     }
     list.innerHTML = '';
-    hist.slice().reverse().forEach(function(h, i){
-      var realIdx = hist.length - 1 - i;
+    fechas.forEach(function(fecha){
+      var h = store[fecha];
       var cMD = (h.mediodia && h.mediodia._calc) || {};
       var cNC = (h.noche && h.noche._calc) || {};
       var diff = (cMD.diferencia||0) + (cNC.diferencia||0);
       var movCount = ((h.mediodia&&h.mediodia.movimientos)?h.mediodia.movimientos.length:0) + ((h.noche&&h.noche.movimientos)?h.noche.movimientos.length:0);
       var pillColor = Math.abs(diff) < 0.005 ? 'var(--accent)' : (diff>0 ? 'var(--accent)' : 'var(--red)');
+      var esElActual = fecha === state.fecha;
       var div = document.createElement('div');
       div.className = 'history-item';
-      var sheetBadge = h.sentToSheet
-        ? '<span class="muted" style="color:var(--accent);">Enviado a Sheet ✓</span>'
-        : '<button class="btn-secondary" data-resend="'+realIdx+'" style="padding:4px 10px;font-size:.75rem;">Reenviar a Sheet</button>';
       div.innerHTML =
-        '<div class="history-head" data-idx="'+realIdx+'">' +
-          '<span><strong>'+ (h.fecha||'') +'</strong> <span class="muted">(Mediodía + Noche · '+ movCount +' mov.)</span></span>' +
+        '<div class="history-head" data-idx="'+fecha+'">' +
+          '<span><strong>'+ fecha +'</strong> <span class="muted">(Mediodía + Noche · '+ movCount +' mov.)'+(esElActual?' · abierto ahora':'')+'</span></span>' +
           '<span class="diff-pill" style="color:'+pillColor+'">'+ (diff>=0?'+':'') + fmt(diff) +'</span>' +
         '</div>' +
-        '<div class="history-body" id="histBody_'+realIdx+'">' +
+        '<div class="history-body" id="histBody_'+fecha+'">' +
           '<div class="summary-grid">' +
             '<div class="lbl">Esperado mediodía / noche</div><div class="val">'+fmt(cMD.esperado||0)+' / '+fmt(cNC.esperado||0)+'</div>' +
             '<div class="lbl">Contado mediodía / noche</div><div class="val">'+fmt(cMD.totalContado||0)+' / '+fmt(cNC.totalContado||0)+'</div>' +
@@ -1178,8 +1174,9 @@
             '<div class="lbl">Total facturado mediodía / noche</div><div class="val">'+fmt((h.mediodia&&h.mediodia.totalFacturado)||0)+' / '+fmt((h.noche&&h.noche.totalFacturado)||0)+'</div>' +
           '</div>' +
           '<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
-            '<button class="btn-danger" data-delhist="'+realIdx+'">Eliminar del historial</button>' +
-            sheetBadge +
+            (esElActual ? '' : '<button class="btn-primary" data-abrir="'+fecha+'" style="padding:4px 10px;font-size:.75rem;">Abrir este día</button>') +
+            '<button class="btn-secondary" data-resend="'+fecha+'" style="padding:4px 10px;font-size:.75rem;">Reenviar a Sheet</button>' +
+            '<button class="btn-danger" data-delhist="'+fecha+'">Eliminar</button>' +
           '</div>' +
         '</div>';
       list.appendChild(div);
@@ -1187,31 +1184,44 @@
 
     list.querySelectorAll('.history-head').forEach(function(head){
       head.addEventListener('click', function(){
-        var idx = head.getAttribute('data-idx');
-        document.getElementById('histBody_'+idx).classList.toggle('open');
+        var fecha = head.getAttribute('data-idx');
+        document.getElementById('histBody_'+fecha).classList.toggle('open');
+      });
+    });
+    list.querySelectorAll('[data-abrir]').forEach(function(btn){
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        var fecha = btn.getAttribute('data-abrir');
+        cambiarDia(fecha);
+        document.getElementById('histOverlay').classList.remove('open');
+        toast('Abriste el día ' + fecha);
       });
     });
     list.querySelectorAll('[data-delhist]').forEach(function(btn){
       btn.addEventListener('click', function(e){
         e.stopPropagation();
-        if(!confirm('¿Eliminar este cierre del historial?')) return;
-        var idx = parseInt(btn.getAttribute('data-delhist'), 10);
-        var h = getHistorial();
-        h.splice(idx, 1);
-        saveHistorial(h);
-        renderHistorial();
+        var fecha = btn.getAttribute('data-delhist');
+        if(!confirm('¿Eliminar todo lo guardado del día ' + fecha + '? Esta acción no se puede deshacer.')) return;
+        var store = getDiasStore();
+        delete store[fecha];
+        saveDiasStore(store);
+        if(state.fecha === fecha){
+          state = crearDiaVacio(fecha, state.negocio);
+          aplicarEstadoATurnos();
+        }
+        renderOtrosDias();
       });
     });
     list.querySelectorAll('[data-resend]').forEach(function(btn){
       btn.addEventListener('click', function(e){
         e.stopPropagation();
         if(!hasValidSheetUrl(loadSheetUrl())){ toast('No hay una URL de Apps Script válida cargada en el código'); return; }
-        var idx = parseInt(btn.getAttribute('data-resend'), 10);
-        var h = getHistorial();
-        var snap = h[idx];
-        if(!snap) return;
+        var fecha = btn.getAttribute('data-resend');
+        var store = getDiasStore();
+        var dia = (fecha === state.fecha) ? state : store[fecha];
+        if(!dia) return;
         toast('Enviando...');
-        enviarCierreASheet(snap, snap.savedAt);
+        enviarDiaASheet(dia);
       });
     });
   }
