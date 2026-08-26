@@ -219,10 +219,6 @@
     <input id="negocioNombre" value="Mi Negocio" placeholder="Nombre del negocio">
     <span class="sub">Cierre de caja — <span id="fechaCierreLabel"></span></span>
   </div>
-  <div class="header-actions">
-    <button class="btn-ghost" id="btnHistorial" style="color:#e7e9ee;border-color:#454c5a;">Otros días</button>
-    <button class="btn-ghost" id="btnExportar" style="color:#e7e9ee;border-color:#454c5a;">Exportar CSV</button>
-  </div>
 </header>
 
 <main>
@@ -286,15 +282,6 @@
 </div>
 
 <!-- Modal historial -->
-<div class="modal-overlay" id="histOverlay">
-  <div class="modal" style="max-width:640px;">
-    <button class="modal-close" id="histClose">&times;</button>
-    <h3>Otros días</h3>
-    <p class="muted" style="margin-top:-8px;">Tocá un día para abrirlo. Los cambios de cualquier día se guardan solos, no hace falta "cerrar" uno para pasar al siguiente.</p>
-    <div id="histList"></div>
-  </div>
-</div>
-
 <div class="toast" id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -350,7 +337,8 @@
       fondoFijo: 0,
       totalFacturado: 0,
       tpv1: 0,
-      tpv2: 0
+      tpv2: 0,
+      actualizadoEn: null
     };
   }
 
@@ -461,7 +449,9 @@
     }
     return crearDiaVacio(fecha, state.negocio);
   }
+  var ultimaEdicionLocalEn = 0;
   function saveDraft(){
+    ultimaEdicionLocalEn = Date.now();
     guardarDiaActual();
     scheduleAutoSync();
   }
@@ -753,6 +743,7 @@
     currentCategoria = null; currentTipo = null; currentSubtipo = null;
     scanImageBase64 = null; scanMediaType = null;
     cambioState = { modo:null, denom:null, subModo:null, cantidad:null };
+    facturaPendienteElegida = null;
   }
 
   function renderCategoryButtons(){
@@ -789,7 +780,10 @@
       var gExisting = existing && existing.tipo === 'gasto' ? existing : null;
       currentSubtipo = gExisting ? gExisting.subtipo : 'efectivo';
       renderChipRow(l2, GASTO_SUBTYPES, currentSubtipo, function(k){
+        var valoresActuales = capturarValoresFormActuales();
         currentSubtipo = k;
+        facturaPendienteElegida = null;
+        renderFormFields('gasto', Object.assign({}, gExisting, valoresActuales));
         actualizarPlaceholderInfoGasto();
       });
       renderFormFields('gasto', gExisting);
@@ -843,6 +837,9 @@
     if(tipo === 'gasto'){
       html += scanBoxHTML();
       html += proveedorField(f.proveedor||'', f.proveedorDetalle||'');
+      if(currentSubtipo === 'efectivo_antiguo'){
+        html += facturasPendientesBoxHTML();
+      }
       html += field('Nº de factura','factura','text', f.factura||'');
       html += field('Fecha','fecha','date', f.fecha||todayISO());
       html += '<div class="field" style="flex:1 1 100%;"><label>Info</label><input type="text" data-field="info" value="'+(f.info?escapeHtml(quitarTagInfoGasto(f.info, f.subtipo)):'')+'" placeholder="Detalle, observación, lo que haga falta anotar"></div>';
@@ -870,10 +867,143 @@
         var mostrar = necesitaProveedorLibre(selProv.value);
         detalleInput.style.display = mostrar ? 'block' : 'none';
         if(mostrar) detalleInput.focus();
+        if(currentSubtipo === 'efectivo_antiguo'){
+          facturaPendienteElegida = null;
+          buscarFacturasPendientes();
+        }
       });
+      if(currentSubtipo === 'efectivo_antiguo'){
+        detalleInput.addEventListener('input', debounce(function(){
+          facturaPendienteElegida = null;
+          buscarFacturasPendientes();
+        }, 500));
+      }
     }
     if(tipo === 'gasto') wireScanUI();
+    if(tipo === 'gasto' && currentSubtipo === 'efectivo_antiguo' && !editingId) buscarFacturasPendientes();
     if(tipo === 'ingreso' && currentSubtipo === 'cambio') renderCambioCalculator();
+  }
+
+  function debounce(fn, ms){
+    var timer = null;
+    return function(){
+      var args = arguments;
+      clearTimeout(timer);
+      timer = setTimeout(function(){ fn.apply(null, args); }, ms);
+    };
+  }
+
+  // ---------- Efectivo antiguo: buscar y pagar facturas pendientes ----------
+  var facturaPendienteElegida = null;
+
+  function facturasPendientesBoxHTML(){
+    return '<div class="field" style="flex:1 1 100%;">' +
+      '<div class="scan-box" id="facturasPendientesBox">' +
+        '<div class="section-title" style="margin:0 0 8px;">Facturas pendientes de este proveedor</div>' +
+        '<div id="facturasPendientesLista"><p class="muted" style="margin:0;">Elegí un proveedor arriba para ver sus facturas.</p></div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function buscarFacturasPendientes(){
+    var cont = document.getElementById('facturasPendientesLista');
+    if(!cont) return;
+    var sel = document.getElementById('proveedorSelect');
+    var proveedor = sel ? sel.value : '';
+    var detalleInput = document.getElementById('proveedorDetalleInput');
+    var detalle = (proveedor === 'Varios' && detalleInput) ? detalleInput.value.trim() : '';
+
+    if(!proveedor || (proveedor === 'Varios' && !detalle)){
+      cont.innerHTML = '<p class="muted" style="margin:0;">Elegí un proveedor arriba para ver sus facturas.</p>';
+      return;
+    }
+
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)){
+      cont.innerHTML = '<p class="muted" style="margin:0;">No hay una URL de Apps Script configurada.</p>';
+      return;
+    }
+    cont.innerHTML = '<p class="muted" style="margin:0;">Buscando…</p>';
+
+    var getUrl = url + (url.indexOf('?')>-1?'&':'?') + 'buscarFacturas=' + encodeURIComponent(proveedor) +
+      (detalle ? '&detalle=' + encodeURIComponent(detalle) : '');
+
+    fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
+      // El proveedor/detalle pudo haber cambiado mientras se esperaba la respuesta
+      var selAhora = document.getElementById('proveedorSelect');
+      if(!selAhora || selAhora.value !== proveedor) return;
+
+      if(!data || !data.ok){
+        cont.innerHTML = '<p class="muted" style="margin:0;">No se pudo buscar (' + ((data&&data.error)||'error desconocido') + ').</p>';
+        return;
+      }
+      var facturas = data.facturas || [];
+      if(facturas.length === 0){
+        cont.innerHTML = '<p class="muted" style="margin:0;">No hay facturas pendientes para este proveedor.</p>';
+        return;
+      }
+      cont.innerHTML = facturas.map(function(f, i){
+        return '<div class="factura-pendiente-item" data-idx="'+i+'" style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:6px;cursor:pointer;">' +
+          '<div style="display:flex;justify-content:space-between;gap:8px;"><strong>Fact. '+escapeHtml(f.factura||'(s/n)')+'</strong><span>'+fmt(f.importe)+'</span></div>' +
+          '<div class="muted" style="font-size:.78rem;">'+escapeHtml(f.fecha||'')+' · '+escapeHtml(f.turno||'')+(f.info?' · '+escapeHtml(f.info):'')+'</div>' +
+        '</div>';
+      }).join('');
+      cont.querySelectorAll('.factura-pendiente-item').forEach(function(el){
+        el.addEventListener('click', function(){
+          var f = facturas[Number(el.getAttribute('data-idx'))];
+          elegirFacturaPendiente(f, cont, el);
+        });
+      });
+    }).catch(function(err){
+      cont.innerHTML = '<p class="muted" style="margin:0;">No se pudo conectar con el Sheet (' + err.message + ').</p>';
+    });
+  }
+
+  function elegirFacturaPendiente(f, cont, elElegido){
+    var facturaEl = document.querySelector('#formFields [data-field="factura"]');
+    var importeEl = document.querySelector('#formFields [data-field="importe"]');
+    var ivaEl = document.querySelector('#formFields [data-field="iva"]');
+    var infoEl = document.querySelector('#formFields [data-field="info"]');
+    if(facturaEl) facturaEl.value = f.factura || '';
+    if(importeEl) importeEl.value = f.importe != null ? f.importe : '';
+    if(ivaEl) ivaEl.value = f.iva != null ? f.iva : '';
+    if(infoEl && !infoEl.value) infoEl.value = 'Pago de factura ' + (f.factura||'(s/n)') + ' del ' + (f.fecha||'');
+
+    facturaPendienteElegida = f;
+
+    if(cont){
+      cont.querySelectorAll('.factura-pendiente-item').forEach(function(el){
+        el.style.borderColor = 'var(--line)';
+        el.style.background = '';
+      });
+    }
+    if(elElegido){
+      elElegido.style.borderColor = 'var(--accent)';
+      elElegido.style.background = 'var(--accent-soft)';
+    }
+
+    toast('Factura ' + (f.factura||'(s/n)') + ' cargada — se va a marcar como pagada al guardar este movimiento');
+  }
+
+  function marcarFacturaComoPagada(factura, fechaPago){
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)) return;
+    fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ accionMarcarPagada: true, idMovimiento: factura.idMovimiento, idTurno: factura.idTurno, fechaPago: fechaPago }),
+      keepalive: true
+    }).then(function(resp){ return resp.json(); }).then(function(res){
+      if(res && res.ok){
+        logSheetStatus('Factura ' + factura.factura + ' marcada como pagada en el Sheet.');
+      } else {
+        logSheetStatus('No se pudo marcar la factura como pagada: ' + ((res&&res.error)||'error desconocido'), true);
+        toast('El movimiento se guardó, pero no se pudo marcar la factura vieja como pagada — revisala a mano.');
+      }
+    }).catch(function(err){
+      logSheetStatus('No se pudo marcar la factura como pagada: ' + err.message, true);
+      toast('El movimiento se guardó, pero no se pudo marcar la factura vieja como pagada (sin conexión) — revisala a mano.');
+    });
   }
 
   // Actualiza el placeholder del campo Info para mostrar qué etiqueta se va
@@ -1343,11 +1473,18 @@
     } else {
       state[t].movimientos.push(mov);
     }
+
+    var facturaAPagar = (currentSubtipo === 'efectivo_antiguo') ? facturaPendienteElegida : null;
+
     saveDraft();
     renderMovimientos(t);
     recalc(t);
     closeModal();
     toast('Movimiento guardado (' + TURNO_LABEL[t] + ')');
+
+    if(facturaAPagar){
+      marcarFacturaComoPagada(facturaAPagar, mov.fecha);
+    }
   });
 
   document.querySelectorAll('#categoryGrid .type-btn').forEach(function(btn){
@@ -1522,9 +1659,11 @@
     if(esNuevo) intentarCargarDesdeSheet(nuevaFecha);
   }
 
-  function aplicarEstadoATurnos(){
+  function aplicarEstadoATurnos(saltarAutoFondoFijo){
     document.getElementById('negocioNombre').value = state.negocio;
-    state.mediodia.fondoFijo = fondoFijoSugerido(state.fecha); // siempre del día anterior, no editable
+    if(!saltarAutoFondoFijo){
+      state.mediodia.fondoFijo = fondoFijoSugerido(state.fecha); // siempre del día anterior, no editable
+    }
     TURNOS.forEach(function(t){
       document.getElementById('fondoFijo_'+t).value = state[t].fondoFijo || 0;
       document.getElementById('totalFacturado_'+t).value = state[t].totalFacturado || 0;
@@ -1594,63 +1733,6 @@
     toast('Cierre del día vaciado');
   });
 
-  // ---------- export CSV ----------
-  function csvEscape(v){
-    v = String(v==null?'':v);
-    if(/[",\n;]/.test(v)) v = '"'+v.replace(/"/g,'""')+'"';
-    return v;
-  }
-
-  document.getElementById('btnExportar').addEventListener('click', function(){
-    TURNOS.forEach(recalc);
-    var lines = [];
-    lines.push(['Cierre de caja', state.negocio, state.fecha].map(csvEscape).join(';'));
-    lines.push('');
-    TURNOS.forEach(function(t){
-      var c = state[t]._calc || {};
-      lines.push(['=== ' + TURNO_LABEL[t].toUpperCase() + ' ==='].map(csvEscape).join(';'));
-      lines.push(['Tipo','Subtipo','Proveedor/Motivo','Detalle proveedor (Varios)','Responsable','Nº Factura','Info','Fecha','IVA (€)','Importe'].map(csvEscape).join(';'));
-      state[t].movimientos.forEach(function(m){
-        lines.push([
-          TIPO_LABEL[m.tipo], SUBTIPO_LABEL[m.subtipo]||'', (m.proveedor||m.motivo||''), m.proveedorDetalle||'',
-          m.responsable||'', m.factura||'', m.info||'', m.fecha||'', (m.iva!=null?m.iva.toFixed(2):''), m.importe.toFixed(2)
-        ].map(csvEscape).join(';'));
-      });
-      lines.push('');
-      lines.push(['Fondo fijo', state[t].fondoFijo.toFixed(2)].map(csvEscape).join(';'));
-      lines.push(['Total facturado', state[t].totalFacturado.toFixed(2)].map(csvEscape).join(';'));
-      lines.push(['Empanadas (se restan del facturado)', (c.empanadas||0).toFixed(2)].map(csvEscape).join(';'));
-      lines.push(['Facturado neto', (c.facturadoNeto||0).toFixed(2)].map(csvEscape).join(';'));
-      lines.push(['TPV 1', state[t].tpv1.toFixed(2)].map(csvEscape).join(';'));
-      lines.push(['TPV 2', state[t].tpv2.toFixed(2)].map(csvEscape).join(';'));
-      lines.push(['Ventas en efectivo', (c.ventasEfectivo||0).toFixed(2)].map(csvEscape).join(';'));
-      lines.push(['Ingresos efectivo', (c.ingresoEfectivo||0).toFixed(2)].map(csvEscape).join(';'));
-      lines.push(['Gastos efectivo', (c.gastoEfectivo||0).toFixed(2)].map(csvEscape).join(';'));
-      lines.push(['Retiros', (c.egreso||0).toFixed(2)].map(csvEscape).join(';'));
-      lines.push(['Efectivo esperado', (c.esperado||0).toFixed(2)].map(csvEscape).join(';'));
-      lines.push(['Efectivo contado', (c.totalContado||0).toFixed(2)].map(csvEscape).join(';'));
-      lines.push(['Diferencia', (c.diferencia||0).toFixed(2)].map(csvEscape).join(';'));
-      lines.push(['Gastos no efectivo (informativo)', (c.gastoNoEfectivo||0).toFixed(2)].map(csvEscape).join(';'));
-      lines.push('');
-    });
-    var cMD = state.mediodia._calc || {}, cNC = state.noche._calc || {};
-    lines.push(['=== TOTAL DÍA ==='].map(csvEscape).join(';'));
-    lines.push(['Efectivo esperado día', ((cMD.esperado||0)+(cNC.esperado||0)).toFixed(2)].map(csvEscape).join(';'));
-    lines.push(['Efectivo contado día', ((cMD.totalContado||0)+(cNC.totalContado||0)).toFixed(2)].map(csvEscape).join(';'));
-    lines.push(['Diferencia día', (((cMD.totalContado||0)+(cNC.totalContado||0)) - ((cMD.esperado||0)+(cNC.esperado||0))).toFixed(2)].map(csvEscape).join(';'));
-
-    var csv = "﻿" + lines.join('\n');
-    var blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = 'cierre_caja_' + (state.fecha||todayISO()) + '.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  });
-
   // ---------- Google Sheets ----------
   // La sincronización es silenciosa: no hay panel de estado en la página
   // (la URL está fija en el código y siempre es la misma). Si alguna vez
@@ -1682,6 +1764,7 @@
       denom: s.denom,
       movimientos: (s.movimientos||[]).map(function(m){
         return {
+          id: m.id,
           tipo: TIPO_LABEL[m.tipo]||m.tipo,
           subtipo: SUBTIPO_LABEL[m.subtipo]||'',
           proveedor: m.proveedor||'', proveedorDetalle: m.proveedorDetalle||'', motivo: m.motivo||'',
@@ -1861,7 +1944,7 @@
           if(!diaDesdeSheet.noche.id) diaDesdeSheet.noche.id = uid();
 
           state = diaDesdeSheet;
-          aplicarEstadoATurnos();
+          aplicarEstadoATurnos(true);
           guardarDiaActual();
           toast('Se trajeron los datos de ' + fecha + ' desde Google Sheets');
           logSheetStatus('Día ' + fecha + ' aplicado a la pantalla correctamente.');
@@ -1877,103 +1960,68 @@
     }
   }
 
-  // ---------- otros días ----------
-  document.getElementById('btnHistorial').addEventListener('click', function(){
-    guardarDiaActual(); // así el día abierto aparece al día en la lista
-    renderOtrosDias();
-    document.getElementById('histOverlay').classList.add('open');
-  });
-  document.getElementById('histClose').addEventListener('click', function(){
-    document.getElementById('histOverlay').classList.remove('open');
-  });
-  document.getElementById('histOverlay').addEventListener('click', function(e){
-    if(e.target === this) this.classList.remove('open');
-  });
+  // ---------- ida y vuelta con el Sheet (sondeo periódico) ----------
+  // Cada POLL_INTERVAL_MS, si la pestaña está visible, consulta el Sheet
+  // por el día que está abierto en pantalla. Si algún turno tiene una
+  // fecha de "Última actualización" más nueva que la que tenemos acá (es
+  // decir, alguien lo editó a mano en "Registro" después de la última vez
+  // que la app lo sincronizó), aplica esos valores a la pantalla. No pisa
+  // nada si hubo una edición local hace menos de unos segundos, para no
+  // interrumpir a alguien que está escribiendo en ese mismo momento.
+  var POLL_INTERVAL_MS = 20000;
+  var MARGEN_EDICION_LOCAL_MS = 6000;
+  var pollTimer = null;
 
-  function renderOtrosDias(){
-    var store = getDiasStore();
-    var fechas = Object.keys(store).sort().reverse(); // más reciente primero
-    var list = document.getElementById('histList');
-    if(fechas.length === 0){
-      list.innerHTML = '<p class="muted">Todavía no hay ningún día guardado.</p>';
-      return;
+  function iniciarSondeoSheet(){
+    detenerSondeoSheet();
+    pollTimer = setInterval(function(){
+      if(document.visibilityState === 'visible') revisarActualizacionesDesdeSheet();
+    }, POLL_INTERVAL_MS);
+  }
+  function detenerSondeoSheet(){
+    if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function revisarActualizacionesDesdeSheet(){
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)) return;
+    var fechaAlMomento = state.fecha;
+    var getUrl = url + (url.indexOf('?') > -1 ? '&' : '?') + 'fecha=' + encodeURIComponent(fechaAlMomento);
+    try{
+      fetch(getUrl)
+        .then(function(resp){ return resp.json(); })
+        .then(function(data){
+          if(!data || !data.ok || !data.encontrado) return;
+          if(state.fecha !== fechaAlMomento) return; // cambió de día mientras se consultaba
+          if(Date.now() - ultimaEdicionLocalEn < MARGEN_EDICION_LOCAL_MS) return; // por las dudas, no interrumpir una edición reciente
+
+          var huboCambios = false;
+          TURNOS.forEach(function(t){
+            var remoto = data[t];
+            if(!remoto || !remoto.actualizadoEn) return;
+            var remotoMs = new Date(remoto.actualizadoEn).getTime();
+            var localMs = state[t].actualizadoEn ? new Date(state[t].actualizadoEn).getTime() : 0;
+            if(isFinite(remotoMs) && remotoMs > localMs){
+              var idPrevio = state[t].id;
+              state[t] = Object.assign(crearTurnoVacio(), remoto);
+              if(!state[t].id) state[t].id = idPrevio || uid();
+              huboCambios = true;
+            }
+          });
+
+          if(huboCambios){
+            aplicarEstadoATurnos(true);
+            guardarDiaActual();
+            toast('Se actualizó desde Google Sheets (edición manual en Registro)');
+            logSheetStatus('Día ' + fechaAlMomento + ' actualizado desde el Sheet por sondeo periódico.');
+          }
+        })
+        .catch(function(err){
+          logSheetStatus('Sondeo periódico: no se pudo consultar el Sheet (' + err.message + ').', true);
+        });
+    }catch(err){
+      logSheetStatus('Sondeo periódico: no se pudo consultar el Sheet (' + err.message + ').', true);
     }
-    list.innerHTML = '';
-    fechas.forEach(function(fecha){
-      var h = store[fecha];
-      var cMD = (h.mediodia && h.mediodia._calc) || {};
-      var cNC = (h.noche && h.noche._calc) || {};
-      var diff = (cMD.diferencia||0) + (cNC.diferencia||0);
-      var movCount = ((h.mediodia&&h.mediodia.movimientos)?h.mediodia.movimientos.length:0) + ((h.noche&&h.noche.movimientos)?h.noche.movimientos.length:0);
-      var pillColor = Math.abs(diff) < 0.005 ? 'var(--accent)' : (diff>0 ? 'var(--accent)' : 'var(--red)');
-      var esElActual = fecha === state.fecha;
-      var div = document.createElement('div');
-      div.className = 'history-item';
-      div.innerHTML =
-        '<div class="history-head" data-idx="'+fecha+'">' +
-          '<span><strong>'+ fecha +'</strong> <span class="muted">(Mediodía + Noche · '+ movCount +' mov.)'+(esElActual?' · abierto ahora':'')+'</span></span>' +
-          '<span class="diff-pill" style="color:'+pillColor+'">'+ (diff>=0?'+':'') + fmt(diff) +'</span>' +
-        '</div>' +
-        '<div class="history-body" id="histBody_'+fecha+'">' +
-          '<div class="summary-grid">' +
-            '<div class="lbl">Esperado mediodía / noche</div><div class="val">'+fmt(cMD.esperado||0)+' / '+fmt(cNC.esperado||0)+'</div>' +
-            '<div class="lbl">Contado mediodía / noche</div><div class="val">'+fmt(cMD.totalContado||0)+' / '+fmt(cNC.totalContado||0)+'</div>' +
-            '<div class="lbl">Fondo fijo mediodía / noche</div><div class="val">'+fmt((h.mediodia&&h.mediodia.fondoFijo)||0)+' / '+fmt((h.noche&&h.noche.fondoFijo)||0)+'</div>' +
-            '<div class="lbl">Total facturado mediodía / noche</div><div class="val">'+fmt((h.mediodia&&h.mediodia.totalFacturado)||0)+' / '+fmt((h.noche&&h.noche.totalFacturado)||0)+'</div>' +
-          '</div>' +
-          '<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
-            (esElActual ? '' : '<button class="btn-primary" data-abrir="'+fecha+'" style="padding:4px 10px;font-size:.75rem;">Abrir este día</button>') +
-            '<button class="btn-secondary" data-resend="'+fecha+'" style="padding:4px 10px;font-size:.75rem;">Reenviar a Sheet</button>' +
-            '<button class="btn-danger" data-delhist="'+fecha+'">Eliminar</button>' +
-          '</div>' +
-        '</div>';
-      list.appendChild(div);
-    });
-
-    list.querySelectorAll('.history-head').forEach(function(head){
-      head.addEventListener('click', function(){
-        var fecha = head.getAttribute('data-idx');
-        document.getElementById('histBody_'+fecha).classList.toggle('open');
-      });
-    });
-    list.querySelectorAll('[data-abrir]').forEach(function(btn){
-      btn.addEventListener('click', function(e){
-        e.stopPropagation();
-        var fecha = btn.getAttribute('data-abrir');
-        cambiarDia(fecha);
-        document.getElementById('histOverlay').classList.remove('open');
-        toast('Abriste el día ' + fecha);
-      });
-    });
-    list.querySelectorAll('[data-delhist]').forEach(function(btn){
-      btn.addEventListener('click', function(e){
-        e.stopPropagation();
-        var fecha = btn.getAttribute('data-delhist');
-        if(!confirm('¿Eliminar todo lo guardado del día ' + fecha + ' EN ESTE DISPOSITIVO? No borra nada del Google Sheet. Esta acción no se puede deshacer.')) return;
-        var store = getDiasStore();
-        delete store[fecha];
-        saveDiasStore(store);
-        if(state.fecha === fecha){
-          state = crearDiaVacio(fecha, state.negocio);
-          aplicarEstadoATurnos();
-          guardarDiaActual();
-          intentarCargarDesdeSheet(fecha); // después de borrar lo local, intenta traer lo que haya en el Sheet
-        }
-        renderOtrosDias();
-      });
-    });
-    list.querySelectorAll('[data-resend]').forEach(function(btn){
-      btn.addEventListener('click', function(e){
-        e.stopPropagation();
-        if(!hasValidSheetUrl(loadSheetUrl())){ toast('No hay una URL de Apps Script válida cargada en el código'); return; }
-        var fecha = btn.getAttribute('data-resend');
-        var store = getDiasStore();
-        var dia = (fecha === state.fecha) ? state : store[fecha];
-        if(!dia) return;
-        toast('Enviando...');
-        enviarDiaASheet(dia);
-      });
-    });
   }
 
   // ---------- init ----------
@@ -1987,7 +2035,12 @@
     aplicarEstadoATurnos();
 
     logSheetStatus('URL configurada: ' + loadSheetUrl());
+    iniciarSondeoSheet();
   }
+
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState === 'visible') revisarActualizacionesDesdeSheet();
+  });
 
   init();
 })();
