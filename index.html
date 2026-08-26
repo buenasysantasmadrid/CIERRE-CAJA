@@ -646,13 +646,16 @@
   var TIPO_LABEL = {gasto:'Gasto', ingreso:'Ingreso', egreso:'Egreso', empanadas:'Empanadas'};
   var SUBTIPO_LABEL = {
     efectivo:'Efectivo', no_efectivo:'No efectivo', efectivo_antiguo:'Efectivo antiguo',
+    tarjeta:'Tarjeta', no_pagado:'No pagado', transferencia:'Transferencia',
     cambio:'Cambio', ingreso_arroba:'Ingreso @', empanadas_ing:'Empanadas', empleados:'Empleados',
     varios:'Varios', retiro:'Retiro de dinero', empanadas:'Empanadas'
   };
 
   function detalleTexto(m){
     if(m.tipo === 'gasto'){
-      return (m.proveedor || '(sin proveedor)') + (m.factura ? ' · Fact. '+m.factura : '');
+      var nombre = m.proveedor || '(sin proveedor)';
+      if(m.proveedor === 'Varios' && m.proveedorDetalle) nombre += ' — ' + m.proveedorDetalle;
+      return nombre + (m.factura ? ' · Fact. '+m.factura : '');
     }
     if(m.tipo === 'empanadas'){
       return (m.proveedor || '(sin proveedor)') + (m.responsable ? ' · '+m.responsable : '');
@@ -706,7 +709,18 @@
   }
 
   // ---------- modal / form ----------
-  var GASTO_SUBTYPES = [{k:'efectivo',l:'Efectivo'},{k:'no_efectivo',l:'No efectivo'},{k:'efectivo_antiguo',l:'Efectivo antiguo'}];
+  var GASTO_SUBTYPES = [
+    {k:'efectivo',l:'Efectivo'},
+    {k:'tarjeta',l:'Tarjeta'},
+    {k:'no_pagado',l:'No pagado'},
+    {k:'transferencia',l:'Transferencia'},
+    {k:'efectivo_antiguo',l:'Efectivo antiguo'}
+  ];
+  // Estas tres opciones son formas de "no efectivo": van a la misma tabla
+  // del Sheet ("Gastos no efectivo") y no afectan el cálculo de caja — la
+  // diferencia es que cada una deja su etiqueta marcada en el campo Info.
+  var SUBTIPOS_NO_EFECTIVO = ['no_efectivo', 'tarjeta', 'no_pagado', 'transferencia'];
+  var GASTO_INFO_TAG = { tarjeta:'TARJETA', no_pagado:'NO PAGADO', transferencia:'TRANSFERENCIA' };
   var OTROS_TIPOS = [{k:'ingreso',l:'Ingreso'},{k:'egreso',l:'Egreso'},{k:'empanadas',l:'Empanadas'}];
   var INGRESO_SUBTYPES = [
     {k:'cambio',l:'Cambio'},
@@ -774,8 +788,12 @@
       currentTipo = 'gasto';
       var gExisting = existing && existing.tipo === 'gasto' ? existing : null;
       currentSubtipo = gExisting ? gExisting.subtipo : 'efectivo';
-      renderChipRow(l2, GASTO_SUBTYPES, currentSubtipo, function(k){ currentSubtipo = k; });
+      renderChipRow(l2, GASTO_SUBTYPES, currentSubtipo, function(k){
+        currentSubtipo = k;
+        actualizarPlaceholderInfoGasto();
+      });
       renderFormFields('gasto', gExisting);
+      actualizarPlaceholderInfoGasto();
     } else {
       currentTipo = null; currentSubtipo = null;
       var presetTipo = existing && existing.tipo !== 'gasto' ? existing.tipo : null;
@@ -824,10 +842,10 @@
     var html = '';
     if(tipo === 'gasto'){
       html += scanBoxHTML();
-      html += proveedorField(f.proveedor||'');
+      html += proveedorField(f.proveedor||'', f.proveedorDetalle||'');
       html += field('Nº de factura','factura','text', f.factura||'');
       html += field('Fecha','fecha','date', f.fecha||todayISO());
-      html += '<div class="field" style="flex:1 1 100%;"><label>Info</label><input type="text" data-field="info" value="'+(f.info?escapeHtml(f.info):'')+'" placeholder="Detalle, observación, lo que haga falta anotar"></div>';
+      html += '<div class="field" style="flex:1 1 100%;"><label>Info</label><input type="text" data-field="info" value="'+(f.info?escapeHtml(quitarTagInfoGasto(f.info, f.subtipo)):'')+'" placeholder="Detalle, observación, lo que haga falta anotar"></div>';
       html += field('Importe total (€)','importe','number', (f.importe!=null?f.importe:''), '0.00');
       html += field('IVA (importe en €)','iva','number', (f.iva!=null?f.iva:''), '0.00');
     } else if(tipo === 'ingreso' || tipo === 'egreso'){
@@ -847,15 +865,39 @@
 
     var selProv = document.getElementById('proveedorSelect');
     if(selProv){
-      var otroInput = document.getElementById('proveedorOtroInput');
+      var detalleInput = document.getElementById('proveedorDetalleInput');
       selProv.addEventListener('change', function(){
         var mostrar = necesitaProveedorLibre(selProv.value);
-        otroInput.style.display = mostrar ? 'block' : 'none';
-        if(mostrar) otroInput.focus();
+        detalleInput.style.display = mostrar ? 'block' : 'none';
+        if(mostrar) detalleInput.focus();
       });
     }
     if(tipo === 'gasto') wireScanUI();
     if(tipo === 'ingreso' && currentSubtipo === 'cambio') renderCambioCalculator();
+  }
+
+  // Actualiza el placeholder del campo Info para mostrar qué etiqueta se va
+  // a agregar sola al guardar (Tarjeta/No pagado/Transferencia), sin tocar
+  // lo que el usuario ya haya escrito ahí.
+  // Si el Info ya guardado empieza con la etiqueta automática de su
+  // subtipo (Tarjeta/No pagado/Transferencia), la saca para mostrar solo lo
+  // que el usuario escribió — así, al guardar de nuevo, no queda duplicada.
+  function quitarTagInfoGasto(info, subtipo){
+    var tag = GASTO_INFO_TAG[subtipo];
+    if(!tag || !info) return info || '';
+    if(info === tag) return '';
+    var prefijo = tag + ' · ';
+    if(info.indexOf(prefijo) === 0) return info.slice(prefijo.length);
+    return info;
+  }
+
+  function actualizarPlaceholderInfoGasto(){
+    var infoEl = document.querySelector('#formFields [data-field="info"]');
+    if(!infoEl) return;
+    var tag = GASTO_INFO_TAG[currentSubtipo];
+    infoEl.placeholder = tag
+      ? 'Se guarda como "'+tag+'" + lo que escribas acá (opcional)'
+      : 'Detalle, observación, lo que haga falta anotar';
   }
 
   function field(label, key, type, val, placeholder){
@@ -1138,9 +1180,12 @@
         if(match){
           sel.value = match;
         } else {
-          sel.value = '__otro__';
-          var otroInput = document.getElementById('proveedorOtroInput');
-          if(otroInput) otroInput.value = nombreExtraido;
+          // No está en la lista conocida: cae en "Varios" (columna A =
+          // "Varios") con el nombre leído de la factura como detalle
+          // (columna B) — igual que si se hubiera escrito a mano.
+          sel.value = 'Varios';
+          var detalleInput = document.getElementById('proveedorDetalleInput');
+          if(detalleInput) detalleInput.value = nombreExtraido;
         }
         sel.dispatchEvent(new Event('change', {bubbles:true}));
       }
@@ -1215,26 +1260,31 @@
   // igual hay que escribir a quién correspondió — eso es lo que después
   // aparece en la columna "Proveedor" del Google Sheet.
   function necesitaProveedorLibre(valor){
-    return valor === '__otro__' || valor === 'Varios';
+    return valor === 'Varios';
   }
 
-  // Desplegable de proveedores conocidos + opción "Otro" para escribir uno
-  // nuevo que todavía no esté en la lista. Si se elige "Varios" también se
-  // pide el nombre real (ver necesitaProveedorLibre).
-  function proveedorField(selected){
+  // Desplegable de proveedores conocidos. Cualquiera que no esté en la
+  // lista va por "Varios": queda como proveedor (columna A en el Sheet) y
+  // lo que se escribe va aparte, como detalle (columna B) — así se guarda
+  // igual que en la planilla original. Ya no existe "Otro": un movimiento
+  // viejo que haya quedado con un nombre suelto (de cuando sí existía) se
+  // trata acá como si fuera "Varios" con ese nombre como detalle.
+  function proveedorField(selected, detalle){
     var yaConocido = PROVEEDORES_CONOCIDOS.indexOf(selected) > -1;
+    var esLegado = !!selected && !yaConocido && selected !== 'Varios';
+    var valorEfectivo = esLegado ? 'Varios' : selected;
+    var detalleEfectivo = esLegado ? selected : detalle;
+
     var opts = '<option value="">Elegir proveedor…</option>';
     opts += PROVEEDORES_CONOCIDOS.map(function(p){
-      return '<option value="'+escapeHtml(p)+'" '+(p===selected?'selected':'')+'>'+escapeHtml(p)+'</option>';
+      return '<option value="'+escapeHtml(p)+'" '+(p===valorEfectivo?'selected':'')+'>'+escapeHtml(p)+'</option>';
     }).join('');
-    var esCustom = !!selected && !yaConocido; // el valor guardado no está en la lista -> se cargó como "Otro"
-    opts += '<option value="__otro__" '+(esCustom?'selected':'')+'>Otro (escribir)</option>';
-    var mostrarTexto = necesitaProveedorLibre(selected) || esCustom;
-    var valorTexto = esCustom ? selected : '';
+    var mostrarTexto = valorEfectivo === 'Varios';
+    var valorTexto = mostrarTexto ? (detalleEfectivo||'') : '';
     return '<div class="field">' +
       '<label>Proveedor</label>' +
       '<select data-field="proveedor" id="proveedorSelect">'+opts+'</select>' +
-      '<input type="text" data-field="proveedorOtro" id="proveedorOtroInput" placeholder="Nombre del proveedor" ' +
+      '<input type="text" data-field="proveedorDetalle" id="proveedorDetalleInput" placeholder="Nombre real del proveedor (para la columna de detalle)" ' +
         'value="'+escapeHtml(valorTexto)+'" style="margin-top:6px;'+(mostrarTexto?'':'display:none;')+'">' +
     '</div>';
   }
@@ -1256,10 +1306,20 @@
     if(!importe){ toast('Ingresá un importe válido'); return; }
 
     var proveedorFinal = data.proveedor || '';
-    if(necesitaProveedorLibre(proveedorFinal)){
-      proveedorFinal = (data.proveedorOtro || '').trim();
+    var proveedorDetalle = '';
+    if(proveedorFinal === 'Varios'){
+      proveedorDetalle = (data.proveedorDetalle || '').trim();
     }
-    if(currentTipo === 'gasto' && !proveedorFinal){ toast('Elegí o escribí un proveedor'); return; }
+    if(currentTipo === 'gasto' && !proveedorFinal){ toast('Elegí un proveedor'); return; }
+    if(currentTipo === 'gasto' && proveedorFinal === 'Varios' && !proveedorDetalle){ toast('Escribí el nombre real del proveedor para "Varios"'); return; }
+
+    // Tarjeta / No pagado / Transferencia dejan su etiqueta marcada en Info,
+    // sumada a lo que se haya escrito ahí (no lo reemplaza).
+    var infoFinal = data.info || '';
+    if(currentTipo === 'gasto'){
+      var tagGasto = GASTO_INFO_TAG[currentSubtipo];
+      if(tagGasto) infoFinal = tagGasto + (infoFinal ? ' · ' + infoFinal : '');
+    }
 
     var mov = {
       id: editingId || uid(),
@@ -1268,8 +1328,9 @@
       importe: importe,
       fecha: data.fecha || todayISO(),
       proveedor: proveedorFinal,
+      proveedorDetalle: proveedorDetalle,
       factura: data.factura || '',
-      info: data.info || '',
+      info: infoFinal,
       iva: (data.iva !== undefined && data.iva !== '') ? num(data.iva) : null,
       motivo: data.motivo || '',
       responsable: data.responsable || ''
@@ -1328,7 +1389,7 @@
     var gastoEfectivo = 0, gastoNoEfectivo = 0, ingresoEfectivo = 0, egreso = 0, empanadas = 0;
     state[t].movimientos.forEach(function(m){
       if(m.tipo === 'gasto'){
-        if(m.subtipo === 'no_efectivo') gastoNoEfectivo += m.importe;
+        if(SUBTIPOS_NO_EFECTIVO.indexOf(m.subtipo) > -1) gastoNoEfectivo += m.importe;
         else gastoEfectivo += m.importe; // efectivo + efectivo_antiguo
       } else if(m.tipo === 'ingreso'){
         ingresoEfectivo += m.importe;
@@ -1548,10 +1609,10 @@
     TURNOS.forEach(function(t){
       var c = state[t]._calc || {};
       lines.push(['=== ' + TURNO_LABEL[t].toUpperCase() + ' ==='].map(csvEscape).join(';'));
-      lines.push(['Tipo','Subtipo','Proveedor/Motivo','Responsable','Nº Factura','Info','Fecha','IVA (€)','Importe'].map(csvEscape).join(';'));
+      lines.push(['Tipo','Subtipo','Proveedor/Motivo','Detalle proveedor (Varios)','Responsable','Nº Factura','Info','Fecha','IVA (€)','Importe'].map(csvEscape).join(';'));
       state[t].movimientos.forEach(function(m){
         lines.push([
-          TIPO_LABEL[m.tipo], SUBTIPO_LABEL[m.subtipo]||'', (m.proveedor||m.motivo||''),
+          TIPO_LABEL[m.tipo], SUBTIPO_LABEL[m.subtipo]||'', (m.proveedor||m.motivo||''), m.proveedorDetalle||'',
           m.responsable||'', m.factura||'', m.info||'', m.fecha||'', (m.iva!=null?m.iva.toFixed(2):''), m.importe.toFixed(2)
         ].map(csvEscape).join(';'));
       });
@@ -1623,7 +1684,7 @@
         return {
           tipo: TIPO_LABEL[m.tipo]||m.tipo,
           subtipo: SUBTIPO_LABEL[m.subtipo]||'',
-          proveedor: m.proveedor||'', motivo: m.motivo||'',
+          proveedor: m.proveedor||'', proveedorDetalle: m.proveedorDetalle||'', motivo: m.motivo||'',
           responsable: m.responsable||'', factura: m.factura||'', info: m.info||'',
           iva: m.iva, importe: m.importe
         };
