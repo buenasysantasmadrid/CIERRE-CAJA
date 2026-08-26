@@ -1604,7 +1604,8 @@
     return fetch(url, {
       method: 'POST',
       headers: {'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      keepalive: true // para que el pedido sobreviva si el celular pasa la pestaña a segundo plano justo después
     }).then(function(resp){
       return resp.json().catch(function(){ return {ok:true}; });
     });
@@ -1699,6 +1700,26 @@
 
   // Si se pierde y vuelve la conexión, reintenta mandar el día actual.
   window.addEventListener('online', function(){ scheduleAutoSync(); });
+
+  // En el celular, si se cambia de app o se bloquea la pantalla justo
+  // después de cargar algo, el temporizador de espera (AUTOSYNC_DELAY)
+  // puede quedar pausado en segundo plano y nunca disparar. Por eso, en
+  // cuanto la pestaña deja de estar visible, si hay una sincronización
+  // pendiente la mandamos ya mismo en lugar de esperar.
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState === 'hidden' && autoSyncTimer){
+      clearTimeout(autoSyncTimer);
+      autoSyncTimer = null;
+      syncDraftToSheet();
+    }
+  });
+  window.addEventListener('pagehide', function(){
+    if(autoSyncTimer){
+      clearTimeout(autoSyncTimer);
+      autoSyncTimer = null;
+      syncDraftToSheet();
+    }
+  });
 
   // Fuerza el envío de un día puntual (no necesariamente el que está abierto
   // en pantalla) — lo usa el botón "Reenviar a Sheet" de "Otros días".
