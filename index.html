@@ -1888,13 +1888,15 @@
       btn.addEventListener('click', function(e){
         e.stopPropagation();
         var fecha = btn.getAttribute('data-delhist');
-        if(!confirm('¿Eliminar todo lo guardado del día ' + fecha + '? Esta acción no se puede deshacer.')) return;
+        if(!confirm('¿Eliminar todo lo guardado del día ' + fecha + ' EN ESTE DISPOSITIVO? No borra nada del Google Sheet. Esta acción no se puede deshacer.')) return;
         var store = getDiasStore();
         delete store[fecha];
         saveDiasStore(store);
         if(state.fecha === fecha){
           state = crearDiaVacio(fecha, state.negocio);
           aplicarEstadoATurnos();
+          guardarDiaActual();
+          intentarCargarDesdeSheet(fecha); // después de borrar lo local, intenta traer lo que haya en el Sheet
         }
         renderOtrosDias();
       });
