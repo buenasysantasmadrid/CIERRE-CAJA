@@ -1675,8 +1675,8 @@
     if(!nuevaFecha || nuevaFecha === state.fecha) return;
 
     var store = getDiasStore();
-    var esNuevo = !store[nuevaFecha];
-    if(esNuevo && !confirm('Todavía no hay ningún cierre abierto para el ' + nuevaFecha + '. ¿Querés abrirlo?')){
+    var yaExiste = !!store[nuevaFecha] || !!fechasConDatos[nuevaFecha];
+    if(!yaExiste && !confirm('Todavía no hay ningún cierre abierto para el ' + nuevaFecha + '. ¿Querés abrirlo?')){
       this.value = state.fecha; // se queda en el día que ya estaba
       return;
     }
