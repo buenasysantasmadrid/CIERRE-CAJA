@@ -85,6 +85,33 @@
   input:focus,select:focus{outline:2px solid var(--accent);outline-offset:0;border-color:var(--accent);}
   input.input-readonly{background:#eef0f3;color:var(--ink-soft);cursor:not-allowed;}
   .fecha-grande{font-size:1.7rem;font-weight:800;color:var(--ink);margin-bottom:14px;letter-spacing:-.01em;}
+  .fecha-btn{width:100%;text-align:left;background:#fff;border:1px solid var(--line);color:var(--ink);font-weight:600;font-size:.95rem;padding:9px 10px;}
+  .fecha-btn:hover{border-color:var(--ink-soft);}
+  .calendario-popup{
+    display:none;position:absolute;top:100%;left:0;margin-top:6px;z-index:40;
+    background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;
+    box-shadow:0 8px 24px rgba(20,22,28,.15);width:280px;
+  }
+  .calendario-popup.open{display:block;}
+  .calendario-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;font-weight:700;font-size:.9rem;}
+  .cal-nav{background:#eceef1;border:none;border-radius:6px;width:28px;height:28px;padding:0;font-size:1rem;line-height:1;cursor:pointer;}
+  .cal-nav:hover{background:#e0e3e8;}
+  .calendario-dias-semana{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:.7rem;color:var(--ink-soft);margin-bottom:4px;}
+  .calendario-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;}
+  .cal-dia{
+    aspect-ratio:1;border:none;background:transparent;border-radius:6px;font-size:.82rem;
+    color:var(--ink);cursor:pointer;display:flex;align-items:center;justify-content:center;
+  }
+  .cal-dia:hover{background:#eceef1;}
+  .cal-dia-vacio{cursor:default;}
+  .cal-dia-vacio:hover{background:transparent;}
+  .cal-dia-abierto{background:var(--accent-soft);color:var(--accent);font-weight:700;}
+  .cal-dia-abierto:hover{background:#d7ecdf;}
+  .cal-dia-hoy{box-shadow:inset 0 0 0 1.5px var(--ink-soft);}
+  .cal-dia-elegido{background:var(--accent);color:#fff;}
+  .cal-dia-elegido:hover{background:#255c41;}
+  .calendario-leyenda{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:.72rem;color:var(--ink-soft);}
+  .calendario-leyenda .muestra{width:11px;height:11px;border-radius:3px;background:var(--accent-soft);flex-shrink:0;}
   button{
     cursor:pointer;
     border:none;
@@ -227,9 +254,11 @@
     <h2>Día del cierre</h2>
     <div class="fecha-grande" id="fechaGrande"></div>
     <div class="row">
-      <div class="field" style="max-width:220px;">
-        <label for="fechaCierre">Fecha</label>
-        <input type="date" id="fechaCierre">
+      <div class="field" style="max-width:280px;position:relative;">
+        <label for="fechaCierreBtn">Fecha</label>
+        <button type="button" id="fechaCierreBtn" class="fecha-btn"></button>
+        <input type="date" id="fechaCierre" style="display:none;">
+        <div class="calendario-popup" id="calendarioPopup"></div>
       </div>
     </div>
   </div>
@@ -1699,10 +1728,130 @@
     if(f){
       var parts = f.split('-');
       lbl.textContent = parts[2]+'/'+parts[1]+'/'+parts[0];
+      var btn = document.getElementById('fechaCierreBtn');
+      if(btn) btn.textContent = parts[2]+'/'+parts[1]+'/'+parts[0] + ' 📅';
     }
     var grande = document.getElementById('fechaGrande');
     if(grande) grande.textContent = formatearFechaLarga(f);
   }
+
+  // ---------- calendario propio (el nativo no se puede pintar ni siempre se puede navegar bien) ----------
+  var calMesMostrado = null;  // 0-11
+  var calAnioMostrado = null;
+  var fechasConDatos = {};    // 'YYYY-MM-DD' -> true, mezcla de lo local y lo que devuelve el Sheet
+
+  function actualizarFechasConDatosLocal(){
+    var store = getDiasStore();
+    Object.keys(store).forEach(function(f){
+      var dia = store[f];
+      var tieneAlgo = TURNOS.some(function(t){
+        var s = dia && dia[t];
+        if(!s) return false;
+        var c = s._calc || {};
+        return (s.movimientos && s.movimientos.length) || s.totalFacturado || s.tpv1 || s.tpv2 || c.totalContado;
+      });
+      if(tieneAlgo) fechasConDatos[f] = true;
+    });
+  }
+
+  // Trae, una vez, la lista completa de días con datos en el Sheet (de
+  // cualquier dispositivo) para poder pintarlos aunque nunca se hayan
+  // abierto en este navegador.
+  function cargarFechasConDatosDesdeSheet(){
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)) return;
+    try{
+      var getUrl = url + (url.indexOf('?')>-1?'&':'?') + 'listarDias=1';
+      fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
+        if(data && data.ok && data.fechas){
+          data.fechas.forEach(function(f){ fechasConDatos[f] = true; });
+          var pop = document.getElementById('calendarioPopup');
+          if(pop && pop.classList.contains('open')) renderCalendario();
+        }
+      }).catch(function(err){
+        logSheetStatus('No se pudo traer la lista de días con datos: ' + err.message, true);
+      });
+    }catch(err){
+      logSheetStatus('No se pudo traer la lista de días con datos: ' + err.message, true);
+    }
+  }
+
+  function abrirCalendario(){
+    var partes = state.fecha.split('-').map(Number);
+    calAnioMostrado = partes[0];
+    calMesMostrado = partes[1] - 1;
+    actualizarFechasConDatosLocal();
+    renderCalendario();
+    document.getElementById('calendarioPopup').classList.add('open');
+  }
+  function cerrarCalendario(){
+    document.getElementById('calendarioPopup').classList.remove('open');
+  }
+
+  function renderCalendario(){
+    var pop = document.getElementById('calendarioPopup');
+    var primerDiaMes = new Date(calAnioMostrado, calMesMostrado, 1);
+    var diasEnMes = new Date(calAnioMostrado, calMesMostrado + 1, 0).getDate();
+    var diaSemanaInicio = primerDiaMes.getDay(); // 0 = domingo
+    var hoy = todayISO();
+
+    var celdas = '';
+    for(var i=0; i<diaSemanaInicio; i++){
+      celdas += '<span class="cal-dia cal-dia-vacio"></span>';
+    }
+    for(var d=1; d<=diasEnMes; d++){
+      var fechaISO = calAnioMostrado + '-' + String(calMesMostrado+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+      var clases = 'cal-dia';
+      if(fechasConDatos[fechaISO]) clases += ' cal-dia-abierto';
+      if(fechaISO === hoy) clases += ' cal-dia-hoy';
+      if(fechaISO === state.fecha) clases += ' cal-dia-elegido';
+      celdas += '<button type="button" class="'+clases+'" data-fecha="'+fechaISO+'">'+d+'</button>';
+    }
+
+    pop.innerHTML =
+      '<div class="calendario-header">' +
+        '<button type="button" class="cal-nav" id="calMesAnterior">‹</button>' +
+        '<span>'+MESES[calMesMostrado]+' '+calAnioMostrado+'</span>' +
+        '<button type="button" class="cal-nav" id="calMesSiguiente">›</button>' +
+      '</div>' +
+      '<div class="calendario-dias-semana"><span>D</span><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span></div>' +
+      '<div class="calendario-grid">'+celdas+'</div>' +
+      '<div class="calendario-leyenda"><span class="muestra"></span> Día con la caja abierta</div>';
+
+    document.getElementById('calMesAnterior').addEventListener('click', function(){
+      calMesMostrado--;
+      if(calMesMostrado < 0){ calMesMostrado = 11; calAnioMostrado--; }
+      renderCalendario();
+    });
+    document.getElementById('calMesSiguiente').addEventListener('click', function(){
+      calMesMostrado++;
+      if(calMesMostrado > 11){ calMesMostrado = 0; calAnioMostrado++; }
+      renderCalendario();
+    });
+    pop.querySelectorAll('.cal-dia[data-fecha]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var fecha = btn.getAttribute('data-fecha');
+        cerrarCalendario();
+        var fechaInput = document.getElementById('fechaCierre');
+        if(fecha === fechaInput.value) return;
+        fechaInput.value = fecha;
+        fechaInput.dispatchEvent(new Event('input', {bubbles:true}));
+      });
+    });
+  }
+
+  document.getElementById('fechaCierreBtn').addEventListener('click', function(e){
+    e.stopPropagation();
+    var pop = document.getElementById('calendarioPopup');
+    if(pop.classList.contains('open')) cerrarCalendario();
+    else abrirCalendario();
+  });
+  document.addEventListener('click', function(e){
+    var pop = document.getElementById('calendarioPopup');
+    if(pop.classList.contains('open') && !pop.contains(e.target) && e.target.id !== 'fechaCierreBtn'){
+      cerrarCalendario();
+    }
+  });
 
   function wireTurnoEvents(t){
     ['fondoFijo','totalFacturado','tpv1','tpv2'].forEach(function(base){
@@ -2060,6 +2209,7 @@
     aplicarEstadoATurnos();
 
     logSheetStatus('URL configurada: ' + loadSheetUrl());
+    cargarFechasConDatosDesdeSheet();
     if(seAbrio) iniciarSondeoSheet();
   }
 
