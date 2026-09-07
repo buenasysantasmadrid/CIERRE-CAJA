@@ -1818,12 +1818,14 @@
       '<div class="calendario-grid">'+celdas+'</div>' +
       '<div class="calendario-leyenda"><span class="muestra"></span> Día con la caja abierta</div>';
 
-    document.getElementById('calMesAnterior').addEventListener('click', function(){
+    document.getElementById('calMesAnterior').addEventListener('click', function(e){
+      e.stopPropagation();
       calMesMostrado--;
       if(calMesMostrado < 0){ calMesMostrado = 11; calAnioMostrado--; }
       renderCalendario();
     });
-    document.getElementById('calMesSiguiente').addEventListener('click', function(){
+    document.getElementById('calMesSiguiente').addEventListener('click', function(e){
+      e.stopPropagation();
       calMesMostrado++;
       if(calMesMostrado > 11){ calMesMostrado = 0; calAnioMostrado++; }
       renderCalendario();
