@@ -1644,6 +1644,13 @@
   document.getElementById('fechaCierre').addEventListener('input', function(){
     var nuevaFecha = this.value;
     if(!nuevaFecha || nuevaFecha === state.fecha) return;
+
+    var store = getDiasStore();
+    var esNuevo = !store[nuevaFecha];
+    if(esNuevo && !confirm('Todavía no hay ningún cierre abierto para el ' + nuevaFecha + '. ¿Querés abrirlo?')){
+      this.value = state.fecha; // se queda en el día que ya estaba
+      return;
+    }
     cambiarDia(nuevaFecha);
   });
 
@@ -2027,7 +2034,25 @@
   // ---------- init ----------
   function init(){
     loadNegocio();
-    loadDraft();
+
+    var store = getDiasStore();
+    var esNuevoHoy = !store[state.fecha];
+    var seAbrio = true;
+
+    if(esNuevoHoy){
+      seAbrio = confirm('Todavía no hay ningún cierre abierto para hoy (' + state.fecha + '). ¿Querés abrirlo?');
+    }
+
+    if(seAbrio){
+      loadDraft(); // carga lo local que haya y, si es nuevo, intenta traer del Sheet
+    } else {
+      // No se toca el Sheet ni se guarda nada todavía: el formulario queda
+      // en blanco, listo para usar si el usuario decide cargar algo más
+      // adelante (en ese momento ya se sincroniza como siempre).
+      state = crearDiaVacio(state.fecha, state.negocio);
+      logSheetStatus('El usuario decidió no abrir el día ' + state.fecha + ' todavía; no se sincroniza nada hasta que cargue algo.');
+    }
+
     document.getElementById('fechaCierre').value = state.fecha || todayISO();
 
     document.getElementById('turnoSections').innerHTML = TURNOS.map(turnoSectionHTML).join('');
@@ -2035,7 +2060,7 @@
     aplicarEstadoATurnos();
 
     logSheetStatus('URL configurada: ' + loadSheetUrl());
-    iniciarSondeoSheet();
+    if(seAbrio) iniciarSondeoSheet();
   }
 
   document.addEventListener('visibilitychange', function(){
