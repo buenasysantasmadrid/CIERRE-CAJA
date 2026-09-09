@@ -1708,26 +1708,28 @@
     });
   }
 
-  // Trae, una vez, la lista completa de días con datos en el Sheet (de
-  // cualquier dispositivo) para poder pintarlos aunque nunca se hayan
-  // abierto en este navegador.
+  // Trae la lista completa de días con datos en el Sheet (de cualquier
+  // dispositivo) para poder pintarlos aunque nunca se hayan abierto en este
+  // navegador. Devuelve una promesa que SIEMPRE se resuelve (nunca rechaza,
+  // y tiene un límite de espera) para que quien la use pueda simplemente
+  // esperarla antes de decidir algo, sin quedar colgado si no hay conexión.
   function cargarFechasConDatosDesdeSheet(){
     var url = loadSheetUrl();
-    if(!hasValidSheetUrl(url)) return;
-    try{
-      var getUrl = url + (url.indexOf('?')>-1?'&':'?') + 'listarDias=1';
-      fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
-        if(data && data.ok && data.fechas){
-          data.fechas.forEach(function(f){ fechasConDatos[f] = true; });
-          var pop = document.getElementById('calendarioPopup');
-          if(pop && pop.classList.contains('open')) renderCalendario();
-        }
-      }).catch(function(err){
-        logSheetStatus('No se pudo traer la lista de días con datos: ' + err.message, true);
-      });
-    }catch(err){
+    if(!hasValidSheetUrl(url)) return Promise.resolve();
+
+    var getUrl = url + (url.indexOf('?')>-1?'&':'?') + 'listarDias=1';
+    var pedido = fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
+      if(data && data.ok && data.fechas){
+        data.fechas.forEach(function(f){ fechasConDatos[f] = true; });
+        var pop = document.getElementById('calendarioPopup');
+        if(pop && pop.classList.contains('open')) renderCalendario();
+      }
+    }).catch(function(err){
       logSheetStatus('No se pudo traer la lista de días con datos: ' + err.message, true);
-    }
+    });
+
+    var timeout = new Promise(function(resolve){ setTimeout(resolve, 6000); });
+    return Promise.race([pedido, timeout]);
   }
 
   function abrirCalendario(){
@@ -2140,34 +2142,40 @@
   // ---------- init ----------
   function init(){
     loadNegocio();
-
-    var store = getDiasStore();
-    var esNuevoHoy = !store[state.fecha];
-    var seAbrio = true;
-
-    if(esNuevoHoy){
-      seAbrio = confirm('Todavía no hay ningún cierre abierto para hoy (' + state.fecha + '). ¿Querés abrirlo?');
-    }
-
-    if(seAbrio){
-      loadDraft(); // carga lo local que haya y, si es nuevo, intenta traer del Sheet
-    } else {
-      // No se toca el Sheet ni se guarda nada todavía: el formulario queda
-      // en blanco, listo para usar si el usuario decide cargar algo más
-      // adelante (en ese momento ya se sincroniza como siempre).
-      state = crearDiaVacio(state.fecha, state.negocio);
-      logSheetStatus('El usuario decidió no abrir el día ' + state.fecha + ' todavía; no se sincroniza nada hasta que cargue algo.');
-    }
-
-    document.getElementById('fechaCierre').value = state.fecha || todayISO();
-
-    document.getElementById('turnoSections').innerHTML = TURNOS.map(turnoSectionHTML).join('');
-    TURNOS.forEach(wireTurnoEvents);
-    aplicarEstadoATurnos();
-
     logSheetStatus('URL configurada: ' + loadSheetUrl());
-    cargarFechasConDatosDesdeSheet();
-    if(seAbrio) iniciarSondeoSheet();
+    document.getElementById('turnoSections').innerHTML = '<p class="muted">Cargando…</p>';
+
+    // Antes de preguntar si hay que "abrir" el día, hay que saber si ya se
+    // trabajó desde OTRO dispositivo (esa info vive en el Sheet, no en este
+    // navegador). Si no se espera esto, un celular/computadora nueva nunca
+    // ve lo que ya se cerró desde otro lado y pregunta de nuevo.
+    cargarFechasConDatosDesdeSheet().then(function(){
+      var store = getDiasStore();
+      var esNuevoHoy = !store[state.fecha] && !fechasConDatos[state.fecha];
+      var seAbrio = true;
+
+      if(esNuevoHoy){
+        seAbrio = confirm('Todavía no hay ningún cierre abierto para hoy (' + state.fecha + '). ¿Querés abrirlo?');
+      }
+
+      if(seAbrio){
+        loadDraft(); // carga lo local que haya y, si es nuevo, intenta traer del Sheet
+      } else {
+        // No se toca el Sheet ni se guarda nada todavía: el formulario queda
+        // en blanco, listo para usar si el usuario decide cargar algo más
+        // adelante (en ese momento ya se sincroniza como siempre).
+        state = crearDiaVacio(state.fecha, state.negocio);
+        logSheetStatus('El usuario decidió no abrir el día ' + state.fecha + ' todavía; no se sincroniza nada hasta que cargue algo.');
+      }
+
+      document.getElementById('fechaCierre').value = state.fecha || todayISO();
+
+      document.getElementById('turnoSections').innerHTML = TURNOS.map(turnoSectionHTML).join('');
+      TURNOS.forEach(wireTurnoEvents);
+      aplicarEstadoATurnos();
+
+      if(seAbrio) iniciarSondeoSheet();
+    });
   }
 
   document.addEventListener('visibilitychange', function(){
