@@ -1676,6 +1676,15 @@
 
     var store = getDiasStore();
     var yaExiste = !!store[nuevaFecha] || !!fechasConDatos[nuevaFecha];
+
+    // Un día pasado que nunca se abrió no se puede empezar a cargar ahora:
+    // solo se puede abrir una caja nueva en el día actual o en uno futuro.
+    if(!yaExiste && nuevaFecha < todayISO()){
+      alert('NO SE TRABAJO ESTE DIA');
+      this.value = state.fecha; // se queda en el día que ya estaba
+      return;
+    }
+
     if(!yaExiste && !confirm('Todavía no hay ningún cierre abierto para el ' + nuevaFecha + '. ¿Querés abrirlo?')){
       this.value = state.fecha; // se queda en el día que ya estaba
       return;
