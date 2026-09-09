@@ -153,10 +153,6 @@
   .denom-label{font-weight:600;}
   .subtotal-line{display:flex;justify-content:space-between;padding:6px 0;font-size:.9rem;}
   .subtotal-line.total{border-top:1px solid var(--line);margin-top:6px;padding-top:10px;font-weight:700;font-size:1rem;}
-  .summary-grid{display:grid;grid-template-columns:1fr auto;row-gap:6px;column-gap:16px;font-size:.92rem;}
-  .summary-grid .lbl{color:var(--ink-soft);}
-  .summary-grid .val{text-align:right;font-variant-numeric:tabular-nums;}
-  .summary-grid .divider{grid-column:1/-1;border-top:1px solid var(--line);margin:6px 0;}
   .result-box{
     margin-top:14px;
     padding:16px;
@@ -214,6 +210,19 @@
   }
   .turno-pill.mediodia{background:var(--amber-soft);color:var(--amber);}
   .turno-pill.noche{background:var(--blue-soft);color:var(--blue);}
+  .movs-section{border:1px solid var(--line);border-radius:10px;background:#fff;padding:12px 14px;margin-bottom:14px;}
+  .movs-section-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
+  .movs-title{font-size:.82rem;font-weight:700;color:var(--ink);text-transform:uppercase;letter-spacing:.03em;}
+  .movs-hint{font-size:.76rem;color:var(--ink-soft);margin-top:2px;}
+  .btn-add{white-space:nowrap;}
+  .btn-cerrar-caja{
+    display:block;width:100%;text-align:center;background:var(--accent);color:#fff;
+    font-weight:800;font-size:1rem;text-transform:uppercase;letter-spacing:.05em;
+    padding:14px;border-radius:10px;margin:6px 0 14px;
+  }
+  .btn-cerrar-caja:hover{background:#255c41;}
+  .btn-cerrar-caja.abierto{background:#eceef1;color:var(--ink);}
+  .btn-cerrar-caja.abierto:hover{background:#e0e3e8;}
   .section-title{font-size:.82rem;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;margin:16px 0 8px;}
   .section-title:first-child{margin-top:0;}
   .section-title-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:16px 0 4px;flex-wrap:wrap;}
@@ -266,16 +275,7 @@
   <div id="turnoSections"></div>
 
   <div class="card">
-    <h2>Resumen del día (Mediodía + Noche)</h2>
-    <div class="summary-grid">
-      <div class="lbl">Efectivo esperado — Mediodía</div><div class="val" id="diaEsperadoMD">0,00 €</div>
-      <div class="lbl">Efectivo esperado — Noche</div><div class="val" id="diaEsperadoNC">0,00 €</div>
-      <div class="lbl" style="font-weight:700;">Efectivo esperado — Total día</div><div class="val" id="diaEsperadoTotal" style="font-weight:700;">0,00 €</div>
-      <div class="divider"></div>
-      <div class="lbl">Efectivo contado — Mediodía</div><div class="val" id="diaContadoMD">0,00 €</div>
-      <div class="lbl">Efectivo contado — Noche</div><div class="val" id="diaContadoNC">0,00 €</div>
-      <div class="lbl" style="font-weight:700;">Efectivo contado — Total día</div><div class="val" id="diaContadoTotal" style="font-weight:700;">0,00 €</div>
-    </div>
+    <h2>Estado del día (Mediodía + Noche)</h2>
     <div class="result-box ok" id="diaResultBox">
       <div class="diff" id="diaResultDiff">0,00 €</div>
       <div class="lbl" id="diaResultLbl">CUADRA</div>
@@ -529,14 +529,34 @@
     '<div class="turno-block" data-turno="'+t+'">' +
       '<div class="turno-heading"><h2>'+label+'</h2><span class="turno-pill '+pillClass+'">'+label+'</span></div>' +
 
-      '<div class="section-title-row">' +
-        '<button type="button" class="btn-secondary btn-toggle" data-toggle-cierre="'+t+'" id="cierreToggleBtn_'+t+'">Completar cierre</button>' +
-        '<span class="section-title">Contar cierre</span>' +
+      '<div class="movs-section">' +
+        '<div class="movs-section-head">' +
+          '<div><div class="movs-title">Proveedores</div><div class="movs-hint">Cargá acá los pagos y facturas a proveedores.</div></div>' +
+          '<button class="btn-primary btn-add" data-add-prov="'+t+'">+ Agregar proveedor</button>' +
+        '</div>' +
+        '<table>' +
+          '<thead><tr><th>Tipo</th><th>Detalle</th><th>Fecha</th><th class="num">Importe</th><th></th></tr></thead>' +
+          '<tbody id="provBody_'+t+'"></tbody>' +
+        '</table>' +
+        '<div id="provEmpty_'+t+'" class="empty-row">Todavía no agregaste movimientos de proveedores.</div>' +
       '</div>' +
-      '<div class="subtotal-line total"><span>Total efectivo contado</span><span id="totalContadoLbl_'+t+'">0,00 €</span></div>' +
+
+      '<div class="movs-section">' +
+        '<div class="movs-section-head">' +
+          '<div><div class="movs-title">Movimientos</div><div class="movs-hint">Cargá acá ingresos, egresos y empanadas.</div></div>' +
+          '<button class="btn-primary btn-add" data-add-otros="'+t+'">+ Agregar movimiento</button>' +
+        '</div>' +
+        '<table>' +
+          '<thead><tr><th>Tipo</th><th>Detalle</th><th>Fecha</th><th class="num">Importe</th><th></th></tr></thead>' +
+          '<tbody id="otrosBody_'+t+'"></tbody>' +
+        '</table>' +
+        '<div id="otrosEmpty_'+t+'" class="empty-row">Todavía no agregaste movimientos.</div>' +
+      '</div>' +
+
+      '<button type="button" class="btn-cerrar-caja" data-toggle-cierre="'+t+'" id="cierreToggleBtn_'+t+'">CERRAR CAJA</button>' +
       '<div class="collapse" id="cierreContent_'+t+'">' +
         (t==='noche'
-          ? '<p class="muted" style="margin-top:0;">Acá va la lectura de TODO el día (no solo de la noche): el número que marca la caja/TPV al cerrar, acumulado desde la mañana. Más abajo, en "Resumen y diferencia", el sistema calcula solo la parte que corresponde a Noche restando lo que ya cargaste en Mediodía.</p>'
+          ? '<p class="muted" style="margin-top:0;">Acá va la lectura de TODO el día (no solo de la noche): el número que marca la caja/TPV al cerrar, acumulado desde la mañana. El sistema calcula solo la parte que corresponde a Noche restando lo que ya cargaste en Mediodía.</p>'
           : '') +
         '<div class="row" style="margin-bottom:6px;">' +
           (t==='mediodia'
@@ -561,56 +581,9 @@
           '<thead><tr><th>Monedas</th><th>Sueltas (cant.)</th><th>Rollos/blister (cant.)</th><th class="num">Subtotal</th></tr></thead>' +
           '<tbody id="monedasBody_'+t+'"></tbody>' +
         '</table>' +
+        '<div class="subtotal-line total"><span>Total efectivo contado</span><span id="totalContadoLbl_'+t+'">0,00 €</span></div>' +
       '</div>' +
 
-      '<div class="section-title">Proveedores</div>' +
-      '<div style="display:flex;justify-content:flex-start;margin-bottom:8px;">' +
-        '<button class="btn-primary" data-add-prov="'+t+'">+ Proveedor</button>' +
-      '</div>' +
-      '<table>' +
-        '<thead><tr><th>Tipo</th><th>Detalle</th><th>Fecha</th><th class="num">Importe</th><th></th></tr></thead>' +
-        '<tbody id="provBody_'+t+'"></tbody>' +
-      '</table>' +
-      '<div id="provEmpty_'+t+'" class="empty-row">Todavía no agregaste movimientos de proveedores.</div>' +
-
-      '<div class="section-title">Otros movimientos</div>' +
-      '<div style="display:flex;justify-content:flex-start;margin-bottom:8px;">' +
-        '<button class="btn-primary" data-add-otros="'+t+'">+ Movimiento</button>' +
-      '</div>' +
-      '<table>' +
-        '<thead><tr><th>Tipo</th><th>Detalle</th><th>Fecha</th><th class="num">Importe</th><th></th></tr></thead>' +
-        '<tbody id="otrosBody_'+t+'"></tbody>' +
-      '</table>' +
-      '<div id="otrosEmpty_'+t+'" class="empty-row">Todavía no agregaste otros movimientos.</div>' +
-
-      '<div class="section-title">Resumen y diferencia — '+label+'</div>' +
-      '<div class="summary-grid">' +
-        (t==='noche'
-          ? '<div class="lbl">Total facturado — día completo</div><div class="val" id="rFacturadoDiaCompleto_'+t+'">0,00 €</div>' +
-            '<div class="lbl">− Total facturado Mediodía</div><div class="val" id="rFacturadoRestaMD_'+t+'">0,00 €</div>' +
-            '<div class="lbl" style="font-weight:600;">= Facturado propio de Noche</div><div class="val" id="rFacturado_'+t+'" style="font-weight:600;">0,00 €</div>'
-          : '<div class="lbl">Total facturado</div><div class="val" id="rFacturado_'+t+'">0,00 €</div>'
-        ) +
-        '<div class="lbl">− Empanadas</div><div class="val" id="rEmpanadas_'+t+'">0,00 €</div>' +
-        '<div class="lbl">= Facturado neto</div><div class="val" id="rFacturadoNeto_'+t+'">0,00 €</div>' +
-        '<div class="divider"></div>' +
-        '<div class="lbl">Fondo fijo</div><div class="val" id="rFondoFijo_'+t+'">0,00 €</div>' +
-        (t==='noche'
-          ? '<div class="lbl">TPV 1 (día completo − Mediodía)</div><div class="val" id="rTpv1DiaCompleto_'+t+'">0,00 €</div>' +
-            '<div class="lbl" style="font-weight:600;">= TPV 1 propio de Noche</div><div class="val" id="rTpv1RestaMD_'+t+'" style="font-weight:600;">0,00 €</div>' +
-            '<div class="lbl">TPV 2 (día completo − Mediodía)</div><div class="val" id="rTpv2DiaCompleto_'+t+'">0,00 €</div>' +
-            '<div class="lbl" style="font-weight:600;">= TPV 2 propio de Noche</div><div class="val" id="rTpv2RestaMD_'+t+'" style="font-weight:600;">0,00 €</div>'
-          : '') +
-        '<div class="lbl">Ventas en efectivo (Facturado neto − TPVs)</div><div class="val" id="rVentasEfectivo_'+t+'">0,00 €</div>' +
-        '<div class="lbl">+ Ingresos en efectivo (cambio, varios)</div><div class="val" id="rIngresos_'+t+'">0,00 €</div>' +
-        '<div class="lbl">− Gastos en efectivo (efectivo + efectivo antiguo)</div><div class="val" id="rGastos_'+t+'">0,00 €</div>' +
-        '<div class="lbl">− Retiros de dinero</div><div class="val" id="rEgresos_'+t+'">0,00 €</div>' +
-        '<div class="divider"></div>' +
-        '<div class="lbl" style="font-weight:700;">Efectivo esperado</div><div class="val" id="rEsperado_'+t+'" style="font-weight:700;">0,00 €</div>' +
-        '<div class="lbl">Efectivo contado</div><div class="val" id="rContado_'+t+'">0,00 €</div>' +
-        '<div class="divider"></div>' +
-        '<div class="lbl muted">Gastos no efectivo (informativo, no afecta caja)</div><div class="val muted" id="rNoEfectivo_'+t+'">0,00 €</div>' +
-      '</div>' +
       '<div class="result-box ok" id="resultBox_'+t+'">' +
         '<div class="diff" id="resultDiff_'+t+'">0,00 €</div>' +
         '<div class="lbl" id="resultLbl_'+t+'">CUADRA</div>' +
@@ -1589,13 +1562,6 @@
       totalFacturadoPropio = Math.max(0, totalFacturado - mdFacturado);
       tpv1Propio = Math.max(0, tpv1 - mdTpv1);
       tpv2Propio = Math.max(0, tpv2 - mdTpv2);
-
-      document.getElementById('rFacturadoDiaCompleto_noche').textContent = fmt(totalFacturado);
-      document.getElementById('rFacturadoRestaMD_noche').textContent = '− ' + fmt(mdFacturado);
-      document.getElementById('rTpv1DiaCompleto_noche').textContent = fmt(tpv1) + ' − ' + fmt(mdTpv1);
-      document.getElementById('rTpv1RestaMD_noche').textContent = fmt(tpv1Propio);
-      document.getElementById('rTpv2DiaCompleto_noche').textContent = fmt(tpv2) + ' − ' + fmt(mdTpv2);
-      document.getElementById('rTpv2RestaMD_noche').textContent = fmt(tpv2Propio);
     }
 
     var facturadoNeto = totalFacturadoPropio - empanadas;
@@ -1603,18 +1569,6 @@
 
     var esperado = fondoFijo + ventasEfectivo + ingresoEfectivo - gastoEfectivo - egreso;
     var diferencia = totalContado - esperado;
-
-    document.getElementById('rFondoFijo_'+t).textContent = fmt(fondoFijo);
-    document.getElementById('rFacturado_'+t).textContent = fmt(totalFacturadoPropio);
-    document.getElementById('rEmpanadas_'+t).textContent = '− ' + fmt(empanadas);
-    document.getElementById('rFacturadoNeto_'+t).textContent = fmt(facturadoNeto);
-    document.getElementById('rVentasEfectivo_'+t).textContent = fmt(ventasEfectivo);
-    document.getElementById('rIngresos_'+t).textContent = fmt(ingresoEfectivo);
-    document.getElementById('rGastos_'+t).textContent = fmt(gastoEfectivo);
-    document.getElementById('rEgresos_'+t).textContent = fmt(egreso);
-    document.getElementById('rEsperado_'+t).textContent = fmt(esperado);
-    document.getElementById('rContado_'+t).textContent = fmt(totalContado);
-    document.getElementById('rNoEfectivo_'+t).textContent = fmt(gastoNoEfectivo);
 
     var box = document.getElementById('resultBox_'+t);
     var diffEl = document.getElementById('resultDiff_'+t);
@@ -1649,13 +1603,6 @@
     var espTotal = espMD + espNC;
     var contTotal = contMD + contNC;
     var diffTotal = contTotal - espTotal;
-
-    document.getElementById('diaEsperadoMD').textContent = fmt(espMD);
-    document.getElementById('diaEsperadoNC').textContent = fmt(espNC);
-    document.getElementById('diaEsperadoTotal').textContent = fmt(espTotal);
-    document.getElementById('diaContadoMD').textContent = fmt(contMD);
-    document.getElementById('diaContadoNC').textContent = fmt(contNC);
-    document.getElementById('diaContadoTotal').textContent = fmt(contTotal);
 
     var box = document.getElementById('diaResultBox');
     var diffEl = document.getElementById('diaResultDiff');
@@ -1884,7 +1831,8 @@
       var el = document.getElementById('cierreContent_'+t);
       var abrir = !el.classList.contains('open');
       el.classList.toggle('open', abrir);
-      this.textContent = abrir ? 'Ocultar cierre' : 'Completar cierre';
+      this.classList.toggle('abierto', abrir);
+      this.textContent = abrir ? 'OCULTAR CIERRE' : 'CERRAR CAJA';
     });
   }
 
