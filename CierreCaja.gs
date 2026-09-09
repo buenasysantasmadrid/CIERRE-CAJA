@@ -1,0 +1,882 @@
+function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    if (data.test) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ ok: true, msg: 'Conexión OK' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.accionMarcarPagada) {
+      return ContentService
+        .createTextOutput(JSON.stringify(marcarFacturaPagada_(data)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    var TURNOS = [
+      { key: 'mediodia', label: 'Mediodía' },
+      { key: 'noche', label: 'Noche' }
+    ];
+
+    var registro = getOrCrearRegistro_(ss);
+    var mov = getOrCrearMovimientos_(ss);
+
+    TURNOS.forEach(function (turnoInfo) {
+      var t = data[turnoInfo.key];
+      if (!t) return;
+      escribirRegistroYMovimientos_(registro, mov, data, t, turnoInfo.label);
+    });
+
+    escribirHojaDelDiaExacta_(ss, data);
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: false, error: String(err) }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function getOrCrearRegistro_(ss) {
+  var registro = ss.getSheetByName('Registro');
+  if (!registro) {
+    registro = ss.insertSheet('Registro');
+    registro.appendRow([
+      'ID', 'Estado', 'Fecha', 'Turno', 'Negocio', 'Fondo fijo', 'Total facturado', 'Empanadas',
+      'Facturado neto', 'TPV 1', 'TPV 2', 'Ventas en efectivo', 'Ingresos efectivo',
+      'Gastos efectivo', 'Retiros', 'Efectivo esperado', 'Efectivo contado', 'Diferencia',
+      'Gastos no efectivo (info)', 'Cant. movimientos', 'Última actualización', 'Datos JSON (uso interno)'
+    ]);
+    registro.setFrozenRows(1);
+  }
+  return registro;
+}
+
+function getOrCrearMovimientos_(ss) {
+  var mov = ss.getSheetByName('Movimientos');
+  if (!mov) {
+    mov = ss.insertSheet('Movimientos');
+    mov.appendRow([
+      'ID', 'ID Movimiento', 'Fecha', 'Turno', 'Tipo', 'Subtipo', 'Proveedor / Motivo', 'Responsable',
+      'Nº Factura', 'Info', 'IVA (€)', 'Importe', 'Última actualización'
+    ]);
+    mov.setFrozenRows(1);
+  }
+  return mov;
+}
+
+function escribirRegistroYMovimientos_(registro, mov, data, t, turnoLabel) {
+  var c = t.calc || {};
+  var id = t.id || '';
+  var estado = t.estado || 'Sincronizado';
+
+  var datosJSON = JSON.stringify({
+    id: t.id,
+    fondoFijo: t.fondoFijo,
+    totalFacturado: t.totalFacturado,
+    tpv1: t.tpv1,
+    tpv2: t.tpv2,
+    denom: t.denom,
+    movimientos: t.movimientosRaw || t.movimientos,
+    calc: t.calc
+  });
+
+  var filaRegistro = [
+    id, estado, data.fecha, turnoLabel, data.negocio,
+    t.fondoFijo, t.totalFacturado, c.empanadas, c.facturadoNeto,
+    t.tpv1, t.tpv2, c.ventasEfectivo, c.ingresoEfectivo,
+    c.gastoEfectivo, c.egreso, c.esperado, c.totalContado, c.diferencia,
+    c.gastoNoEfectivo, (t.movimientos || []).length, new Date(), datosJSON
+  ];
+
+  var filaExistente = id ? buscarFilaPorId_(registro, id) : -1;
+  if (filaExistente > -1) {
+    registro.getRange(filaExistente, 1, 1, filaRegistro.length).setValues([filaRegistro]);
+  } else {
+    registro.appendRow(filaRegistro);
+  }
+
+  if (id) borrarFilasPorId_(mov, id);
+  (t.movimientos || []).forEach(function (m) {
+    var proveedorMotivo = m.proveedor || m.motivo || '';
+    if (m.proveedor === 'Varios' && m.proveedorDetalle) proveedorMotivo += ' — ' + m.proveedorDetalle;
+    mov.appendRow([
+      id, m.id || '', data.fecha, turnoLabel, m.tipo, m.subtipo,
+      proveedorMotivo, m.responsable || '',
+      m.factura || '', (m.info || ''), (m.iva != null ? m.iva : ''), m.importe, new Date()
+    ]);
+  });
+}
+
+function nombreHojaDia_(fechaISO) {
+  var partes = String(fechaISO || '').split('-');
+  if (partes.length !== 3) return 'Sin fecha';
+  return partes[2] + '-' + partes[1] + '-' + partes[0];
+}
+
+// "DD-MM-YYYY" (nombre de pestaña) -> "YYYY-MM-DD" (fecha interna) —
+// inverso de nombreHojaDia_.
+function fechaDesdeNombreHoja_(nombre) {
+  var p = String(nombre || '').split('-');
+  if (p.length !== 3) return null;
+  return p[2] + '-' + p[1] + '-' + p[0];
+}
+
+function escribirHojaDelDiaExacta_(ss, data) {
+  var nombre = nombreHojaDia_(data.fecha);
+  var hoja = ss.getSheetByName(nombre);
+
+  if (!hoja) {
+    var plantilla = ss.getSheetByName('1');
+    if (!plantilla) {
+      throw new Error('No se encontró la hoja "1" (la plantilla) en esta planilla, así que no se pudo crear la pestaña del día.');
+    }
+    hoja = plantilla.copyTo(ss);
+    hoja.setName(nombre);
+    ss.setActiveSheet(hoja);
+    ss.moveActiveSheet(ss.getNumSheets());
+  }
+
+  var md = data.mediodia || {};
+  var nc = data.noche || {};
+  var movsMd = md.movimientos || [];
+  var movsNc = nc.movimientos || [];
+
+  hoja.getRange('B2').setValue(textoFechaLarga_(data.fecha));
+
+  // ---- MEDIODÍA (posiciones de la plantilla "1" nueva) ----
+  hoja.getRange('C45').setValue(md.totalFacturado || 0); // "TOTAL CIERRE SISTEMA"
+  hoja.getRange('I5').setValue(md.tpv1 || 0);
+  hoja.getRange('K5').setValue(md.tpv2 || 0);
+  hoja.getRange('C43').setValue(md.fondoFijo || 0);
+
+  escribirFilasFijas_(hoja, 6, 16, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtipo_(movsMd, 'Efectivo').map(filaGasto_));
+  escribirFilasFijas_(hoja, 5, 6, ['M', 'N', 'O', 'P', 'Q', 'R'], filtrarPorSubtipo_(movsMd, 'Efectivo antiguo').map(filaGasto_));
+  escribirFilasFijas_(hoja, 26, 15, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtiposNoEfectivo_(movsMd).map(filaGasto_));
+  escribirFilasFijas_(hoja, 29, 5, ['H', 'I', 'J'], filtrarPorTipo_(movsMd, 'Egreso').map(filaMotivoImporte_));
+  escribirFilasFijas_(hoja, 37, 4, ['H', 'I', 'J'], filtrarPorTipo_(movsMd, 'Ingreso').map(filaMotivoImporte_));
+  escribirFilasFijas_(hoja, 50, 3, ['H', 'I', 'J'], filtrarPorTipo_(movsMd, 'Empanadas').map(filaEmpanada_));
+  escribirDenomBilletes_(hoja, md.denom, 13);
+  escribirDenomMonedas_(hoja, md.denom, 18);
+
+  // ---- NOCHE (posiciones de la plantilla "1" nueva) ----
+  // En I61/K61 va la lectura de TODO el día (lo que se carga en la app como
+  // "TPV 1/2 — día completo"). En I62/K62 va la parte que le corresponde
+  // solo a Noche (ese total menos lo que ya se cargó en Mediodía — se
+  // calcula acá mismo, no se toma de "calc", para que quede bien aunque
+  // esta pestaña se regenere desde una sincronización normal de la app,
+  // no solo desde una edición manual). En I63 va la suma de esos dos.
+  hoja.getRange('C87').setValue(nc.totalFacturado || 0); // "TOTAL CIERRE SISTEMA" (noche)
+  hoja.getRange('I61').setValue(nc.tpv1 || 0);
+  hoja.getRange('K61').setValue(nc.tpv2 || 0);
+  hoja.getRange('C86').setValue(nc.fondoFijo || 0);
+
+  var tpv1NochePropio = Math.max(0, (nc.tpv1 || 0) - (md.tpv1 || 0));
+  var tpv2NochePropio = Math.max(0, (nc.tpv2 || 0) - (md.tpv2 || 0));
+  hoja.getRange('I62').setValue(tpv1NochePropio);
+  hoja.getRange('K62').setValue(tpv2NochePropio);
+  hoja.getRange('I63').setValue(tpv1NochePropio + tpv2NochePropio);
+
+  escribirFilasFijas_(hoja, 63, 10, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtipo_(movsNc, 'Efectivo').map(filaGasto_));
+  escribirFilasFijas_(hoja, 63, 6, ['M', 'N', 'O', 'P', 'Q', 'R'], filtrarPorSubtipo_(movsNc, 'Efectivo antiguo').map(filaGasto_));
+  escribirFilasFijas_(hoja, 75, 8, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtiposNoEfectivo_(movsNc).map(filaGasto_));
+  escribirFilasFijas_(hoja, 88, 5, ['H', 'I', 'J'], filtrarPorTipo_(movsNc, 'Egreso').map(filaMotivoImporte_));
+  escribirFilasFijas_(hoja, 97, 5, ['H', 'I', 'J'], filtrarPorTipo_(movsNc, 'Ingreso').map(filaMotivoImporte_));
+  escribirFilasFijas_(hoja, 106, 5, ['H', 'I', 'J'], filtrarPorTipo_(movsNc, 'Empanadas').map(filaEmpanada_));
+  escribirDenomBilletes_(hoja, nc.denom, 71);
+  escribirDenomMonedas_(hoja, nc.denom, 76);
+}
+
+function escribirFilasFijas_(hoja, startRow, maxFilas, colLetras, filas) {
+  var numCols = colLetras.length;
+  var primeraCol = colLetras[0];
+  var ultimaCol = colLetras[colLetras.length - 1];
+  var matriz = [];
+  for (var i = 0; i < maxFilas; i++) {
+    if (i < filas.length) {
+      matriz.push(filas[i]);
+    } else {
+      matriz.push(new Array(numCols).fill(''));
+    }
+  }
+  hoja.getRange(primeraCol + startRow + ':' + ultimaCol + (startRow + maxFilas - 1)).setValues(matriz);
+}
+
+function filaGasto_(m) {
+  var colB = (m.proveedor === 'Varios') ? (m.proveedorDetalle || '') : '';
+  return [m.proveedor || m.motivo || '', colB, m.factura || '', (m.info || ''), (m.iva != null ? m.iva : ''), m.importe || 0];
+}
+function filaMotivoImporte_(m) {
+  return [m.proveedor || m.motivo || '', m.responsable || '', m.importe || 0];
+}
+function filaEmpanada_(m) {
+  return [m.proveedor || m.motivo || '', '', m.importe || 0];
+}
+
+function filtrarPorTipo_(movs, tipoLabel) {
+  return (movs || []).filter(function (m) { return m.tipo === tipoLabel; });
+}
+function filtrarPorSubtipo_(movs, subtipoLabel) {
+  return (movs || []).filter(function (m) { return m.subtipo === subtipoLabel; });
+}
+function filtrarPorSubtiposNoEfectivo_(movs) {
+  var etiquetas = ['No efectivo', 'Tarjeta', 'No pagado', 'Transferencia'];
+  return (movs || []).filter(function (m) { return etiquetas.indexOf(m.subtipo) > -1; });
+}
+
+function escribirDenomBilletes_(hoja, denom, startRow) {
+  var valores = [100, 50, 20, 10, 5];
+  var billetes = (denom && denom.billetes) || {};
+  var matriz = valores.map(function (v) { return [Number(billetes[v]) || 0]; });
+  hoja.getRange('J' + startRow + ':J' + (startRow + valores.length - 1)).setValues(matriz);
+}
+
+function escribirDenomMonedas_(hoja, denom, startRow) {
+  var valores = [2, 1, 0.5, 0.2, 0.1, 0.05];
+  var blister = (denom && denom.monedasBlister) || {};
+  var sueltas = (denom && denom.monedasSueltas) || {};
+  var matrizBlister = valores.map(function (v) { return [Number(blister[v]) || 0]; });
+  var matrizSueltas = valores.map(function (v) { return [Number(sueltas[v]) || 0]; });
+  hoja.getRange('I' + startRow + ':I' + (startRow + valores.length - 1)).setValues(matrizBlister);
+  hoja.getRange('J' + startRow + ':J' + (startRow + valores.length - 1)).setValues(matrizSueltas);
+}
+
+function textoFechaLarga_(fechaISO) {
+  var partes = String(fechaISO || '').split('-');
+  if (partes.length !== 3) return '';
+  var anio = parseInt(partes[0], 10);
+  var mes = parseInt(partes[1], 10) - 1;
+  var dia = parseInt(partes[2], 10);
+  var fecha = new Date(anio, mes, dia);
+  var diasSemana = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+  var meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+  return diasSemana[fecha.getDay()] + ' ' + dia + ' de ' + meses[mes] + ' de ' + anio;
+}
+
+function buscarFilaPorId_(hoja, id) {
+  var ultimaFila = hoja.getLastRow();
+  if (ultimaFila < 2) return -1;
+  var valores = hoja.getRange(2, 1, ultimaFila - 1, 1).getValues();
+  for (var i = 0; i < valores.length; i++) {
+    if (valores[i][0] === id) return i + 2;
+  }
+  return -1;
+}
+
+function borrarFilasPorId_(hoja, id) {
+  var ultimaFila = hoja.getLastRow();
+  if (ultimaFila < 2) return;
+  var valores = hoja.getRange(2, 1, ultimaFila - 1, 1).getValues();
+  for (var i = valores.length - 1; i >= 0; i--) {
+    if (valores[i][0] === id) hoja.deleteRow(i + 2);
+  }
+}
+
+function puntajeTurno_(t) {
+  var movs = (t.movimientos || []).length;
+  var c = t.calc || {};
+  var tieneActividad = (c.totalContado || 0) !== 0 || (t.fondoFijo || 0) !== 0 ||
+    (t.totalFacturado || 0) !== 0 || (t.tpv1 || 0) !== 0 || (t.tpv2 || 0) !== 0;
+  return movs * 1000 + (tieneActividad ? 1 : 0);
+}
+
+function doGet(e) {
+  var listarDias = e && e.parameter && e.parameter.listarDias;
+  if (listarDias) {
+    return ContentService
+      .createTextOutput(JSON.stringify(listarDiasConDatos_()))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  var buscarProveedor = e && e.parameter && e.parameter.buscarFacturas;
+  if (buscarProveedor) {
+    var detalle = (e.parameter && e.parameter.detalle) || '';
+    return ContentService
+      .createTextOutput(JSON.stringify(buscarFacturasPendientes_(buscarProveedor, detalle)))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  var fecha = e && e.parameter && e.parameter.fecha;
+  if (fecha) {
+    return ContentService
+      .createTextOutput(JSON.stringify(obtenerDiaJSON_(fecha)))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  return ContentService
+    .createTextOutput(JSON.stringify({ ok: true, msg: 'API de Cierre de Caja activa. Usá POST para enviar datos, GET ?fecha=YYYY-MM-DD para leer un día ya guardado, o GET ?buscarFacturas=<proveedor> para buscar facturas pendientes.' }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function buscarFacturasPendientes_(proveedor, detalle) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var mov = ss.getSheetByName('Movimientos');
+    if (!mov) return { ok: true, facturas: [] };
+
+    var valores = mov.getDataRange().getValues();
+    var header = valores[0];
+    var idxIdTurno = header.indexOf('ID');
+    var idxIdMov = header.indexOf('ID Movimiento');
+    var idxFecha = header.indexOf('Fecha');
+    var idxTurno = header.indexOf('Turno');
+    var idxTipo = header.indexOf('Tipo');
+    var idxSubtipo = header.indexOf('Subtipo');
+    var idxProvMotivo = header.indexOf('Proveedor / Motivo');
+    var idxFactura = header.indexOf('Nº Factura');
+    var idxInfo = header.indexOf('Info');
+    var idxIva = header.indexOf('IVA (€)');
+    var idxImporte = header.indexOf('Importe');
+
+    if (idxIdMov === -1) {
+      return { ok: true, facturas: [], error: 'La pestaña "Movimientos" es de una versión anterior y no tiene la columna "ID Movimiento". Volvé a sincronizar un cambio desde la app para que se agregue.' };
+    }
+
+    var detalleNorm = (detalle || '').toLowerCase().trim();
+    var resultado = [];
+
+    for (var i = 1; i < valores.length; i++) {
+      var fila = valores[i];
+      if (fila[idxTipo] !== 'Gasto') continue;
+      if (fila[idxSubtipo] === 'Efectivo antiguo') continue;
+
+      var textoProv = String(fila[idxProvMotivo] || '');
+      var coincide;
+      if (proveedor === 'Varios') {
+        coincide = textoProv.indexOf('Varios') === 0 && (!detalleNorm || textoProv.toLowerCase().indexOf(detalleNorm) > -1);
+      } else {
+        coincide = (textoProv === proveedor) || (textoProv.indexOf(proveedor + ' —') === 0);
+      }
+      if (!coincide) continue;
+
+      var infoTexto = String(fila[idxInfo] || '');
+      if (infoTexto.indexOf('PAGADA EFECTIVO') > -1) continue;
+
+      var fechaRaw = fila[idxFecha];
+      resultado.push({
+        idMovimiento: fila[idxIdMov],
+        idTurno: fila[idxIdTurno],
+        fecha: (fechaRaw instanceof Date) ? Utilities.formatDate(fechaRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(fechaRaw || ''),
+        turno: fila[idxTurno],
+        proveedorTexto: textoProv,
+        factura: fila[idxFactura],
+        info: infoTexto,
+        iva: fila[idxIva],
+        importe: fila[idxImporte]
+      });
+    }
+
+    return { ok: true, facturas: resultado };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+function obtenerDiaJSON_(fecha) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var registro = ss.getSheetByName('Registro');
+    if (!registro) {
+      return { ok: true, encontrado: false, fecha: fecha, negocio: '', mediodia: null, noche: null };
+    }
+
+    var valores = registro.getDataRange().getValues();
+    var header = valores[0];
+    var idxFecha = header.indexOf('Fecha');
+    var idxTurno = header.indexOf('Turno');
+    var idxNegocio = header.indexOf('Negocio');
+    var idxUltima = header.indexOf('Última actualización');
+    var idxJSON = -1;
+    for (var h = 0; h < header.length; h++) {
+      if (String(header[h] || '').indexOf('Datos JSON') === 0) { idxJSON = h; break; }
+    }
+
+    if (idxJSON === -1) {
+      return {
+        ok: true, encontrado: false, fecha: fecha, negocio: '', mediodia: null, noche: null,
+        error: 'La pestaña "Registro" es de una versión anterior del script y no tiene la columna "Datos JSON (uso interno)". Volvé a sincronizar un cambio desde la app para que se agregue.'
+      };
+    }
+
+    var resultado = { ok: true, encontrado: false, fecha: fecha, negocio: '', mediodia: null, noche: null };
+    var mejorPorTurno = {};
+
+    for (var i = 1; i < valores.length; i++) {
+      var fila = valores[i];
+      var filaFechaRaw = fila[idxFecha];
+      var filaFecha = (filaFechaRaw instanceof Date)
+        ? Utilities.formatDate(filaFechaRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+        : String(filaFechaRaw || '');
+      if (filaFecha !== fecha) continue;
+
+      var jsonTexto = fila[idxJSON];
+      if (!jsonTexto) continue;
+
+      try {
+        var turnoData = JSON.parse(jsonTexto);
+        var turnoKey = (String(fila[idxTurno]).toLowerCase() === 'noche') ? 'noche' : 'mediodia';
+        var puntaje = puntajeTurno_(turnoData);
+
+        if (!mejorPorTurno[turnoKey] || puntaje >= mejorPorTurno[turnoKey].puntaje) {
+          var actualizadoRaw = idxUltima > -1 ? fila[idxUltima] : null;
+          turnoData.actualizadoEn = (actualizadoRaw instanceof Date) ? actualizadoRaw.toISOString() : null;
+          mejorPorTurno[turnoKey] = { puntaje: puntaje, datos: turnoData, fila: i + 1 };
+          resultado.negocio = fila[idxNegocio] || resultado.negocio;
+        }
+      } catch (errParse) {
+      }
+    }
+
+    if (mejorPorTurno.mediodia) { resultado.mediodia = mejorPorTurno.mediodia.datos; resultado.encontrado = true; }
+    if (mejorPorTurno.noche) { resultado.noche = mejorPorTurno.noche.datos; resultado.encontrado = true; }
+
+    return resultado;
+
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+// ============================================================================
+// PARTE 3 — Ida y vuelta con el Sheet (edición manual → app)
+// ============================================================================
+// Dos superficies de edición manual:
+//
+// 1) Pestaña "Registro": corregir a mano "Fondo fijo", "Total facturado",
+//    "TPV 1" o "TPV 2" de una fila ya existente.
+// 2) La pestaña bonita de cada día (la que tiene el nombre de la fecha, ej.
+//    "09-09-2026"): corregir el conteo de billetes/monedas, el "Fondo
+//    fijo", el "Total Cierre Sistema" (Total facturado) o el TPV 1 / TPV 2
+//    de Mediodía o Noche.
+//
+// En los dos casos, el disparador recalcula todo lo que depende de esos
+// números (igual que hace la app), actualiza "Datos JSON" de la fila en
+// Registro y vuelve a generar la pestaña bonita del día — así la próxima
+// vez que la app consulte ese día (cada 20 segundos, o al abrirlo), ve el
+// cambio.
+//
+// OJO — alcance de esto: los MOVIMIENTOS (proveedores, ingresos, egresos,
+// empanadas — tanto en la pestaña "Movimientos" como en las tablas de la
+// pestaña bonita) NO son una superficie de edición. Cada movimiento tiene
+// un ID interno que la app usa
+// para poder editarlo/borrarlo y para el flujo de "Efectivo antiguo" (pagar
+// una factura vieja); esas tablas no muestran ese ID, así que reconstruir
+// los movimientos desde ahí obligaría a inventarles un ID nuevo cada vez, y
+// eso rompería en silencio esos dos flujos. Para cargar o corregir
+// movimientos, seguís usando la app.
+//
+// Esto son simples triggers (onEdit) — se activan solo con la edición de
+// una persona real en la hoja; los cambios que hace el propio script (como
+// los que estos mismos disparadores escriben) no los vuelven a activar, así
+// que no hay riesgo de bucle infinito.
+function onEdit(e) {
+  try {
+    if (!e || !e.range) return;
+    var hoja = e.range.getSheet();
+    var nombreHoja = hoja.getName();
+    if (nombreHoja === 'Registro') {
+      manejarEdicionRegistro_(e, hoja);
+    } else if (/^\d{2}-\d{2}-\d{4}$/.test(nombreHoja)) {
+      manejarEdicionHojaDelDia_(e, hoja, nombreHoja);
+    }
+  } catch (err) {
+    Logger.log('onEdit error: ' + err);
+  }
+}
+
+function manejarEdicionRegistro_(e, hoja) {
+  var fila = e.range.getRow();
+  if (fila === 1) return; // fila de encabezados
+
+  var header = hoja.getRange(1, 1, 1, hoja.getLastColumn()).getValues()[0];
+  var idxFondoFijo = header.indexOf('Fondo fijo');
+  var idxTotalFacturado = header.indexOf('Total facturado');
+  var idxTpv1 = header.indexOf('TPV 1');
+  var idxTpv2 = header.indexOf('TPV 2');
+  var idxJSON = -1;
+  for (var h = 0; h < header.length; h++) {
+    if (String(header[h] || '').indexOf('Datos JSON') === 0) { idxJSON = h; break; }
+  }
+  if (idxJSON === -1) return; // pestaña vieja, sin dónde guardar el resultado
+
+  var colsEditables = [idxFondoFijo, idxTotalFacturado, idxTpv1, idxTpv2]
+    .filter(function (i) { return i > -1; })
+    .map(function (i) { return i + 1; });
+  var colInicio = e.range.getColumn();
+  var colFin = colInicio + e.range.getNumColumns() - 1;
+  var tocaAlgunaEditable = colsEditables.some(function (c) { return c >= colInicio && c <= colFin; });
+  if (!tocaAlgunaEditable) return; // se editó otra columna (por ej. la propia "Datos JSON"): no hacer nada
+
+  var idxId = header.indexOf('ID');
+  var idxFecha = header.indexOf('Fecha');
+  var idxTurno = header.indexOf('Turno');
+  var idxNegocio = header.indexOf('Negocio');
+
+  var filaValores = hoja.getRange(fila, 1, 1, header.length).getValues()[0];
+  var idEditado = filaValores[idxId];
+  var fechaRaw = filaValores[idxFecha];
+  var fechaStr = (fechaRaw instanceof Date)
+    ? Utilities.formatDate(fechaRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+    : String(fechaRaw || '');
+  if (!idEditado || !fechaStr) return;
+
+  var jsonTexto = filaValores[idxJSON];
+  if (!jsonTexto) return; // fila que todavía no tiene "Datos JSON" (nunca se sincronizó desde la app)
+  var turnoEditado;
+  try { turnoEditado = JSON.parse(jsonTexto); } catch (errParse) { return; }
+
+  // Se trabaja sobre el JSON de la fila que efectivamente se editó (no
+  // sobre "la mejor fila" que arma obtenerDiaJSON_ para esa fecha/turno) —
+  // así funciona aunque haya filas duplicadas para el mismo día/turno.
+  // Antes, si la fila editada no era la que ganaba el desempate, la edición
+  // se perdía en silencio, sin ningún aviso.
+  turnoEditado.id = idEditado;
+  turnoEditado.fondoFijo = Number(filaValores[idxFondoFijo]) || 0;
+  turnoEditado.totalFacturado = Number(filaValores[idxTotalFacturado]) || 0;
+  turnoEditado.tpv1 = Number(filaValores[idxTpv1]) || 0;
+  turnoEditado.tpv2 = Number(filaValores[idxTpv2]) || 0;
+
+  var turnoKey = (String(filaValores[idxTurno]).toLowerCase() === 'noche') ? 'noche' : 'mediodia';
+  var diaExistente = obtenerDiaJSON_(fechaStr) || {};
+
+  var dia = {
+    mediodia: turnoKey === 'mediodia' ? turnoEditado : (diaExistente.mediodia || null),
+    noche: turnoKey === 'noche' ? turnoEditado : (diaExistente.noche || null)
+  };
+  recalcularDia_(dia);
+  guardarDiaCompleto_(hoja.getParent(), fechaStr, filaValores[idxNegocio] || diaExistente.negocio, dia);
+}
+
+// "J" -> 10, "AA" -> 27, etc. (Apps Script no trae un helper corto para esto)
+function columnaLetraANumero_(letra) {
+  var n = 0;
+  for (var i = 0; i < letra.length; i++) {
+    n = n * 26 + (letra.charCodeAt(i) - 64);
+  }
+  return n;
+}
+
+// Filas donde vive cada tabla de conteo (mismos números que usan
+// escribirDenomBilletes_/escribirDenomMonedas_ al escribir).
+var BILLETES_VALORES_ = [100, 50, 20, 10, 5];
+var MONEDAS_VALORES_ = [2, 1, 0.5, 0.2, 0.1, 0.05];
+
+function manejarEdicionHojaDelDia_(e, hoja, nombreHoja) {
+  var fechaStr = fechaDesdeNombreHoja_(nombreHoja);
+  if (!fechaStr) return;
+
+  var col = e.range.getColumn();
+  var colFin = col + e.range.getNumColumns() - 1;
+  var fila = e.range.getRow();
+  var filaFin = fila + e.range.getNumRows() - 1;
+
+  function tocaCelda_(colLetra, filaObjetivo) {
+    var colNum = columnaLetraANumero_(colLetra);
+    return colNum >= col && colNum <= colFin && filaObjetivo >= fila && filaObjetivo <= filaFin;
+  }
+  function tocaRango_(colLetra, filaDesde, filaHasta) {
+    var colNum = columnaLetraANumero_(colLetra);
+    return colNum >= col && colNum <= colFin && filaHasta >= fila && filaDesde <= filaFin;
+  }
+
+  var tocaMd = tocaCelda_('C', 45) || tocaCelda_('I', 5) || tocaCelda_('K', 5) || tocaCelda_('C', 43) ||
+    tocaRango_('J', 13, 17) || tocaRango_('I', 18, 23) || tocaRango_('J', 18, 23);
+  var tocaNc = tocaCelda_('C', 87) || tocaCelda_('I', 61) || tocaCelda_('K', 61) || tocaCelda_('C', 86) ||
+    tocaRango_('J', 71, 75) || tocaRango_('I', 76, 81) || tocaRango_('J', 76, 81);
+
+  if (!tocaMd && !tocaNc) return; // se editó otra celda de esta pestaña (movimientos, etc.)
+
+  var diaExistente = obtenerDiaJSON_(fechaStr);
+  if (!diaExistente || !diaExistente.encontrado) return; // este día nunca se sincronizó desde la app
+
+  var huboCambio = false;
+  if (tocaMd && diaExistente.mediodia && diaExistente.mediodia.id) {
+    aplicarEdicionTurnoDesdeHoja_(hoja, diaExistente.mediodia, 'C45', 'I5', 'K5', 'C43', 13, 18);
+    huboCambio = true;
+  }
+  if (tocaNc && diaExistente.noche && diaExistente.noche.id) {
+    aplicarEdicionTurnoDesdeHoja_(hoja, diaExistente.noche, 'C87', 'I61', 'K61', 'C86', 71, 76);
+    huboCambio = true;
+  }
+  if (!huboCambio) return;
+
+  recalcularDia_(diaExistente);
+  guardarDiaCompleto_(hoja.getParent(), fechaStr, diaExistente.negocio, diaExistente);
+}
+
+// Lee de la pestaña bonita el Total facturado / TPV 1 / TPV 2 / Fondo fijo
+// y el conteo completo de billetes y monedas de un turno, y los vuelca
+// sobre el objeto `turno` (que ya viene con el resto de sus datos —
+// movimientos, id, etc.— intactos, para no perder nada de lo que la app
+// cargó).
+function aplicarEdicionTurnoDesdeHoja_(hoja, turno, celdaFacturado, celdaTpv1, celdaTpv2, celdaFondoFijo, filaBilletesDesde, filaMonedasDesde) {
+  turno.totalFacturado = Number(hoja.getRange(celdaFacturado).getValue()) || 0;
+  turno.tpv1 = Number(hoja.getRange(celdaTpv1).getValue()) || 0;
+  turno.tpv2 = Number(hoja.getRange(celdaTpv2).getValue()) || 0;
+  turno.fondoFijo = Number(hoja.getRange(celdaFondoFijo).getValue()) || 0;
+
+  var denom = { billetes: {}, monedasBlister: {}, monedasSueltas: {} };
+  BILLETES_VALORES_.forEach(function (v, i) {
+    denom.billetes[v] = Number(hoja.getRange('J' + (filaBilletesDesde + i)).getValue()) || 0;
+  });
+  MONEDAS_VALORES_.forEach(function (v, i) {
+    var filaCelda = filaMonedasDesde + i;
+    denom.monedasBlister[v] = Number(hoja.getRange('I' + filaCelda).getValue()) || 0;
+    denom.monedasSueltas[v] = Number(hoja.getRange('J' + filaCelda).getValue()) || 0;
+  });
+  turno.denom = denom;
+}
+
+function recalcularDia_(dia) {
+  var ROLL_VALUE = { 2: 50, 1: 25, 0.5: 20, 0.2: 8, 0.1: 4, 0.05: 2.5 };
+  var BILLETES = [100, 50, 20, 10, 5];
+  var MONEDAS = [2, 1, 0.5, 0.2, 0.1, 0.05];
+  var NO_EFECTIVO = ['no_efectivo', 'tarjeta', 'no_pagado', 'transferencia'];
+
+  function totalContadoDesdeDenom_(denom) {
+    denom = denom || {};
+    var total = 0;
+    BILLETES.forEach(function (v) {
+      total += (Number((denom.billetes || {})[v]) || 0) * v;
+    });
+    MONEDAS.forEach(function (v) {
+      var sueltas = Number((denom.monedasSueltas || {})[v]) || 0;
+      var blister = Number((denom.monedasBlister || {})[v]) || 0;
+      total += sueltas * v + blister * (ROLL_VALUE[v] || 0);
+    });
+    return total;
+  }
+
+  var md = dia.mediodia, nc = dia.noche;
+  [md, nc].forEach(function (turno, idx) {
+    if (!turno) return;
+    var movs = turno.movimientos || [];
+    var empanadas = 0, gastoEfectivo = 0, gastoNoEfectivo = 0, ingresoEfectivo = 0, egreso = 0;
+    movs.forEach(function (m) {
+      var importe = Number(m.importe) || 0;
+      if (m.tipo === 'gasto') {
+        if (NO_EFECTIVO.indexOf(m.subtipo) > -1) gastoNoEfectivo += importe;
+        else gastoEfectivo += importe;
+      } else if (m.tipo === 'ingreso') {
+        ingresoEfectivo += importe;
+      } else if (m.tipo === 'egreso') {
+        egreso += importe;
+      } else if (m.tipo === 'empanadas') {
+        empanadas += importe;
+      }
+    });
+
+    var esNoche = idx === 1;
+    var totalFacturadoPropio = turno.totalFacturado || 0;
+    var tpv1Propio = turno.tpv1 || 0;
+    var tpv2Propio = turno.tpv2 || 0;
+    if (esNoche && md) {
+      totalFacturadoPropio = Math.max(0, (turno.totalFacturado || 0) - (md.totalFacturado || 0));
+      tpv1Propio = Math.max(0, (turno.tpv1 || 0) - (md.tpv1 || 0));
+      tpv2Propio = Math.max(0, (turno.tpv2 || 0) - (md.tpv2 || 0));
+    }
+
+    var facturadoNeto = totalFacturadoPropio - empanadas;
+    var ventasEfectivo = facturadoNeto - (tpv1Propio + tpv2Propio);
+    var totalContado = totalContadoDesdeDenom_(turno.denom);
+    var esperado = (turno.fondoFijo || 0) + ventasEfectivo + ingresoEfectivo - gastoEfectivo - egreso;
+    var diferencia = totalContado - esperado;
+
+    turno.calc = {
+      empanadas: empanadas, facturadoNeto: facturadoNeto, ventasEfectivo: ventasEfectivo,
+      ingresoEfectivo: ingresoEfectivo, gastoEfectivo: gastoEfectivo, egreso: egreso,
+      esperado: esperado, totalContado: totalContado, diferencia: diferencia,
+      gastoNoEfectivo: gastoNoEfectivo,
+      totalFacturadoPropio: totalFacturadoPropio, tpv1Propio: tpv1Propio, tpv2Propio: tpv2Propio
+    };
+  });
+
+  return dia;
+}
+
+function guardarDiaCompleto_(ss, fecha, negocio, dia) {
+  var registro = ss.getSheetByName('Registro');
+  if (!registro) return;
+  var header = registro.getRange(1, 1, 1, registro.getLastColumn()).getValues()[0];
+  var idxJSON = -1;
+  for (var h = 0; h < header.length; h++) {
+    if (String(header[h] || '').indexOf('Datos JSON') === 0) { idxJSON = h; break; }
+  }
+  if (idxJSON === -1) return;
+
+  var idxFondoFijo = header.indexOf('Fondo fijo');
+  var idxTotalFacturado = header.indexOf('Total facturado');
+  var idxTpv1 = header.indexOf('TPV 1');
+  var idxTpv2 = header.indexOf('TPV 2');
+  var idxEsperado = header.indexOf('Efectivo esperado');
+  var idxContado = header.indexOf('Efectivo contado');
+  var idxDiferencia = header.indexOf('Diferencia');
+  var idxFacturadoNeto = header.indexOf('Facturado neto');
+  var idxUltima = header.indexOf('Última actualización');
+
+  ['mediodia', 'noche'].forEach(function (t) {
+    var turno = dia[t];
+    if (!turno || !turno.id) return;
+    var filaN = buscarFilaPorId_(registro, turno.id);
+    if (filaN === -1) return;
+    var c = turno.calc || {};
+    if (idxFondoFijo > -1) registro.getRange(filaN, idxFondoFijo + 1).setValue(turno.fondoFijo || 0);
+    if (idxTotalFacturado > -1) registro.getRange(filaN, idxTotalFacturado + 1).setValue(turno.totalFacturado || 0);
+    if (idxTpv1 > -1) registro.getRange(filaN, idxTpv1 + 1).setValue(turno.tpv1 || 0);
+    if (idxTpv2 > -1) registro.getRange(filaN, idxTpv2 + 1).setValue(turno.tpv2 || 0);
+    if (idxEsperado > -1) registro.getRange(filaN, idxEsperado + 1).setValue(c.esperado || 0);
+    if (idxContado > -1) registro.getRange(filaN, idxContado + 1).setValue(c.totalContado || 0);
+    if (idxDiferencia > -1) registro.getRange(filaN, idxDiferencia + 1).setValue(c.diferencia || 0);
+    if (idxFacturadoNeto > -1) registro.getRange(filaN, idxFacturadoNeto + 1).setValue(c.facturadoNeto || 0);
+    registro.getRange(filaN, idxJSON + 1).setValue(JSON.stringify(turno));
+    if (idxUltima > -1) registro.getRange(filaN, idxUltima + 1).setValue(new Date());
+  });
+
+  var dataParaHoja = {
+    fecha: fecha, negocio: negocio,
+    mediodia: turnoParaHojaExacta_(dia.mediodia),
+    noche: turnoParaHojaExacta_(dia.noche)
+  };
+  escribirHojaDelDiaExacta_(ss, dataParaHoja);
+}
+
+var TIPO_LABEL_MAP_ = { gasto: 'Gasto', ingreso: 'Ingreso', egreso: 'Egreso', empanadas: 'Empanadas' };
+var SUBTIPO_LABEL_MAP_ = {
+  efectivo: 'Efectivo', no_efectivo: 'No efectivo', efectivo_antiguo: 'Efectivo antiguo',
+  tarjeta: 'Tarjeta', no_pagado: 'No pagado', transferencia: 'Transferencia',
+  cambio: 'Cambio', ingreso_arroba: 'Ingreso @', empanadas_ing: 'Empanadas', empleados: 'Empleados',
+  varios: 'Varios', retiro: 'Retiro de dinero', empanadas: 'Empanadas'
+};
+function turnoParaHojaExacta_(turno) {
+  if (!turno) return null;
+  var copia = {};
+  for (var k in turno) copia[k] = turno[k];
+  copia.estado = 'Sincronizado';
+  copia.movimientos = (turno.movimientos || []).map(function (m) {
+    var mCopia = {};
+    for (var k2 in m) mCopia[k2] = m[k2];
+    mCopia.tipo = TIPO_LABEL_MAP_[m.tipo] || m.tipo;
+    mCopia.subtipo = SUBTIPO_LABEL_MAP_[m.subtipo] || m.subtipo;
+    return mCopia;
+  });
+  return copia;
+}
+
+function marcarFacturaPagada_(data) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var mov = ss.getSheetByName('Movimientos');
+    if (!mov) return { ok: false, error: 'No existe la pestaña "Movimientos".' };
+
+    var header = mov.getRange(1, 1, 1, mov.getLastColumn()).getValues()[0];
+    var idxIdMov = header.indexOf('ID Movimiento');
+    var idxIdTurno = header.indexOf('ID');
+    var idxInfo = header.indexOf('Info');
+    var idxUltima = header.indexOf('Última actualización');
+    if (idxIdMov === -1 || idxInfo === -1) {
+      return { ok: false, error: 'La pestaña "Movimientos" no tiene las columnas necesarias (¿versión vieja del script?).' };
+    }
+
+    var valores = mov.getDataRange().getValues();
+    var filaEncontrada = -1;
+    for (var i = 1; i < valores.length; i++) {
+      if (valores[i][idxIdMov] === data.idMovimiento) { filaEncontrada = i + 1; break; }
+    }
+    if (filaEncontrada === -1) {
+      return { ok: false, error: 'No se encontró ese movimiento en "Movimientos" (puede que ya se haya reescrito).' };
+    }
+
+    var infoActual = String(mov.getRange(filaEncontrada, idxInfo + 1).getValue() || '');
+    var etiquetaPago = 'PAGADA EFECTIVO ' + (data.fechaPago || '');
+    if (infoActual.indexOf('PAGADA EFECTIVO') > -1) {
+      return { ok: true, yaEstaba: true };
+    }
+    var nuevoInfo = infoActual ? (infoActual + ' · ' + etiquetaPago) : etiquetaPago;
+    mov.getRange(filaEncontrada, idxInfo + 1).setValue(nuevoInfo);
+    if (idxUltima > -1) mov.getRange(filaEncontrada, idxUltima + 1).setValue(new Date());
+
+    var idTurno = valores[filaEncontrada - 1][idxIdTurno];
+    actualizarInfoMovimientoEnRegistro_(ss, idTurno, data.idMovimiento, nuevoInfo);
+
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+function actualizarInfoMovimientoEnRegistro_(ss, idTurno, idMovimiento, nuevoInfo) {
+  var registro = ss.getSheetByName('Registro');
+  if (!registro) return;
+  var filaN = buscarFilaPorId_(registro, idTurno);
+  if (filaN === -1) return;
+
+  var header = registro.getRange(1, 1, 1, registro.getLastColumn()).getValues()[0];
+  var idxJSON = -1;
+  for (var h = 0; h < header.length; h++) {
+    if (String(header[h] || '').indexOf('Datos JSON') === 0) { idxJSON = h; break; }
+  }
+  if (idxJSON === -1) return;
+
+  var jsonTexto = registro.getRange(filaN, idxJSON + 1).getValue();
+  if (!jsonTexto) return;
+
+  var turnoData;
+  try { turnoData = JSON.parse(jsonTexto); } catch (e) { return; }
+
+  var seEncontro = false;
+  (turnoData.movimientos || []).forEach(function (m) {
+    if (m.id === idMovimiento) { m.info = nuevoInfo; seEncontro = true; }
+  });
+  if (!seEncontro) return;
+
+  registro.getRange(filaN, idxJSON + 1).setValue(JSON.stringify(turnoData));
+  var idxUltima = header.indexOf('Última actualización');
+  if (idxUltima > -1) registro.getRange(filaN, idxUltima + 1).setValue(new Date());
+
+  var idxFecha = header.indexOf('Fecha');
+  var idxNegocio = header.indexOf('Negocio');
+  var filaCompleta = registro.getRange(filaN, 1, 1, header.length).getValues()[0];
+  var fechaRaw = filaCompleta[idxFecha];
+  var fechaStr = (fechaRaw instanceof Date)
+    ? Utilities.formatDate(fechaRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+    : String(fechaRaw || '');
+  if (!fechaStr) return;
+
+  var dia = obtenerDiaJSON_(fechaStr);
+  if (!dia || !dia.encontrado) return;
+  var dataParaHoja = {
+    fecha: fechaStr,
+    negocio: filaCompleta[idxNegocio] || dia.negocio,
+    mediodia: turnoParaHojaExacta_(dia.mediodia),
+    noche: turnoParaHojaExacta_(dia.noche)
+  };
+  escribirHojaDelDiaExacta_(ss, dataParaHoja);
+}
+
+function listarDiasConDatos_() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var registro = ss.getSheetByName('Registro');
+    if (!registro) return { ok: true, fechas: [] };
+
+    var valores = registro.getDataRange().getValues();
+    var header = valores[0];
+    var idxFecha = header.indexOf('Fecha');
+    if (idxFecha === -1) return { ok: true, fechas: [] };
+
+    var fechasSet = {};
+    for (var i = 1; i < valores.length; i++) {
+      var raw = valores[i][idxFecha];
+      var fechaStr = (raw instanceof Date)
+        ? Utilities.formatDate(raw, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+        : String(raw || '');
+      if (fechaStr) fechasSet[fechaStr] = true;
+    }
+
+    return { ok: true, fechas: Object.keys(fechasSet) };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
