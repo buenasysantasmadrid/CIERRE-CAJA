@@ -377,33 +377,38 @@
     return { negocio: negocio || "Mi Negocio", fecha: fecha, mediodia: md, noche: nc };
   }
 
-  // Fondo fijo de Mediodía: viene SIEMPRE del cierre del día anterior — no
-  // se puede editar a mano, por eso el campo queda de solo lectura. Si ese
-  // día anterior se trabajó Noche (tiene efectivo contado > 0), se toma de
-  // Noche; si solo se trabajó Mediodía, se toma de Mediodía. Se recalcula
-  // cada vez que se abre el día (no queda "pegado" a un valor viejo): si
-  // corregís el conteo de ayer, el fondo fijo de hoy se actualiza solo la
-  // próxima vez que entrés a este día.
-  function fechaAnterior(fechaISO){
-    var partes = String(fechaISO || '').split('-').map(Number);
-    if(partes.length !== 3 || partes.some(isNaN)) return null;
-    var d = new Date(partes[0], partes[1]-1, partes[2]);
-    d.setDate(d.getDate() - 1);
-    var mm = String(d.getMonth()+1).padStart(2,'0');
-    var dd = String(d.getDate()).padStart(2,'0');
-    return d.getFullYear() + '-' + mm + '-' + dd;
+  // Un día "tuvo caja" si se cargó algo en cualquiera de sus turnos
+  // (movimientos, facturado, TPVs o efectivo contado) — mismo criterio que
+  // usa el calendario para pintar los días abiertos.
+  function diaTieneActividad(dia){
+    return TURNOS.some(function(t){
+      var s = dia && dia[t];
+      if(!s) return false;
+      var c = s._calc || {};
+      return !!((s.movimientos && s.movimientos.length) || s.totalFacturado || s.tpv1 || s.tpv2 || c.totalContado);
+    });
   }
+
+  // Fondo fijo de Mediodía: viene SIEMPRE del cierre anterior — no de la
+  // fecha de calendario de ayer, sino de la última caja que realmente se
+  // trabajó (puede haber sido hace varios días si hubo días sin abrir). No
+  // se puede editar a mano, por eso el campo queda de solo lectura. Si esa
+  // última caja trabajó Noche (tiene efectivo contado > 0), se toma de
+  // Noche; si solo se trabajó Mediodía, se toma de Mediodía. Se recalcula
+  // cada vez que se abre el día (no queda "pegado" a un valor viejo).
   function fondoFijoSugerido(fecha){
-    var ayerFecha = fechaAnterior(fecha);
-    if(!ayerFecha) return 0;
     var store = getDiasStore();
-    var ayer = store[ayerFecha];
-    if(!ayer) return 0;
-    var cMD = (ayer.mediodia && ayer.mediodia._calc) || {};
-    var cNC = (ayer.noche && ayer.noche._calc) || {};
-    var contadoNoche = cNC.totalContado || 0;
-    var contadoMediodia = cMD.totalContado || 0;
-    return contadoNoche > 0 ? contadoNoche : contadoMediodia;
+    var fechasAnteriores = Object.keys(store).filter(function(f){ return f < fecha; }).sort();
+    for(var i = fechasAnteriores.length - 1; i >= 0; i--){
+      var dia = store[fechasAnteriores[i]];
+      if(!diaTieneActividad(dia)) continue;
+      var cMD = (dia.mediodia && dia.mediodia._calc) || {};
+      var cNC = (dia.noche && dia.noche._calc) || {};
+      var contadoNoche = cNC.totalContado || 0;
+      var contadoMediodia = cMD.totalContado || 0;
+      return contadoNoche > 0 ? contadoNoche : contadoMediodia;
+    }
+    return 0;
   }
 
   var state = crearDiaVacio(todayISO(), "Mi Negocio");
@@ -1752,14 +1757,7 @@
   function actualizarFechasConDatosLocal(){
     var store = getDiasStore();
     Object.keys(store).forEach(function(f){
-      var dia = store[f];
-      var tieneAlgo = TURNOS.some(function(t){
-        var s = dia && dia[t];
-        if(!s) return false;
-        var c = s._calc || {};
-        return (s.movimientos && s.movimientos.length) || s.totalFacturado || s.tpv1 || s.tpv2 || c.totalContado;
-      });
-      if(tieneAlgo) fechasConDatos[f] = true;
+      if(diaTieneActividad(store[f])) fechasConDatos[f] = true;
     });
   }
 
