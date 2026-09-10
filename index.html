@@ -172,12 +172,10 @@
   .modal{background:#fff;border-radius:14px;max-width:520px;width:100%;padding:20px;margin-top:20px;}
   .modal h3{margin-top:0;}
   .modal-close{float:right;background:none;border:none;font-size:1.3rem;color:var(--ink-soft);cursor:pointer;}
-  .type-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px;}
-  .type-btn{
-    padding:10px;border-radius:9px;border:1px solid var(--line);background:#fafbfc;
-    font-weight:600;font-size:.85rem;text-align:center;color:var(--ink-soft);
+  .category-label{
+    display:inline-block;padding:6px 12px;border-radius:9px;margin-bottom:14px;
+    font-weight:600;font-size:.85rem;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);
   }
-  .type-btn.active{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);}
   .subtype-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
   .subtype-chip{
     padding:6px 12px;border-radius:20px;border:1px solid var(--line);background:#fafbfc;
@@ -242,7 +240,6 @@
   .scan-error{font-size:.8rem;color:var(--red);background:var(--red-soft);border:1px solid #f0c9c5;padding:7px 9px;border-radius:6px;margin-bottom:8px;}
   .scan-ok{font-size:.8rem;color:var(--accent);margin-bottom:8px;}
   @media (max-width:520px){
-    .type-grid{grid-template-columns:repeat(2,1fr);}
     table{font-size:.78rem;}
     th,td{padding:6px 4px;}
   }
@@ -291,12 +288,9 @@
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal">
     <button class="modal-close" id="modalClose">&times;</button>
-    <h3>Nuevo movimiento — <span id="modalTurnoLabel"></span></h3>
+    <h3 id="modalTitle">Nuevo movimiento — <span id="modalTurnoLabel"></span></h3>
 
-    <div class="type-grid" id="categoryGrid">
-      <button class="type-btn" data-cat="proveedores">Proveedores</button>
-      <button class="type-btn" data-cat="otros">Otro movimiento</button>
-    </div>
+    <div class="category-label" id="categoryLabel"></div>
 
     <div class="subtype-row" id="levelTwoRow"></div>
     <div class="subtype-row" id="levelThreeRow"></div>
@@ -754,9 +748,12 @@
   }
 
   function renderCategoryButtons(){
-    document.querySelectorAll('#categoryGrid .type-btn').forEach(function(b){
-      b.classList.toggle('active', b.getAttribute('data-cat') === currentCategoria);
-    });
+    var label = document.getElementById('categoryLabel');
+    label.textContent = currentCategoria === 'proveedores' ? 'Proveedores'
+      : currentCategoria === 'otros' ? 'Otro movimiento' : '';
+    label.style.display = currentCategoria ? '' : 'none';
+    document.getElementById('modalTitle').firstChild.textContent =
+      (editingId ? 'Editar ' : 'Nuevo ') + (currentCategoria === 'proveedores' ? 'proveedor' : 'movimiento') + ' — ';
   }
 
   function renderChipRow(container, items, selected, onSelect){
@@ -785,7 +782,7 @@
     if(cat === 'proveedores'){
       currentTipo = 'gasto';
       var gExisting = existing && existing.tipo === 'gasto' ? existing : null;
-      currentSubtipo = gExisting ? gExisting.subtipo : 'efectivo';
+      currentSubtipo = gExisting ? gExisting.subtipo : null;
       renderChipRow(l2, GASTO_SUBTYPES, currentSubtipo, function(k){
         var valoresActuales = capturarValoresFormActuales();
         currentSubtipo = k;
@@ -812,7 +809,7 @@
     var l3 = document.getElementById('levelThreeRow');
     l3.innerHTML = '';
     if(tipo === 'ingreso'){
-      currentSubtipo = existing && existing.subtipo ? existing.subtipo : 'cambio';
+      currentSubtipo = existing && existing.subtipo ? existing.subtipo : null;
       renderChipRow(l3, INGRESO_SUBTYPES, currentSubtipo, function(k){
         var valoresActuales = capturarValoresFormActuales();
         currentSubtipo = k;
@@ -1438,6 +1435,8 @@
   document.getElementById('modalGuardar').addEventListener('click', function(){
     if(!currentTipo){ toast('Elegí un tipo de movimiento'); return; }
     if(!modalTurno){ toast('Error interno: no se sabe a qué turno pertenece'); return; }
+    if(currentTipo === 'gasto' && !currentSubtipo){ toast('Elegí el tipo de pago (efectivo, tarjeta, etc.)'); return; }
+    if(currentTipo === 'ingreso' && !currentSubtipo){ toast('Elegí el tipo de ingreso'); return; }
     var data = collectForm();
     var importe = num(data.importe);
     if(!importe){ toast('Ingresá un importe válido'); return; }
@@ -1492,12 +1491,6 @@
     if(facturaAPagar){
       marcarFacturaComoPagada(facturaAPagar, mov.fecha);
     }
-  });
-
-  document.querySelectorAll('#categoryGrid .type-btn').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      selectCategoria(btn.getAttribute('data-cat'), null);
-    });
   });
 
   document.getElementById('modalClose').addEventListener('click', closeModal);
