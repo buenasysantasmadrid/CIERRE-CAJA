@@ -170,7 +170,10 @@
   }
   .modal-overlay.open{display:flex;}
   .modal{background:#fff;border-radius:14px;max-width:520px;width:100%;padding:20px;margin-top:20px;}
+  .modal.modal-wide{max-width:840px;}
   .modal h3{margin-top:0;}
+  .row-click{cursor:pointer;}
+  .row-click:hover{background:#f4f6f8;}
   .modal-close{float:right;background:none;border:none;font-size:1.3rem;color:var(--ink-soft);cursor:pointer;}
   .category-label{
     display:inline-block;padding:6px 12px;border-radius:9px;margin-bottom:14px;
@@ -252,6 +255,9 @@
     <input id="negocioNombre" value="Mi Negocio" placeholder="Nombre del negocio">
     <span class="sub">Cierre de caja — <span id="fechaCierreLabel"></span></span>
   </div>
+  <div class="header-actions">
+    <button type="button" class="btn-secondary" id="btnAlbaranes">Albaranes</button>
+  </div>
 </header>
 
 <main>
@@ -304,7 +310,28 @@
   </div>
 </div>
 
-<!-- Modal historial -->
+<!-- Modal albaranes / facturas de proveedores -->
+<div class="modal-overlay" id="albaranesOverlay">
+  <div class="modal modal-wide">
+    <button class="modal-close" id="albaranesClose">&times;</button>
+    <h3>Albaranes y facturas</h3>
+    <div class="row" style="margin-bottom:10px;">
+      <div class="field">
+        <label for="albaranesProveedor">Proveedor</label>
+        <select id="albaranesProveedor"><option value="">Todos los proveedores</option></select>
+      </div>
+    </div>
+    <div id="albaranesStatus" class="muted" style="margin-bottom:8px;"></div>
+    <div style="max-height:60vh;overflow-y:auto;">
+      <table>
+        <thead><tr><th>Fecha</th><th>Turno</th><th>Proveedor</th><th>Pago</th><th>Factura</th><th class="num">Importe</th></tr></thead>
+        <tbody id="albaranesBody"></tbody>
+      </table>
+      <div id="albaranesEmpty" class="empty-row" style="display:none;">No hay facturas ni albaranes cargados para este filtro.</div>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -1498,6 +1525,140 @@
   document.getElementById('modalOverlay').addEventListener('click', function(e){
     if(e.target === this) closeModal();
   });
+
+  // ---------- Albaranes: consultar y editar facturas/movimientos de proveedores ----------
+  function poblarAlbaranesProveedor(){
+    var sel = document.getElementById('albaranesProveedor');
+    if(sel.options.length > 1) return;
+    PROVEEDORES_CONOCIDOS.forEach(function(p){
+      var opt = document.createElement('option');
+      opt.value = p; opt.textContent = p;
+      sel.appendChild(opt);
+    });
+  }
+
+  function abrirAlbaranes(){
+    poblarAlbaranesProveedor();
+    document.getElementById('albaranesOverlay').classList.add('open');
+    buscarAlbaranes();
+  }
+  function cerrarAlbaranes(){
+    document.getElementById('albaranesOverlay').classList.remove('open');
+  }
+
+  function buscarAlbaranes(){
+    var statusEl = document.getElementById('albaranesStatus');
+    var body = document.getElementById('albaranesBody');
+    var empty = document.getElementById('albaranesEmpty');
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)){
+      statusEl.textContent = 'No hay conexión configurada con el Sheet.';
+      body.innerHTML = ''; empty.style.display = 'none';
+      return;
+    }
+    var proveedor = document.getElementById('albaranesProveedor').value;
+    statusEl.textContent = 'Buscando...';
+    body.innerHTML = ''; empty.style.display = 'none';
+
+    var getUrl = url + (url.indexOf('?')>-1?'&':'?') + 'listarFacturas=1' +
+      (proveedor ? '&proveedor=' + encodeURIComponent(proveedor) : '');
+    fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
+      if(!data || !data.ok){
+        statusEl.textContent = 'No se pudo traer la lista' + (data && data.error ? (': ' + data.error) : '') + '.';
+        return;
+      }
+      var facturas = data.facturas || [];
+      statusEl.textContent = facturas.length + ' movimiento(s) encontrado(s).';
+      renderAlbaranesTabla(facturas);
+    }).catch(function(err){
+      statusEl.textContent = 'Error al buscar: ' + err.message;
+    });
+  }
+
+  function renderAlbaranesTabla(facturas){
+    var body = document.getElementById('albaranesBody');
+    var empty = document.getElementById('albaranesEmpty');
+    body.innerHTML = '';
+    if(!facturas.length){ empty.style.display = 'block'; return; }
+    empty.style.display = 'none';
+    facturas.forEach(function(f){
+      var tr = document.createElement('tr');
+      tr.className = 'row-click';
+      tr.innerHTML =
+        '<td>'+escapeHtml(f.fecha||'')+'</td>' +
+        '<td>'+escapeHtml(f.turno||'')+'</td>' +
+        '<td>'+escapeHtml(f.proveedorTexto||'')+'</td>' +
+        '<td>'+escapeHtml(f.subtipo||'')+'</td>' +
+        '<td>'+escapeHtml(f.factura||'')+'</td>' +
+        '<td class="num">'+fmt(f.importe)+'</td>';
+      tr.addEventListener('click', function(){
+        abrirMovimientoHistorico(f.fecha, f.idTurno, f.idMovimiento);
+      });
+      body.appendChild(tr);
+    });
+  }
+
+  // Encuentra el día del movimiento elegido (localmente o trayéndolo del
+  // Sheet si nunca se abrió en este dispositivo) y abre su modal de edición,
+  // igual que si se tocara el lápiz de esa fila en el día correspondiente.
+  function abrirMovimientoHistorico(fecha, idTurno, idMovimiento){
+    cerrarAlbaranes();
+    if(fecha === state.fecha){
+      abrirEdicionMovimiento(idTurno, idMovimiento);
+      return;
+    }
+    var store = getDiasStore();
+    if(store[fecha]){
+      // Ya se abrió este día en este dispositivo: se usa esa copia (puede
+      // tener cambios propios sin sincronizar todavía) en vez de pisarla
+      // con lo que haya en el Sheet.
+      cambiarDia(fecha);
+      abrirEdicionMovimiento(idTurno, idMovimiento);
+      return;
+    }
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)){ toast('No hay conexión configurada con el Sheet'); return; }
+    toast('Cargando el día ' + fecha + '...');
+    guardarDiaActual();
+    var getUrl = url + (url.indexOf('?')>-1?'&':'?') + 'fecha=' + encodeURIComponent(fecha);
+    fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
+      if(!data || !data.ok || !data.encontrado){
+        toast('No se encontró el día ' + fecha + ' en el Sheet');
+        return;
+      }
+      var dia = {
+        negocio: state.negocio,
+        fecha: fecha,
+        mediodia: data.mediodia ? Object.assign(crearTurnoVacio(), data.mediodia) : crearTurnoVacio(),
+        noche: data.noche ? Object.assign(crearTurnoVacio(), data.noche) : crearTurnoVacio()
+      };
+      if(!dia.mediodia.id) dia.mediodia.id = uid();
+      if(!dia.noche.id) dia.noche.id = uid();
+      state = dia;
+      document.getElementById('fechaCierre').value = state.fecha;
+      aplicarEstadoATurnos();
+      guardarDiaActual();
+      abrirEdicionMovimiento(idTurno, idMovimiento);
+    }).catch(function(err){
+      toast('Error al cargar el día: ' + err.message);
+    });
+  }
+
+  function abrirEdicionMovimiento(idTurno, idMovimiento){
+    var turnoEncontrado = TURNOS.find(function(t){ return state[t].id === idTurno; }) ||
+      TURNOS.find(function(t){ return (state[t].movimientos||[]).some(function(m){ return m.id === idMovimiento; }); });
+    if(!turnoEncontrado){ toast('No se encontró el movimiento en este día'); return; }
+    var mov = state[turnoEncontrado].movimientos.find(function(m){ return m.id === idMovimiento; });
+    if(!mov){ toast('No se encontró el movimiento'); return; }
+    openModal(mov, null, turnoEncontrado);
+  }
+
+  document.getElementById('btnAlbaranes').addEventListener('click', abrirAlbaranes);
+  document.getElementById('albaranesClose').addEventListener('click', cerrarAlbaranes);
+  document.getElementById('albaranesOverlay').addEventListener('click', function(e){
+    if(e.target === this) cerrarAlbaranes();
+  });
+  document.getElementById('albaranesProveedor').addEventListener('change', buscarAlbaranes);
 
   // ---------- calculations ----------
   function recalc(t){

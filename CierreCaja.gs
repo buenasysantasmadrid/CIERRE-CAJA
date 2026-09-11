@@ -299,6 +299,14 @@ function doGet(e) {
       .createTextOutput(JSON.stringify(buscarFacturasPendientes_(buscarProveedor, detalle)))
       .setMimeType(ContentService.MimeType.JSON);
   }
+  var listarFacturas = e && e.parameter && e.parameter.listarFacturas;
+  if (listarFacturas) {
+    var proveedorFiltro = (e.parameter && e.parameter.proveedor) || '';
+    var detalleFiltro = (e.parameter && e.parameter.detalle) || '';
+    return ContentService
+      .createTextOutput(JSON.stringify(listarFacturasProveedores_(proveedorFiltro, detalleFiltro)))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
   var fecha = e && e.parameter && e.parameter.fecha;
   if (fecha) {
     return ContentService
@@ -306,8 +314,16 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
   return ContentService
-    .createTextOutput(JSON.stringify({ ok: true, msg: 'API de Cierre de Caja activa. Usá POST para enviar datos, GET ?fecha=YYYY-MM-DD para leer un día ya guardado, o GET ?buscarFacturas=<proveedor> para buscar facturas pendientes.' }))
+    .createTextOutput(JSON.stringify({ ok: true, msg: 'API de Cierre de Caja activa. Usá POST para enviar datos, GET ?fecha=YYYY-MM-DD para leer un día ya guardado, GET ?buscarFacturas=<proveedor> para buscar facturas pendientes, o GET ?listarFacturas=1 (con ?proveedor=<nombre> opcional) para ver todas las facturas y albaranes de proveedores.' }))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+function coincideProveedor_(textoProv, proveedor, detalleNorm) {
+  if (!proveedor) return true;
+  if (proveedor === 'Varios') {
+    return textoProv.indexOf('Varios') === 0 && (!detalleNorm || textoProv.toLowerCase().indexOf(detalleNorm) > -1);
+  }
+  return (textoProv === proveedor) || (textoProv.indexOf(proveedor + ' —') === 0);
 }
 
 function buscarFacturasPendientes_(proveedor, detalle) {
@@ -343,13 +359,7 @@ function buscarFacturasPendientes_(proveedor, detalle) {
       if (fila[idxSubtipo] === 'Efectivo antiguo') continue;
 
       var textoProv = String(fila[idxProvMotivo] || '');
-      var coincide;
-      if (proveedor === 'Varios') {
-        coincide = textoProv.indexOf('Varios') === 0 && (!detalleNorm || textoProv.toLowerCase().indexOf(detalleNorm) > -1);
-      } else {
-        coincide = (textoProv === proveedor) || (textoProv.indexOf(proveedor + ' —') === 0);
-      }
-      if (!coincide) continue;
+      if (!coincideProveedor_(textoProv, proveedor, detalleNorm)) continue;
 
       var infoTexto = String(fila[idxInfo] || '');
       if (infoTexto.indexOf('PAGADA EFECTIVO') > -1) continue;
@@ -367,6 +377,68 @@ function buscarFacturasPendientes_(proveedor, detalle) {
         importe: fila[idxImporte]
       });
     }
+
+    return { ok: true, facturas: resultado };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+// A diferencia de buscarFacturasPendientes_ (que es para el flujo de
+// "Efectivo antiguo" y excluye lo ya pagado), esta trae TODO lo cargado
+// como "Gasto" — pagado o no, de cualquier fecha — para la pantalla de
+// Albaranes, donde se puede consultar y volver a abrir cualquier
+// proveedor/movimiento para editarlo.
+function listarFacturasProveedores_(proveedor, detalle) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var mov = ss.getSheetByName('Movimientos');
+    if (!mov) return { ok: true, facturas: [] };
+
+    var valores = mov.getDataRange().getValues();
+    var header = valores[0];
+    var idxIdTurno = header.indexOf('ID');
+    var idxIdMov = header.indexOf('ID Movimiento');
+    var idxFecha = header.indexOf('Fecha');
+    var idxTurno = header.indexOf('Turno');
+    var idxTipo = header.indexOf('Tipo');
+    var idxSubtipo = header.indexOf('Subtipo');
+    var idxProvMotivo = header.indexOf('Proveedor / Motivo');
+    var idxFactura = header.indexOf('Nº Factura');
+    var idxInfo = header.indexOf('Info');
+    var idxIva = header.indexOf('IVA (€)');
+    var idxImporte = header.indexOf('Importe');
+
+    if (idxIdMov === -1) {
+      return { ok: true, facturas: [], error: 'La pestaña "Movimientos" es de una versión anterior y no tiene la columna "ID Movimiento". Volvé a sincronizar un cambio desde la app para que se agregue.' };
+    }
+
+    var detalleNorm = (detalle || '').toLowerCase().trim();
+    var resultado = [];
+
+    for (var i = 1; i < valores.length; i++) {
+      var fila = valores[i];
+      if (fila[idxTipo] !== 'Gasto') continue;
+
+      var textoProv = String(fila[idxProvMotivo] || '');
+      if (!coincideProveedor_(textoProv, proveedor, detalleNorm)) continue;
+
+      var fechaRaw = fila[idxFecha];
+      resultado.push({
+        idMovimiento: fila[idxIdMov],
+        idTurno: fila[idxIdTurno],
+        fecha: (fechaRaw instanceof Date) ? Utilities.formatDate(fechaRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(fechaRaw || ''),
+        turno: fila[idxTurno],
+        subtipo: fila[idxSubtipo],
+        proveedorTexto: textoProv,
+        factura: fila[idxFactura],
+        info: String(fila[idxInfo] || ''),
+        iva: fila[idxIva],
+        importe: fila[idxImporte]
+      });
+    }
+
+    resultado.sort(function (a, b) { return a.fecha < b.fecha ? 1 : (a.fecha > b.fecha ? -1 : 0); });
 
     return { ok: true, facturas: resultado };
   } catch (err) {
