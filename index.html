@@ -376,6 +376,10 @@
     "Delta Cafe","Terrevileña","Vino"
   ];
 
+  var RESPONSABLES_CONOCIDOS = [
+    "Yamila","Ramiro","Luciana","Clara","Jennifer","Shenay","Julio","Otros"
+  ];
+
   var TURNOS = ['mediodia','noche'];
   var TURNO_LABEL = {mediodia:'Mediodía', noche:'Noche'};
 
@@ -881,15 +885,25 @@
         html += cambioCalculatorHTML();
       }
       html += field('Motivo','motivo','text', f.motivo||'');
-      html += field('Responsable','responsable','text', f.responsable||'');
+      html += responsableField(f.responsable||'');
       html += '<div class="field" style="flex:1 1 100%;"><label>Info</label><input type="text" data-field="info" value="'+(f.info?escapeHtml(f.info):'')+'" placeholder="Detalle, observación"></div>';
       html += field('Importe (€)','importe','number', (f.importe!=null?f.importe:''), '0.00');
     } else if(tipo === 'empanadas'){
       html += field('Proveedor','proveedor','text', f.proveedor||'');
-      html += field('Responsable','responsable','text', f.responsable||'');
+      html += responsableField(f.responsable||'');
       html += field('Importe (€)','importe','number', (f.importe!=null?f.importe:''), '0.00');
     }
     container.innerHTML = '<div class="row">'+html+'</div>';
+
+    var selResp = document.getElementById('responsableSelect');
+    if(selResp){
+      var respDetalleInput = document.getElementById('responsableDetalleInput');
+      selResp.addEventListener('change', function(){
+        var mostrar = selResp.value === 'Otros';
+        respDetalleInput.style.display = mostrar ? 'block' : 'none';
+        if(mostrar) respDetalleInput.focus();
+      });
+    }
 
     var selProv = document.getElementById('proveedorSelect');
     if(selProv){
@@ -1450,6 +1464,28 @@
     '</div>';
   }
 
+  // Desplegable de responsables conocidos. Un nombre guardado que no esté
+  // en la lista (de cuando el campo era texto libre) se trata como "Otros"
+  // con ese nombre en el detalle, para no perderlo al editar.
+  function responsableField(selected){
+    var yaConocido = RESPONSABLES_CONOCIDOS.indexOf(selected) > -1;
+    var esLegado = !!selected && !yaConocido;
+    var valorEfectivo = esLegado ? 'Otros' : selected;
+    var detalleEfectivo = esLegado ? selected : '';
+
+    var opts = '<option value="">Elegir responsable…</option>';
+    opts += RESPONSABLES_CONOCIDOS.map(function(r){
+      return '<option value="'+escapeHtml(r)+'" '+(r===valorEfectivo?'selected':'')+'>'+escapeHtml(r)+'</option>';
+    }).join('');
+    var mostrarTexto = valorEfectivo === 'Otros';
+    return '<div class="field">' +
+      '<label>Responsable</label>' +
+      '<select data-field="responsable" id="responsableSelect">'+opts+'</select>' +
+      '<input type="text" data-field="responsableDetalle" id="responsableDetalleInput" placeholder="Nombre" ' +
+        'value="'+escapeHtml(detalleEfectivo)+'" style="margin-top:6px;'+(mostrarTexto?'':'display:none;')+'">' +
+    '</div>';
+  }
+
   function collectForm(){
     var data = {};
     document.querySelectorAll('#formFields [data-field]').forEach(function(inp){
@@ -1476,6 +1512,11 @@
     if(currentTipo === 'gasto' && !proveedorFinal){ toast('Elegí un proveedor'); return; }
     if(currentTipo === 'gasto' && proveedorFinal === 'Varios' && !proveedorDetalle){ toast('Escribí el nombre real del proveedor para "Varios"'); return; }
 
+    var responsableFinal = data.responsable || '';
+    if(responsableFinal === 'Otros'){
+      responsableFinal = (data.responsableDetalle || '').trim();
+    }
+
     // Tarjeta / No pagado / Transferencia dejan su etiqueta marcada en Info,
     // sumada a lo que se haya escrito ahí (no lo reemplaza).
     var infoFinal = data.info || '';
@@ -1496,7 +1537,7 @@
       info: infoFinal,
       iva: (data.iva !== undefined && data.iva !== '') ? num(data.iva) : null,
       motivo: data.motivo || '',
-      responsable: data.responsable || ''
+      responsable: responsableFinal
     };
 
     var t = modalTurno;
@@ -1565,13 +1606,22 @@
     fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
       if(!data || !data.ok){
         statusEl.textContent = 'No se pudo traer la lista' + (data && data.error ? (': ' + data.error) : '') + '.';
+        renderAlbaranesTabla([]);
+        return;
+      }
+      if(data.facturas === undefined){
+        // Sin el campo "facturas" para nada: el Apps Script todavía tiene
+        // la versión vieja, sin el doGet que atiende ?listarFacturas=1.
+        statusEl.textContent = 'El Apps Script respondió sin la lista de facturas — parece que todavía tiene la versión vieja. Hay que pegar el .gs actualizado y crear una Nueva versión de la implementación.';
+        renderAlbaranesTabla([]);
         return;
       }
       var facturas = data.facturas || [];
-      statusEl.textContent = facturas.length + ' movimiento(s) encontrado(s).';
+      statusEl.textContent = facturas.length + ' movimiento(s) encontrado(s).' + (data.error ? ' (' + data.error + ')' : '');
       renderAlbaranesTabla(facturas);
     }).catch(function(err){
       statusEl.textContent = 'Error al buscar: ' + err.message;
+      renderAlbaranesTabla([]);
     });
   }
 
