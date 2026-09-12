@@ -101,6 +101,7 @@
   .cal-dia{
     aspect-ratio:1;border:none;background:transparent;border-radius:6px;font-size:.82rem;
     color:var(--ink);cursor:pointer;display:flex;align-items:center;justify-content:center;
+    padding:0;width:100%;
   }
   .cal-dia:hover{background:#eceef1;}
   .cal-dia-vacio{cursor:default;}
@@ -1828,14 +1829,18 @@
   });
   document.getElementById('fechaCierre').addEventListener('input', function(){
     var nuevaFecha = this.value;
-    if(!nuevaFecha || nuevaFecha === state.fecha) return;
+    if(!nuevaFecha) return;
 
     var store = getDiasStore();
     var yaExiste = !!store[nuevaFecha] || !!fechasConDatos[nuevaFecha];
+    var esMismoDia = nuevaFecha === state.fecha;
+
+    if(esMismoDia && yaExiste) return; // ya está creado y ya se está viendo: nada que hacer
 
     // Un día pasado que nunca se abrió no se puede empezar a cargar ahora:
-    // solo se puede abrir una caja nueva en el día actual o en uno futuro.
-    if(!yaExiste && nuevaFecha < todayISO()){
+    // solo se puede abrir una caja nueva en el día actual, en uno futuro, o
+    // reintentar el día que ya se está viendo (por si antes se dijo que no).
+    if(!yaExiste && !esMismoDia && nuevaFecha < todayISO()){
       alert('NO SE TRABAJO ESTE DIA');
       this.value = state.fecha; // se queda en el día que ya estaba
       return;
@@ -1995,7 +2000,12 @@
         var fecha = btn.getAttribute('data-fecha');
         cerrarCalendario();
         var fechaInput = document.getElementById('fechaCierre');
-        if(fecha === fechaInput.value) return;
+        // Si es el mismo día que ya se está viendo pero todavía no se creó
+        // (se había declinado abrirlo antes), igual hay que disparar el
+        // evento para que se vuelva a preguntar — no alcanza con comparar
+        // el valor del input, porque no cambió.
+        var yaCreado = !!fechasConDatos[fecha] || !!getDiasStore()[fecha];
+        if(fecha === fechaInput.value && yaCreado) return;
         fechaInput.value = fecha;
         fechaInput.dispatchEvent(new Event('input', {bubbles:true}));
       });
