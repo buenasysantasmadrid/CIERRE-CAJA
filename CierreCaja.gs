@@ -70,6 +70,84 @@ function getOrCrearMovimientos_(ss) {
   return mov;
 }
 
+// ============================================================================
+// MIGRACIÓN MANUAL — correr una sola vez desde el editor de Apps Script
+// (menú Ejecutar, elegir esta función) si la pestaña "Movimientos" es de
+// una versión vieja del script (le faltan las columnas "ID Movimiento" e
+// "Info", como pasa si su fila 1 no tiene esos textos). Sin esas columnas,
+// funciones como "buscarFacturas" o "listarFacturas" (Albaranes) no pueden
+// funcionar.
+//
+// No borra nada: renombra la pestaña vieja como respaldo y genera una
+// "Movimientos" nueva, completa y con las columnas correctas, reconstruida
+// desde "Registro" (la columna "Datos JSON (uso interno)" ahí sí tiene
+// siempre el detalle completo y sin corrimientos de cada movimiento, así
+// que es la fuente confiable para reconstruir esto). Reutiliza el mismo
+// mapeo tipo/subtipo -> etiqueta que ya usa la reconciliación manual más
+// abajo (TIPO_LABEL_MAP_ / SUBTIPO_LABEL_MAP_).
+// ============================================================================
+function reconstruirMovimientosDesdeRegistro() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var registro = ss.getSheetByName('Registro');
+  if (!registro) throw new Error('No existe la pestaña "Registro".');
+
+  var viejo = ss.getSheetByName('Movimientos');
+  if (viejo) {
+    var nombreBackup = 'Movimientos (vieja, backup)';
+    var backupPrevio = ss.getSheetByName(nombreBackup);
+    if (backupPrevio) ss.deleteSheet(backupPrevio); // por si se corre esto más de una vez
+    viejo.setName(nombreBackup);
+  }
+  var mov = getOrCrearMovimientos_(ss);
+
+  var valores = registro.getDataRange().getValues();
+  var header = valores[0];
+  var idxFecha = header.indexOf('Fecha');
+  var idxTurno = header.indexOf('Turno');
+  var idxUltima = header.indexOf('Última actualización');
+  var idxJSON = -1;
+  for (var h = 0; h < header.length; h++) {
+    if (String(header[h] || '').indexOf('Datos JSON') === 0) { idxJSON = h; break; }
+  }
+  if (idxJSON === -1) throw new Error('La pestaña "Registro" no tiene la columna "Datos JSON (uso interno)".');
+
+  var filas = [];
+  for (var i = 1; i < valores.length; i++) {
+    var fila = valores[i];
+    var jsonTexto = fila[idxJSON];
+    if (!jsonTexto) continue;
+
+    var turnoData;
+    try { turnoData = JSON.parse(jsonTexto); } catch (errParse) { continue; }
+
+    var idTurno = turnoData.id || fila[0];
+    var fechaRaw = fila[idxFecha];
+    var fechaStr = (fechaRaw instanceof Date)
+      ? Utilities.formatDate(fechaRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+      : String(fechaRaw || '');
+    var turnoLabel = fila[idxTurno];
+    var actualizado = idxUltima > -1 ? fila[idxUltima] : new Date();
+
+    (turnoData.movimientos || []).forEach(function (m) {
+      var proveedorMotivo = m.proveedor || m.motivo || '';
+      if (m.proveedor === 'Varios' && m.proveedorDetalle) proveedorMotivo += ' — ' + m.proveedorDetalle;
+      filas.push([
+        idTurno, m.id || '', fechaStr, turnoLabel,
+        TIPO_LABEL_MAP_[m.tipo] || m.tipo || '', SUBTIPO_LABEL_MAP_[m.subtipo] || '',
+        proveedorMotivo, m.responsable || '', m.factura || '', (m.info || ''),
+        (m.iva != null ? m.iva : ''), m.importe, actualizado
+      ]);
+    });
+  }
+
+  if (filas.length) {
+    mov.getRange(2, 1, filas.length, filas[0].length).setValues(filas);
+  }
+
+  Logger.log('Reconstruidas ' + filas.length + ' filas en "Movimientos" a partir de "Registro".');
+  return filas.length;
+}
+
 function escribirRegistroYMovimientos_(registro, mov, data, t, turnoLabel) {
   var c = t.calc || {};
   var id = t.id || '';
