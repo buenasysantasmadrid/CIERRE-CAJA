@@ -2353,6 +2353,20 @@
     }
   }
 
+  // Busca la fecha más reciente que ya tenga una caja abierta (local o en el
+  // Sheet), sin contar excluirFecha. Se usa cuando el usuario cancela abrir
+  // el día nuevo: en ese caso hay que volver a mostrar la última caja que sí
+  // se abrió, no dejar el formulario en blanco en la fecha que rechazó.
+  function obtenerUltimaFechaAbierta(excluirFecha){
+    var store = getDiasStore();
+    var fechas = {};
+    Object.keys(store).forEach(function(f){ fechas[f] = true; });
+    Object.keys(fechasConDatos).forEach(function(f){ fechas[f] = true; });
+    delete fechas[excluirFecha];
+    var lista = Object.keys(fechas).sort();
+    return lista.length ? lista[lista.length - 1] : null;
+  }
+
   // ---------- init ----------
   function init(){
     loadNegocio();
@@ -2367,6 +2381,7 @@
       var store = getDiasStore();
       var esNuevoHoy = !store[state.fecha] && !fechasConDatos[state.fecha];
       var seAbrio = true;
+      var seMuestraOtraCaja = false;
 
       if(esNuevoHoy){
         seAbrio = confirm('Todavía no hay ningún cierre abierto para hoy (' + state.fecha + '). ¿Querés abrirlo?');
@@ -2375,11 +2390,19 @@
       if(seAbrio){
         loadDraft(); // carga lo local que haya y, si es nuevo, intenta traer del Sheet
       } else {
-        // No se toca el Sheet ni se guarda nada todavía: el formulario queda
-        // en blanco, listo para usar si el usuario decide cargar algo más
-        // adelante (en ese momento ya se sincroniza como siempre).
-        state = crearDiaVacio(state.fecha, state.negocio);
-        logSheetStatus('El usuario decidió no abrir el día ' + state.fecha + ' todavía; no se sincroniza nada hasta que cargue algo.');
+        // El usuario dijo que NO a abrir hoy: no se crea nada para hoy, se
+        // vuelve a mostrar la última caja que sí quedó abierta (si hay
+        // alguna). Solo si nunca se abrió ninguna caja antes queda en blanco.
+        var ultimaFecha = obtenerUltimaFechaAbierta(state.fecha);
+        if(ultimaFecha){
+          state.fecha = ultimaFecha;
+          loadDraft();
+          seMuestraOtraCaja = true;
+          logSheetStatus('El usuario decidió no abrir el día nuevo; se muestra en su lugar la última caja abierta (' + ultimaFecha + ').');
+        } else {
+          state = crearDiaVacio(state.fecha, state.negocio);
+          logSheetStatus('El usuario decidió no abrir el día ' + state.fecha + ' todavía; no se sincroniza nada hasta que cargue algo.');
+        }
       }
 
       document.getElementById('fechaCierre').value = state.fecha || todayISO();
@@ -2388,7 +2411,7 @@
       TURNOS.forEach(wireTurnoEvents);
       aplicarEstadoATurnos();
 
-      if(seAbrio) iniciarSondeoSheet();
+      if(seAbrio || seMuestraOtraCaja) iniciarSondeoSheet();
     });
   }
 
