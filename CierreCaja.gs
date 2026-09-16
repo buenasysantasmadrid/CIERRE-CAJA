@@ -130,7 +130,7 @@ function reconstruirMovimientosDesdeRegistro() {
 
     (turnoData.movimientos || []).forEach(function (m) {
       var proveedorMotivo = m.proveedor || m.motivo || '';
-      if (m.proveedor === 'Varios' && m.proveedorDetalle) proveedorMotivo += ' — ' + m.proveedorDetalle;
+      if (PROVEEDORES_CON_DETALLE_LIBRE_.indexOf(m.proveedor) > -1 && m.proveedorDetalle) proveedorMotivo += ' — ' + m.proveedorDetalle;
       filas.push([
         idTurno, m.id || '', fechaStr, turnoLabel,
         TIPO_LABEL_MAP_[m.tipo] || m.tipo || '', SUBTIPO_LABEL_MAP_[m.subtipo] || '',
@@ -182,7 +182,7 @@ function escribirRegistroYMovimientos_(registro, mov, data, t, turnoLabel) {
   if (id) borrarFilasPorId_(mov, id);
   (t.movimientos || []).forEach(function (m) {
     var proveedorMotivo = m.proveedor || m.motivo || '';
-    if (m.proveedor === 'Varios' && m.proveedorDetalle) proveedorMotivo += ' — ' + m.proveedorDetalle;
+    if (PROVEEDORES_CON_DETALLE_LIBRE_.indexOf(m.proveedor) > -1 && m.proveedorDetalle) proveedorMotivo += ' — ' + m.proveedorDetalle;
     mov.appendRow([
       id, m.id || '', data.fecha, turnoLabel, m.tipo, m.subtipo,
       proveedorMotivo, m.responsable || '',
@@ -286,7 +286,7 @@ function escribirFilasFijas_(hoja, startRow, maxFilas, colLetras, filas) {
 }
 
 function filaGasto_(m) {
-  var colB = (m.proveedor === 'Varios') ? (m.proveedorDetalle || '') : '';
+  var colB = (PROVEEDORES_CON_DETALLE_LIBRE_.indexOf(m.proveedor) > -1) ? (m.proveedorDetalle || '') : '';
   return [m.proveedor || m.motivo || '', colB, m.factura || '', (m.info || ''), (m.iva != null ? m.iva : ''), m.importe || 0];
 }
 function filaMotivoImporte_(m) {
@@ -834,6 +834,10 @@ function guardarDiaCompleto_(ss, fecha, negocio, dia) {
   escribirHojaDelDiaExacta_(ss, dataParaHoja);
 }
 
+// Proveedores genéricos (ver PROVEEDORES_CON_DETALLE_LIBRE en el
+// front-end): al elegirlos, la app pide escribir a mano el nombre real, que
+// se guarda acá como "<genérico> — <detalle>".
+var PROVEEDORES_CON_DETALLE_LIBRE_ = ['Varios', 'Super'];
 var TIPO_LABEL_MAP_ = { gasto: 'Gasto', ingreso: 'Ingreso', egreso: 'Egreso', empanadas: 'Empanadas' };
 var SUBTIPO_LABEL_MAP_ = {
   efectivo: 'Efectivo', no_efectivo: 'No efectivo', efectivo_antiguo: 'Efectivo antiguo',
