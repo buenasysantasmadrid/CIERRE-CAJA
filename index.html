@@ -464,6 +464,8 @@
   // Estado de la calculadora de cambio (Ingreso → Cambio): billete/moneda,
   // denominación, sueltas/blister, cantidad.
   var cambioState = { modo:null, denom:null, subModo:null, cantidad:null };
+  // Estado del desplegable Pago/No pago en Empanadas.
+  var empanadaPago = 'no_pago';
 
   function todayISO(){
     var d = new Date();
@@ -752,9 +754,9 @@
   // marcar como pagado en efectivo un albarán viejo desde la pantalla de
   // Albaranes (ver "Albaranes: marcar como pagado" más abajo).
   var GASTO_SUBTYPES = [
-    {k:'efectivo',l:'🪙 Efectivo'},
+    {k:'efectivo',l:'💶 Efectivo'},
     {k:'tarjeta',l:'💳 Tarjeta'},
-    {k:'no_pagado',l:'🚫💶 No pagado'},
+    {k:'no_pagado',l:'<span style="text-decoration:line-through;">💶</span> No pagado'},
     {k:'transferencia',l:'🏦 Transferencia'}
   ];
   // Estas tres opciones son formas de "no efectivo": van a la misma tabla
@@ -766,10 +768,14 @@
   // "Ingreso @" no está acá: sigue existiendo para movimientos viejos (ver
   // SUBTIPO_LABEL), pero ya no se puede elegir a mano.
   var INGRESO_SUBTYPES = [
-    {k:'cambio',l:'🪙 Cambio'},
+    {k:'cambio',l:'💶 Cambio'},
     {k:'varios',l:'Varios'},
     {k:'empanadas_ing',l:'🥟 Empanadas'},
-    {k:'empleados',l:'🧑 Empleados'}
+    {k:'empleados',l:'👤 Empleados'}
+  ];
+  var EMPANADA_PAGO_OPTS = [
+    {k:'no_pago', l:'No pago'},
+    {k:'pago', l:'Pago'}
   ];
 
   function openModal(existing, presetCategoria, turno){
@@ -796,6 +802,7 @@
     currentCategoria = null; currentTipo = null; currentSubtipo = null;
     scanImageBase64 = null; scanMediaType = null;
     cambioState = { modo:null, denom:null, subModo:null, cantidad:null };
+    empanadaPago = 'no_pago';
   }
 
   function renderCategoryButtons(){
@@ -813,7 +820,7 @@
       var chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'subtype-chip' + (it.k === selected ? ' active' : '');
-      chip.textContent = it.l;
+      chip.innerHTML = it.l;
       chip.setAttribute('data-k', it.k);
       chip.addEventListener('click', function(){
         container.querySelectorAll('.subtype-chip').forEach(function(c){ c.classList.remove('active'); });
@@ -870,6 +877,12 @@
       currentSubtipo = 'retiro';
     } else if(tipo === 'empanadas'){
       currentSubtipo = 'empanadas';
+      empanadaPago = 'no_pago';
+      renderChipRow(l3, EMPANADA_PAGO_OPTS, empanadaPago, function(k){
+        var valoresActuales = capturarValoresFormActuales();
+        empanadaPago = k;
+        renderFormFields(tipo, Object.assign({}, existing, valoresActuales));
+      });
     }
     renderFormFields(tipo, existing);
   }
@@ -905,7 +918,11 @@
       html += '<div class="field" style="flex:1 1 100%;"><label>Info</label><input type="text" data-field="info" value="'+(f.info?escapeHtml(f.info):'')+'" placeholder="Detalle, observación"></div>';
       html += field('Importe (€)','importe','number', (f.importe!=null?f.importe:''), '0.00');
     } else if(tipo === 'empanadas'){
-      html += empanadasProveedorField(f.proveedor||'');
+      if(empanadaPago === 'pago'){
+        html += field('Cliente','motivo','text', f.motivo||'');
+      } else {
+        html += empanadasProveedorField(f.proveedor||'');
+      }
       html += responsableField(f.responsable||'');
       html += field('Importe (€)','importe','number', (f.importe!=null?f.importe:''), '0.00');
     }
@@ -985,7 +1002,7 @@
     if(!box) return;
 
     renderChipRow(document.getElementById('cambioModoRow'),
-      [{k:'billete',l:'💶 Billetes'},{k:'moneda',l:'🪙 Monedas'}], cambioState.modo, function(k){
+      [{k:'billete',l:'💶 Billetes'},{k:'moneda',l:'💰 Monedas'}], cambioState.modo, function(k){
         cambioState.modo = k; cambioState.denom = null; cambioState.subModo = null; cambioState.cantidad = null;
         renderCambioCalculator();
       });
@@ -1402,6 +1419,16 @@
     var data = collectForm();
     var importe = num(data.importe);
     if(!importe){ toast('Ingresá un importe válido'); return; }
+    if(currentTipo === 'empanadas' && empanadaPago === 'pago' && !(data.motivo||'').trim()){ toast('Escribí el cliente'); return; }
+
+    // Empanadas "Pago" se guarda como un ingreso de Varios (con el cliente
+    // en el campo Motivo) en lugar de como movimiento de Empanadas.
+    var tipoFinal = currentTipo;
+    var subtipoFinal = currentSubtipo;
+    if(currentTipo === 'empanadas' && empanadaPago === 'pago'){
+      tipoFinal = 'ingreso';
+      subtipoFinal = 'varios';
+    }
 
     var proveedorFinal = data.proveedor || '';
     var proveedorDetalle = '';
@@ -1426,8 +1453,8 @@
 
     var mov = {
       id: editingId || uid(),
-      tipo: currentTipo,
-      subtipo: currentSubtipo,
+      tipo: tipoFinal,
+      subtipo: subtipoFinal,
       importe: importe,
       fecha: data.fecha || todayISO(),
       proveedor: proveedorFinal,
