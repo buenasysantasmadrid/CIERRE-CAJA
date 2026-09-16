@@ -1608,8 +1608,11 @@
     empty.style.display = 'none';
     facturas.forEach(function(f){
       var noPagado = f.subtipo === 'No pagado';
-      var mPagado = /^PAGADO(?:\s+(\S+))?/.exec(f.info||'');
-      var fechaPago = mPagado ? (mPagado[1]||'') : '';
+      // Info queda como "PAGADO <MODALIDAD> <fecha> · <resto>" — se toma
+      // todo lo que sigue a PAGADO hasta el primer " · " para mostrarlo tal
+      // cual (modalidad + fecha juntas).
+      var mPagado = /^PAGADO\s*([^·]*)/.exec(f.info||'');
+      var pagadoTexto = mPagado ? (mPagado[1]||'').trim() : '';
       var tr = document.createElement('tr');
       tr.className = 'row-click';
       tr.innerHTML =
@@ -1618,7 +1621,7 @@
         '<td>'+escapeHtml(f.proveedorTexto||'')+'</td>' +
         '<td>'+escapeHtml(f.subtipo||'')+
           (noPagado?' <span class="muted" style="font-size:.75rem;">(tocar para pagar)</span>':'')+
-          (fechaPago?'<br><span class="muted" style="font-size:.75rem;">Pagado '+escapeHtml(fechaPago)+'</span>':'')+
+          (pagadoTexto?'<br><span class="muted" style="font-size:.75rem;">Pagado '+escapeHtml(pagadoTexto)+'</span>':'')+
         '</td>' +
         '<td>'+escapeHtml(f.factura||'')+'</td>' +
         '<td class="num">'+fmt(f.importe)+'</td>';

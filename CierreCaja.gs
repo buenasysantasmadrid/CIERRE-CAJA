@@ -861,13 +861,18 @@ function turnoParaHojaExacta_(turno) {
 // de poner la etiqueta nueva al cambiar la forma de pago de un albarán ya
 // cargado.
 var FORMA_PAGO_LABEL_ = { tarjeta: 'Tarjeta', transferencia: 'Transferencia', efectivo_antiguo: 'Efectivo antiguo' };
+// Palabra de modalidad que se pone en Info junto con "PAGADO" — para
+// Efectivo antiguo se pone "EFECTIVO" (es la forma de pago real; "antiguo"
+// solo aclara que salió de una caja de un día posterior).
+var FORMA_PAGO_MODALIDAD_ = { tarjeta: 'TARJETA', transferencia: 'TRANSFERENCIA', efectivo_antiguo: 'EFECTIVO' };
 var INFO_TAGS_CONOCIDAS_ = ['TARJETA', 'NO PAGADO', 'TRANSFERENCIA'];
 
 function quitarTagInfo_(info) {
   info = String(info || '');
-  // Si ya tenía un "PAGADO <fecha>" puesto de una vez anterior, lo saca
-  // primero (para no duplicarlo si se cambia la forma de pago de nuevo).
-  var sinPagado = info.replace(/^PAGADO(\s+\S+)?\s*(?:·\s*)?/, '');
+  // Si ya tenía un "PAGADO <MODALIDAD> <fecha>" puesto de una vez anterior,
+  // lo saca primero (para no duplicarlo si se cambia la forma de pago de
+  // nuevo). Hasta 2 palabras después de PAGADO: modalidad y fecha.
+  var sinPagado = info.replace(/^PAGADO(\s+\S+){0,2}\s*(?:·\s*)?/, '');
   if (sinPagado !== info) info = sinPagado;
   for (var i = 0; i < INFO_TAGS_CONOCIDAS_.length; i++) {
     var tag = INFO_TAGS_CONOCIDAS_[i];
@@ -917,7 +922,8 @@ function cambiarFormaPagoAlbaran_(data) {
     var infoActual = String(valores[filaEncontrada - 1][idxInfo] || '');
     var infoSinTag = quitarTagInfo_(infoActual);
     var fechaPago = data.fechaPago ? String(data.fechaPago) : '';
-    var nuevoInfo = 'PAGADO' + (fechaPago ? ' ' + fechaPago : '') + (infoSinTag ? ' · ' + infoSinTag : '');
+    var modalidad = FORMA_PAGO_MODALIDAD_[nuevaFormaPago] || '';
+    var nuevoInfo = 'PAGADO' + (modalidad ? ' ' + modalidad : '') + (fechaPago ? ' ' + fechaPago : '') + (infoSinTag ? ' · ' + infoSinTag : '');
     var nuevoSubtipoLabel = FORMA_PAGO_LABEL_[nuevaFormaPago];
 
     mov.getRange(filaEncontrada, idxSubtipo + 1).setValue(nuevoSubtipoLabel);
