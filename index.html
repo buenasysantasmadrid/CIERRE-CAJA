@@ -2282,9 +2282,11 @@
           logSheetStatus('Sincronizado a las ' + new Date().toLocaleTimeString('es-ES') + ' · pestaña "' + fechaTabName(state.fecha) + '"');
           if(res.hojaDia && res.hojaDia.ok === false){
             logSheetStatus('La pestaña del día no se pudo crear/actualizar: ' + res.hojaDia.error, true);
+            avisarFalloSyncUnaVez('No se pudo crear/actualizar la pestaña del día: ' + res.hojaDia.error);
           }
           if(res.contabilidad && res.contabilidad.ok === false){
             logSheetStatus('La planilla de Contabilidad no se pudo actualizar: ' + res.contabilidad.error, true);
+            avisarFalloSyncUnaVez('No se pudo actualizar la planilla de Contabilidad: ' + res.contabilidad.error);
           }
         } else {
           logSheetStatus('El Sheet respondió con un error al sincronizar.', true);
