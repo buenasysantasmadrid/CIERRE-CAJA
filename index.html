@@ -55,7 +55,7 @@
   header input#negocioNombre:focus{background:rgba(255,255,255,.12);outline:none;}
   header .sub{font-size:.8rem;color:#b7bec9;}
   header .header-actions{display:flex;gap:8px;flex-wrap:wrap;}
-  main{max-width:900px;margin:0 auto;padding:16px;}
+  main{max-width:1300px;margin:0 auto;padding:16px;}
   .card{
     background:var(--card);
     border:1px solid var(--line);
@@ -212,19 +212,16 @@
   }
   .turno-pill.mediodia{background:var(--amber-soft);color:var(--amber);}
   .turno-pill.noche{background:var(--blue-soft);color:var(--blue);}
+  .turno-grid{display:grid;grid-template-columns:1fr;gap:16px;align-items:start;}
+  @media (min-width:900px){
+    .turno-grid{grid-template-columns:1fr 1fr;}
+  }
+  .turno-col{min-width:0;}
   .movs-section{border:1px solid var(--line);border-radius:10px;background:#fff;padding:12px 14px;margin-bottom:14px;}
   .movs-section-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
   .movs-title{font-size:.82rem;font-weight:700;color:var(--ink);text-transform:uppercase;letter-spacing:.03em;}
   .movs-hint{font-size:.76rem;color:var(--ink-soft);margin-top:2px;}
   .btn-add{white-space:nowrap;}
-  .btn-cerrar-caja{
-    display:block;width:100%;text-align:center;background:var(--accent);color:#fff;
-    font-weight:800;font-size:1rem;text-transform:uppercase;letter-spacing:.05em;
-    padding:14px;border-radius:10px;margin:6px 0 14px;
-  }
-  .btn-cerrar-caja:hover{background:#255c41;}
-  .btn-cerrar-caja.abierto{background:#eceef1;color:var(--ink);}
-  .btn-cerrar-caja.abierto:hover{background:#e0e3e8;}
   .section-title{font-size:.82rem;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;margin:16px 0 8px;}
   .section-title:first-child{margin-top:0;}
   .section-title-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:16px 0 4px;flex-wrap:wrap;}
@@ -242,6 +239,7 @@
   .scan-spinner{width:12px;height:12px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:scanspin .7s linear infinite;flex-shrink:0;}
   @keyframes scanspin{to{transform:rotate(360deg);}}
   .scan-error{font-size:.8rem;color:var(--red);background:var(--red-soft);border:1px solid #f0c9c5;padding:7px 9px;border-radius:6px;margin-bottom:8px;}
+  .scan-warn{font-size:.8rem;font-weight:700;color:var(--amber);background:var(--amber-soft);border:1px solid #eeddb0;padding:7px 9px;border-radius:6px;margin-bottom:8px;}
   .scan-ok{font-size:.8rem;color:var(--accent);margin-bottom:8px;}
   @media (max-width:520px){
     table{font-size:.78rem;}
@@ -305,6 +303,7 @@
     <div id="formFields"></div>
 
     <div class="modal-actions">
+      <button class="btn-danger" id="modalEliminar" style="margin-right:auto;display:none;">Eliminar movimiento</button>
       <button class="btn-secondary" id="modalCancel">Cancelar</button>
       <button class="btn-primary" id="modalGuardar">Guardar movimiento</button>
     </div>
@@ -565,6 +564,9 @@
   }
 
   // ---------- turno section markup ----------
+  // Cierre de caja + Diferencia van a la izquierda y Proveedores +
+  // Movimientos a la derecha, las dos columnas siempre visibles (sin
+  // colapsar), para poder ver todo el turno en una sola pantalla.
   function turnoSectionHTML(t){
     var label = TURNO_LABEL[t];
     var pillClass = t;
@@ -572,64 +574,68 @@
     '<div class="turno-block" data-turno="'+t+'">' +
       '<div class="turno-heading"><h2>'+label+'</h2><span class="turno-pill '+pillClass+'">'+label+'</span></div>' +
 
-      '<div class="movs-section">' +
-        '<div class="movs-section-head">' +
-          '<div><div class="movs-title">Proveedores</div><div class="movs-hint">Cargá acá los pagos y facturas a proveedores.</div></div>' +
-          '<button class="btn-primary btn-add" data-add-prov="'+t+'">+ Agregar proveedor</button>' +
-        '</div>' +
-        '<table>' +
-          '<thead><tr><th>Tipo</th><th>Detalle</th><th>Fecha</th><th class="num">Importe</th><th></th></tr></thead>' +
-          '<tbody id="provBody_'+t+'"></tbody>' +
-        '</table>' +
-        '<div id="provEmpty_'+t+'" class="empty-row">Todavía no agregaste movimientos de proveedores.</div>' +
-      '</div>' +
-
-      '<div class="movs-section">' +
-        '<div class="movs-section-head">' +
-          '<div><div class="movs-title">Movimientos</div><div class="movs-hint">Cargá acá ingresos, egresos y empanadas.</div></div>' +
-          '<button class="btn-primary btn-add" data-add-otros="'+t+'">+ Agregar movimiento</button>' +
-        '</div>' +
-        '<table>' +
-          '<thead><tr><th>Tipo</th><th>Detalle</th><th>Fecha</th><th class="num">Importe</th><th></th></tr></thead>' +
-          '<tbody id="otrosBody_'+t+'"></tbody>' +
-        '</table>' +
-        '<div id="otrosEmpty_'+t+'" class="empty-row">Todavía no agregaste movimientos.</div>' +
-      '</div>' +
-
-      '<button type="button" class="btn-cerrar-caja" data-toggle-cierre="'+t+'" id="cierreToggleBtn_'+t+'">CERRAR CAJA</button>' +
-      '<div class="collapse" id="cierreContent_'+t+'">' +
-        (t==='noche'
-          ? '<p class="muted" style="margin-top:0;">Acá va la lectura de TODO el día (no solo de la noche): el número que marca la caja/TPV al cerrar, acumulado desde la mañana. El sistema calcula solo la parte que corresponde a Noche restando lo que ya cargaste en Mediodía.</p>'
-          : '') +
-        '<div class="row" style="margin-bottom:6px;">' +
-          (t==='mediodia'
-            ? '<div class="field"><label for="fondoFijo_'+t+'">Fondo fijo (€) — del día anterior</label><input type="number" step="0.01" id="fondoFijo_'+t+'" value="0" placeholder="0.00" readonly class="input-readonly"></div>'
-            : '<div class="field"><label for="fondoFijo_'+t+'">Fondo fijo (€)</label><input type="number" step="0.01" id="fondoFijo_'+t+'" value="0" placeholder="0.00"></div>'
-          ) +
+      '<div class="turno-grid">' +
+        '<div class="turno-col">' +
+          '<div class="section-title" style="margin-top:0;">Cierre de caja</div>' +
           (t==='noche'
-            ? '<div class="field"><label for="totalFacturado_'+t+'">Total facturado — día completo (€)</label><input type="number" step="0.01" id="totalFacturado_'+t+'" value="0" placeholder="0.00"></div>' +
-              '<div class="field"><label for="tpv1_'+t+'">TPV 1 — día completo (€)</label><input type="number" step="0.01" id="tpv1_'+t+'" value="0" placeholder="0.00"></div>' +
-              '<div class="field"><label for="tpv2_'+t+'">TPV 2 — día completo (€)</label><input type="number" step="0.01" id="tpv2_'+t+'" value="0" placeholder="0.00"></div>'
-            : '<div class="field"><label for="totalFacturado_'+t+'">Total facturado (€)</label><input type="number" step="0.01" id="totalFacturado_'+t+'" value="0" placeholder="0.00"></div>' +
-              '<div class="field"><label for="tpv1_'+t+'">Total TPV 1 (€)</label><input type="number" step="0.01" id="tpv1_'+t+'" value="0" placeholder="0.00"></div>' +
-              '<div class="field"><label for="tpv2_'+t+'">Total TPV 2 (€)</label><input type="number" step="0.01" id="tpv2_'+t+'" value="0" placeholder="0.00"></div>'
-          ) +
-        '</div>' +
-        '<div class="section-title">Conteo de efectivo</div>' +
-        '<table class="denom-table">' +
-          '<thead><tr><th>Billetes</th><th>Cantidad</th><th class="num">Subtotal</th></tr></thead>' +
-          '<tbody id="billetesBody_'+t+'"></tbody>' +
-        '</table>' +
-        '<table class="denom-table" style="margin-top:10px;">' +
-          '<thead><tr><th>Monedas</th><th>Sueltas (cant.)</th><th>Rollos/blister (cant.)</th><th class="num">Subtotal</th></tr></thead>' +
-          '<tbody id="monedasBody_'+t+'"></tbody>' +
-        '</table>' +
-        '<div class="subtotal-line total"><span>Total efectivo contado</span><span id="totalContadoLbl_'+t+'">0,00 €</span></div>' +
-      '</div>' +
+            ? '<p class="muted" style="margin-top:0;">Acá va la lectura de TODO el día (no solo de la noche): el número que marca la caja/TPV al cerrar, acumulado desde la mañana. El sistema calcula solo la parte que corresponde a Noche restando lo que ya cargaste en Mediodía.</p>'
+            : '') +
+          '<div class="row" style="margin-bottom:6px;">' +
+            (t==='mediodia'
+              ? '<div class="field"><label for="fondoFijo_'+t+'">Fondo fijo (€) — del día anterior</label><input type="number" step="0.01" id="fondoFijo_'+t+'" value="0" placeholder="0.00" readonly class="input-readonly"></div>'
+              : '<div class="field"><label for="fondoFijo_'+t+'">Fondo fijo (€)</label><input type="number" step="0.01" id="fondoFijo_'+t+'" value="0" placeholder="0.00"></div>'
+            ) +
+            (t==='noche'
+              ? '<div class="field"><label for="totalFacturado_'+t+'">Total facturado — día completo (€)</label><input type="number" step="0.01" id="totalFacturado_'+t+'" value="0" placeholder="0.00"></div>' +
+                '<div class="field"><label for="tpv1_'+t+'">TPV 1 — día completo (€)</label><input type="number" step="0.01" id="tpv1_'+t+'" value="0" placeholder="0.00"></div>' +
+                '<div class="field"><label for="tpv2_'+t+'">TPV 2 — día completo (€)</label><input type="number" step="0.01" id="tpv2_'+t+'" value="0" placeholder="0.00"></div>'
+              : '<div class="field"><label for="totalFacturado_'+t+'">Total facturado (€)</label><input type="number" step="0.01" id="totalFacturado_'+t+'" value="0" placeholder="0.00"></div>' +
+                '<div class="field"><label for="tpv1_'+t+'">Total TPV 1 (€)</label><input type="number" step="0.01" id="tpv1_'+t+'" value="0" placeholder="0.00"></div>' +
+                '<div class="field"><label for="tpv2_'+t+'">Total TPV 2 (€)</label><input type="number" step="0.01" id="tpv2_'+t+'" value="0" placeholder="0.00"></div>'
+            ) +
+          '</div>' +
+          '<div class="section-title">Conteo de efectivo</div>' +
+          '<table class="denom-table">' +
+            '<thead><tr><th>Billetes</th><th>Cantidad</th><th class="num">Subtotal</th></tr></thead>' +
+            '<tbody id="billetesBody_'+t+'"></tbody>' +
+          '</table>' +
+          '<table class="denom-table" style="margin-top:10px;">' +
+            '<thead><tr><th>Monedas</th><th>Sueltas (cant.)</th><th>Rollos/blister (cant.)</th><th class="num">Subtotal</th></tr></thead>' +
+            '<tbody id="monedasBody_'+t+'"></tbody>' +
+          '</table>' +
+          '<div class="subtotal-line total"><span>Total efectivo contado</span><span id="totalContadoLbl_'+t+'">0,00 €</span></div>' +
 
-      '<div class="result-box ok" id="resultBox_'+t+'">' +
-        '<div class="diff" id="resultDiff_'+t+'">0,00 €</div>' +
-        '<div class="lbl" id="resultLbl_'+t+'">CUADRA</div>' +
+          '<div class="result-box ok" id="resultBox_'+t+'">' +
+            '<div class="diff" id="resultDiff_'+t+'">0,00 €</div>' +
+            '<div class="lbl" id="resultLbl_'+t+'">CUADRA</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="turno-col">' +
+          '<div class="movs-section">' +
+            '<div class="movs-section-head">' +
+              '<div><div class="movs-title">Proveedores</div><div class="movs-hint">Cargá acá los pagos y facturas a proveedores.</div></div>' +
+              '<button class="btn-primary btn-add" data-add-prov="'+t+'">+ Agregar proveedor</button>' +
+            '</div>' +
+            '<table>' +
+              '<thead><tr><th>Tipo</th><th>Detalle</th><th>Fecha</th><th class="num">Importe</th><th></th></tr></thead>' +
+              '<tbody id="provBody_'+t+'"></tbody>' +
+            '</table>' +
+            '<div id="provEmpty_'+t+'" class="empty-row">Todavía no agregaste movimientos de proveedores.</div>' +
+          '</div>' +
+
+          '<div class="movs-section">' +
+            '<div class="movs-section-head">' +
+              '<div><div class="movs-title">Movimientos</div><div class="movs-hint">Cargá acá ingresos, egresos y empanadas.</div></div>' +
+              '<button class="btn-primary btn-add" data-add-otros="'+t+'">+ Agregar movimiento</button>' +
+            '</div>' +
+            '<table>' +
+              '<thead><tr><th>Tipo</th><th>Detalle</th><th>Fecha</th><th class="num">Importe</th><th></th></tr></thead>' +
+              '<tbody id="otrosBody_'+t+'"></tbody>' +
+            '</table>' +
+            '<div id="otrosEmpty_'+t+'" class="empty-row">Todavía no agregaste movimientos.</div>' +
+          '</div>' +
+        '</div>' +
       '</div>' +
     '</div>';
   }
@@ -721,17 +727,10 @@
         '<td>'+escapeHtml(detalleTexto(m))+(m.tipo==='gasto' && m.iva!=null ? ' <span class="muted">(IVA '+fmt(m.iva)+')</span>' : '')+(m.tipo==='gasto' && m.info ? ' <span class="muted">· '+escapeHtml(m.info)+'</span>' : '')+'</td>' +
         '<td>'+ (m.fecha||'') +'</td>' +
         '<td class="num">'+fmt(m.importe)+'</td>' +
-        '<td><button class="icon-btn" data-edit="'+m.id+'">✎</button><button class="icon-btn" data-del="'+m.id+'">🗑</button></td>';
+        '<td><button class="icon-btn" data-edit="'+m.id+'">✎</button></td>';
       body.appendChild(tr);
     });
 
-    body.querySelectorAll('[data-del]').forEach(function(btn){
-      btn.addEventListener('click', function(){
-        var id = btn.getAttribute('data-del');
-        state[t].movimientos = state[t].movimientos.filter(function(m){ return m.id !== id; });
-        renderMovimientos(t); recalc(t); saveDraft();
-      });
-    });
     body.querySelectorAll('[data-edit]').forEach(function(btn){
       btn.addEventListener('click', function(){
         var id = btn.getAttribute('data-edit');
@@ -753,10 +752,10 @@
   // marcar como pagado en efectivo un albarán viejo desde la pantalla de
   // Albaranes (ver "Albaranes: marcar como pagado" más abajo).
   var GASTO_SUBTYPES = [
-    {k:'efectivo',l:'Efectivo'},
-    {k:'tarjeta',l:'Tarjeta'},
-    {k:'no_pagado',l:'No pagado'},
-    {k:'transferencia',l:'Transferencia'}
+    {k:'efectivo',l:'🪙 Efectivo'},
+    {k:'tarjeta',l:'💳 Tarjeta'},
+    {k:'no_pagado',l:'🚫💶 No pagado'},
+    {k:'transferencia',l:'🏦 Transferencia'}
   ];
   // Estas tres opciones son formas de "no efectivo": van a la misma tabla
   // del Sheet ("Gastos no efectivo") y no afectan el cálculo de caja — la
@@ -764,12 +763,13 @@
   var SUBTIPOS_NO_EFECTIVO = ['no_efectivo', 'tarjeta', 'no_pagado', 'transferencia'];
   var GASTO_INFO_TAG = { tarjeta:'TARJETA', no_pagado:'NO PAGADO', transferencia:'TRANSFERENCIA' };
   var OTROS_TIPOS = [{k:'ingreso',l:'Ingreso'},{k:'egreso',l:'Egreso'},{k:'empanadas',l:'Empanadas'}];
+  // "Ingreso @" no está acá: sigue existiendo para movimientos viejos (ver
+  // SUBTIPO_LABEL), pero ya no se puede elegir a mano.
   var INGRESO_SUBTYPES = [
-    {k:'cambio',l:'Cambio'},
-    {k:'ingreso_arroba',l:'Ingreso @'},
-    {k:'empanadas_ing',l:'Empanadas'},
-    {k:'empleados',l:'Empleados'},
-    {k:'varios',l:'Varios'}
+    {k:'cambio',l:'🪙 Cambio'},
+    {k:'varios',l:'Varios'},
+    {k:'empanadas_ing',l:'🥟 Empanadas'},
+    {k:'empleados',l:'🧑 Empleados'}
   ];
 
   function openModal(existing, presetCategoria, turno){
@@ -778,6 +778,7 @@
     modalTurno = turno;
     document.getElementById('modalTurnoLabel').textContent = TURNO_LABEL[turno] || '';
     document.getElementById('modalOverlay').classList.add('open');
+    document.getElementById('modalEliminar').style.display = existing ? '' : 'none';
     var cat = existing ? (existing.tipo === 'gasto' ? 'proveedores' : 'otros') : (presetCategoria || null);
     if(cat){
       selectCategoria(cat, existing);
@@ -904,7 +905,7 @@
       html += '<div class="field" style="flex:1 1 100%;"><label>Info</label><input type="text" data-field="info" value="'+(f.info?escapeHtml(f.info):'')+'" placeholder="Detalle, observación"></div>';
       html += field('Importe (€)','importe','number', (f.importe!=null?f.importe:''), '0.00');
     } else if(tipo === 'empanadas'){
-      html += field('Proveedor','proveedor','text', f.proveedor||'');
+      html += empanadasProveedorField(f.proveedor||'');
       html += responsableField(f.responsable||'');
       html += field('Importe (€)','importe','number', (f.importe!=null?f.importe:''), '0.00');
     }
@@ -984,7 +985,7 @@
     if(!box) return;
 
     renderChipRow(document.getElementById('cambioModoRow'),
-      [{k:'billete',l:'Billetes'},{k:'moneda',l:'Monedas'}], cambioState.modo, function(k){
+      [{k:'billete',l:'💶 Billetes'},{k:'moneda',l:'🪙 Monedas'}], cambioState.modo, function(k){
         cambioState.modo = k; cambioState.denom = null; cambioState.subModo = null; cambioState.cantidad = null;
         renderCambioCalculator();
       });
@@ -1104,6 +1105,7 @@
             '<div class="scan-meta">' +
               '<div class="scan-status" id="scanStatusLine" style="display:none;"><span class="scan-spinner"></span><span id="scanStatusText">Leyendo la factura…</span></div>' +
               '<div class="scan-error" id="scanErrorLine" style="display:none;"></div>' +
+              '<div class="scan-warn" id="scanFechaDiferenteLine" style="display:none;">FECHA DIFERENTE, PONEMOS FECHA DE HOY</div>' +
               '<div class="scan-ok" id="scanOkLine" style="display:none;">Datos volcados en el formulario ✓ — revisalos antes de guardar.</div>' +
               '<div class="scan-actions">' +
                 '<button type="button" class="btn-primary" id="scanBtnExtract">Extraer datos</button>' +
@@ -1163,6 +1165,7 @@
           thumb.src = resizedDataUrl;
           document.getElementById('scanPreviewRow').style.display = 'flex';
           document.getElementById('scanErrorLine').style.display = 'none';
+          document.getElementById('scanFechaDiferenteLine').style.display = 'none';
           document.getElementById('scanOkLine').style.display = 'none';
           document.getElementById('scanBtnExtract').disabled = false;
         }
@@ -1188,6 +1191,7 @@
     document.getElementById('scanStatusLine').style.display = 'flex';
     document.getElementById('scanStatusText').textContent = 'Leyendo la factura…';
     document.getElementById('scanErrorLine').style.display = 'none';
+    document.getElementById('scanFechaDiferenteLine').style.display = 'none';
     document.getElementById('scanOkLine').style.display = 'none';
 
     fetch(SCAN_EDGE_FUNCTION_URL, {
@@ -1251,11 +1255,15 @@
     var facturaEl = document.querySelector('#formFields [data-field="factura"]');
     if(facturaEl && data.numero_factura) facturaEl.value = data.numero_factura;
 
+    // La fecha del movimiento siempre es la de hoy, aunque la factura
+    // escaneada traiga otra fecha — en ese caso solo se avisa con un
+    // cartel, no se usa la fecha de la factura.
     var fechaISO = normalizarFechaFactura(data.fecha);
-    if(fechaISO){
-      var fechaEl = document.querySelector('#formFields [data-field="fecha"]');
-      if(fechaEl) fechaEl.value = fechaISO;
-    }
+    var hoyISO = todayISO();
+    var fechaEl = document.querySelector('#formFields [data-field="fecha"]');
+    if(fechaEl) fechaEl.value = hoyISO;
+    var warnLine = document.getElementById('scanFechaDiferenteLine');
+    if(warnLine) warnLine.style.display = (fechaISO && fechaISO !== hoyISO) ? 'block' : 'none';
 
     if(data.importe_total != null && data.importe_total !== ''){
       var importeEl = document.querySelector('#formFields [data-field="importe"]');
@@ -1344,6 +1352,15 @@
       '<input type="text" data-field="proveedorDetalle" id="proveedorDetalleInput" placeholder="Nombre real del proveedor (para la columna de detalle)" ' +
         'value="'+escapeHtml(valorTexto)+'" style="margin-top:6px;'+(mostrarTexto?'':'display:none;')+'">' +
     '</div>';
+  }
+
+  var PROVEEDORES_EMPANADAS = ['BAKEA', 'LOMBAY', 'OTRO'];
+  function empanadasProveedorField(selected){
+    var opts = '<option value="">Elegir proveedor…</option>';
+    opts += PROVEEDORES_EMPANADAS.map(function(p){
+      return '<option value="'+p+'" '+(p===selected?'selected':'')+'>'+p+'</option>';
+    }).join('');
+    return '<div class="field"><label>Proveedor</label><select data-field="proveedor">'+opts+'</select></div>';
   }
 
   // Desplegable de responsables conocidos. Un nombre guardado que no esté
@@ -1441,6 +1458,17 @@
   document.getElementById('modalCancel').addEventListener('click', closeModal);
   document.getElementById('modalOverlay').addEventListener('click', function(e){
     if(e.target === this) closeModal();
+  });
+  document.getElementById('modalEliminar').addEventListener('click', function(){
+    if(!editingId || !editingTurno) return;
+    if(!confirm('¿Eliminar este movimiento? Esta acción no se puede deshacer.')) return;
+    var t = editingTurno;
+    state[t].movimientos = state[t].movimientos.filter(function(m){ return m.id !== editingId; });
+    saveDraft();
+    renderMovimientos(t);
+    recalc(t);
+    closeModal();
+    toast('Movimiento eliminado (' + TURNO_LABEL[t] + ')');
   });
 
   // ---------- Albaranes: consultar y editar facturas/movimientos de proveedores ----------
@@ -2076,13 +2104,6 @@
     });
     document.querySelector('[data-add-otros="'+t+'"]').addEventListener('click', function(){
       openModal(null, 'otros', t);
-    });
-    document.getElementById('cierreToggleBtn_'+t).addEventListener('click', function(){
-      var el = document.getElementById('cierreContent_'+t);
-      var abrir = !el.classList.contains('open');
-      el.classList.toggle('open', abrir);
-      this.classList.toggle('abierto', abrir);
-      this.textContent = abrir ? 'OCULTAR CIERRE' : 'CERRAR CAJA';
     });
   }
 
