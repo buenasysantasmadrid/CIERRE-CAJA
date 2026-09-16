@@ -333,6 +333,23 @@
   </div>
 </div>
 
+<!-- Modal marcar albarán viejo como pagado -->
+<div class="modal-overlay" id="pagoAlbaranOverlay">
+  <div class="modal">
+    <button class="modal-close" id="pagoAlbaranClose">&times;</button>
+    <h3>Marcar como pagado</h3>
+    <div id="pagoAlbaranResumen" class="muted" style="margin-bottom:14px;"></div>
+    <div id="pagoAlbaranPasoForma">
+      <div class="section-title" style="margin:0 0 8px;">¿Cómo se pagó?</div>
+      <div class="subtype-row" id="pagoAlbaranFormaRow"></div>
+    </div>
+    <div id="pagoAlbaranPasoTurno" style="display:none;">
+      <div class="section-title" style="margin:0 0 8px;">Sale de la caja de hoy — ¿en qué turno?</div>
+      <div class="subtype-row" id="pagoAlbaranTurnoRow"></div>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -732,12 +749,14 @@
   }
 
   // ---------- modal / form ----------
+  // "Efectivo antiguo" no está acá: no se elige a mano, se pone solo al
+  // marcar como pagado en efectivo un albarán viejo desde la pantalla de
+  // Albaranes (ver "Albaranes: marcar como pagado" más abajo).
   var GASTO_SUBTYPES = [
     {k:'efectivo',l:'Efectivo'},
     {k:'tarjeta',l:'Tarjeta'},
     {k:'no_pagado',l:'No pagado'},
-    {k:'transferencia',l:'Transferencia'},
-    {k:'efectivo_antiguo',l:'Efectivo antiguo'}
+    {k:'transferencia',l:'Transferencia'}
   ];
   // Estas tres opciones son formas de "no efectivo": van a la misma tabla
   // del Sheet ("Gastos no efectivo") y no afectan el cálculo de caja — la
@@ -776,7 +795,6 @@
     currentCategoria = null; currentTipo = null; currentSubtipo = null;
     scanImageBase64 = null; scanMediaType = null;
     cambioState = { modo:null, denom:null, subModo:null, cantidad:null };
-    facturaPendienteElegida = null;
   }
 
   function renderCategoryButtons(){
@@ -818,7 +836,6 @@
       renderChipRow(l2, GASTO_SUBTYPES, currentSubtipo, function(k){
         var valoresActuales = capturarValoresFormActuales();
         currentSubtipo = k;
-        facturaPendienteElegida = null;
         renderFormFields('gasto', Object.assign({}, gExisting, valoresActuales));
         actualizarPlaceholderInfoGasto();
       });
@@ -873,9 +890,6 @@
     if(tipo === 'gasto'){
       html += scanBoxHTML();
       html += proveedorField(f.proveedor||'', f.proveedorDetalle||'');
-      if(currentSubtipo === 'efectivo_antiguo'){
-        html += facturasPendientesBoxHTML();
-      }
       html += field('Nº de factura','factura','text', f.factura||'');
       html += field('Fecha','fecha','date', f.fecha||todayISO());
       html += '<div class="field" style="flex:1 1 100%;"><label>Info</label><input type="text" data-field="info" value="'+(f.info?escapeHtml(quitarTagInfoGasto(f.info, f.subtipo)):'')+'" placeholder="Detalle, observación, lo que haga falta anotar"></div>';
@@ -913,143 +927,10 @@
         var mostrar = necesitaProveedorLibre(selProv.value);
         detalleInput.style.display = mostrar ? 'block' : 'none';
         if(mostrar) detalleInput.focus();
-        if(currentSubtipo === 'efectivo_antiguo'){
-          facturaPendienteElegida = null;
-          buscarFacturasPendientes();
-        }
       });
-      if(currentSubtipo === 'efectivo_antiguo'){
-        detalleInput.addEventListener('input', debounce(function(){
-          facturaPendienteElegida = null;
-          buscarFacturasPendientes();
-        }, 500));
-      }
     }
     if(tipo === 'gasto') wireScanUI();
-    if(tipo === 'gasto' && currentSubtipo === 'efectivo_antiguo' && !editingId) buscarFacturasPendientes();
     if(tipo === 'ingreso' && currentSubtipo === 'cambio') renderCambioCalculator();
-  }
-
-  function debounce(fn, ms){
-    var timer = null;
-    return function(){
-      var args = arguments;
-      clearTimeout(timer);
-      timer = setTimeout(function(){ fn.apply(null, args); }, ms);
-    };
-  }
-
-  // ---------- Efectivo antiguo: buscar y pagar facturas pendientes ----------
-  var facturaPendienteElegida = null;
-
-  function facturasPendientesBoxHTML(){
-    return '<div class="field" style="flex:1 1 100%;">' +
-      '<div class="scan-box" id="facturasPendientesBox">' +
-        '<div class="section-title" style="margin:0 0 8px;">Facturas pendientes de este proveedor</div>' +
-        '<div id="facturasPendientesLista"><p class="muted" style="margin:0;">Elegí un proveedor arriba para ver sus facturas.</p></div>' +
-      '</div>' +
-    '</div>';
-  }
-
-  function buscarFacturasPendientes(){
-    var cont = document.getElementById('facturasPendientesLista');
-    if(!cont) return;
-    var sel = document.getElementById('proveedorSelect');
-    var proveedor = sel ? sel.value : '';
-    var detalleInput = document.getElementById('proveedorDetalleInput');
-    var detalle = (proveedor === 'Varios' && detalleInput) ? detalleInput.value.trim() : '';
-
-    if(!proveedor || (proveedor === 'Varios' && !detalle)){
-      cont.innerHTML = '<p class="muted" style="margin:0;">Elegí un proveedor arriba para ver sus facturas.</p>';
-      return;
-    }
-
-    var url = loadSheetUrl();
-    if(!hasValidSheetUrl(url)){
-      cont.innerHTML = '<p class="muted" style="margin:0;">No hay una URL de Apps Script configurada.</p>';
-      return;
-    }
-    cont.innerHTML = '<p class="muted" style="margin:0;">Buscando…</p>';
-
-    var getUrl = url + (url.indexOf('?')>-1?'&':'?') + 'buscarFacturas=' + encodeURIComponent(proveedor) +
-      (detalle ? '&detalle=' + encodeURIComponent(detalle) : '');
-
-    fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
-      // El proveedor/detalle pudo haber cambiado mientras se esperaba la respuesta
-      var selAhora = document.getElementById('proveedorSelect');
-      if(!selAhora || selAhora.value !== proveedor) return;
-
-      if(!data || !data.ok){
-        cont.innerHTML = '<p class="muted" style="margin:0;">No se pudo buscar (' + ((data&&data.error)||'error desconocido') + ').</p>';
-        return;
-      }
-      var facturas = data.facturas || [];
-      if(facturas.length === 0){
-        cont.innerHTML = '<p class="muted" style="margin:0;">No hay facturas pendientes para este proveedor.</p>';
-        return;
-      }
-      cont.innerHTML = facturas.map(function(f, i){
-        return '<div class="factura-pendiente-item" data-idx="'+i+'" style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:6px;cursor:pointer;">' +
-          '<div style="display:flex;justify-content:space-between;gap:8px;"><strong>Fact. '+escapeHtml(f.factura||'(s/n)')+'</strong><span>'+fmt(f.importe)+'</span></div>' +
-          '<div class="muted" style="font-size:.78rem;">'+escapeHtml(f.fecha||'')+' · '+escapeHtml(f.turno||'')+(f.info?' · '+escapeHtml(f.info):'')+'</div>' +
-        '</div>';
-      }).join('');
-      cont.querySelectorAll('.factura-pendiente-item').forEach(function(el){
-        el.addEventListener('click', function(){
-          var f = facturas[Number(el.getAttribute('data-idx'))];
-          elegirFacturaPendiente(f, cont, el);
-        });
-      });
-    }).catch(function(err){
-      cont.innerHTML = '<p class="muted" style="margin:0;">No se pudo conectar con el Sheet (' + err.message + ').</p>';
-    });
-  }
-
-  function elegirFacturaPendiente(f, cont, elElegido){
-    var facturaEl = document.querySelector('#formFields [data-field="factura"]');
-    var importeEl = document.querySelector('#formFields [data-field="importe"]');
-    var ivaEl = document.querySelector('#formFields [data-field="iva"]');
-    var infoEl = document.querySelector('#formFields [data-field="info"]');
-    if(facturaEl) facturaEl.value = f.factura || '';
-    if(importeEl) importeEl.value = f.importe != null ? f.importe : '';
-    if(ivaEl) ivaEl.value = f.iva != null ? f.iva : '';
-    if(infoEl && !infoEl.value) infoEl.value = 'Pago de factura ' + (f.factura||'(s/n)') + ' del ' + (f.fecha||'');
-
-    facturaPendienteElegida = f;
-
-    if(cont){
-      cont.querySelectorAll('.factura-pendiente-item').forEach(function(el){
-        el.style.borderColor = 'var(--line)';
-        el.style.background = '';
-      });
-    }
-    if(elElegido){
-      elElegido.style.borderColor = 'var(--accent)';
-      elElegido.style.background = 'var(--accent-soft)';
-    }
-
-    toast('Factura ' + (f.factura||'(s/n)') + ' cargada — se va a marcar como pagada al guardar este movimiento');
-  }
-
-  function marcarFacturaComoPagada(factura, fechaPago){
-    var url = loadSheetUrl();
-    if(!hasValidSheetUrl(url)) return;
-    fetch(url, {
-      method: 'POST',
-      headers: {'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({ accionMarcarPagada: true, idMovimiento: factura.idMovimiento, idTurno: factura.idTurno, fechaPago: fechaPago }),
-      keepalive: true
-    }).then(function(resp){ return resp.json(); }).then(function(res){
-      if(res && res.ok){
-        logSheetStatus('Factura ' + factura.factura + ' marcada como pagada en el Sheet.');
-      } else {
-        logSheetStatus('No se pudo marcar la factura como pagada: ' + ((res&&res.error)||'error desconocido'), true);
-        toast('El movimiento se guardó, pero no se pudo marcar la factura vieja como pagada — revisala a mano.');
-      }
-    }).catch(function(err){
-      logSheetStatus('No se pudo marcar la factura como pagada: ' + err.message, true);
-      toast('El movimiento se guardó, pero no se pudo marcar la factura vieja como pagada (sin conexión) — revisala a mano.');
-    });
   }
 
   // Actualiza el placeholder del campo Info para mostrar qué etiqueta se va
@@ -1549,17 +1430,11 @@
       state[t].movimientos.push(mov);
     }
 
-    var facturaAPagar = (currentSubtipo === 'efectivo_antiguo') ? facturaPendienteElegida : null;
-
     saveDraft();
     renderMovimientos(t);
     recalc(t);
     closeModal();
     toast('Movimiento guardado (' + TURNO_LABEL[t] + ')');
-
-    if(facturaAPagar){
-      marcarFacturaComoPagada(facturaAPagar, mov.fecha);
-    }
   });
 
   document.getElementById('modalClose').addEventListener('click', closeModal);
@@ -1633,20 +1508,175 @@
     if(!facturas.length){ empty.style.display = 'block'; return; }
     empty.style.display = 'none';
     facturas.forEach(function(f){
+      var noPagado = f.subtipo === 'No pagado';
       var tr = document.createElement('tr');
       tr.className = 'row-click';
       tr.innerHTML =
         '<td>'+escapeHtml(f.fecha||'')+'</td>' +
         '<td>'+escapeHtml(f.turno||'')+'</td>' +
         '<td>'+escapeHtml(f.proveedorTexto||'')+'</td>' +
-        '<td>'+escapeHtml(f.subtipo||'')+'</td>' +
+        '<td>'+escapeHtml(f.subtipo||'')+(noPagado?' <span class="muted" style="font-size:.75rem;">(tocar para pagar)</span>':'')+'</td>' +
         '<td>'+escapeHtml(f.factura||'')+'</td>' +
         '<td class="num">'+fmt(f.importe)+'</td>';
       tr.addEventListener('click', function(){
-        abrirMovimientoHistorico(f.fecha, f.idTurno, f.idMovimiento);
+        if(noPagado){
+          abrirPagoAlbaran(f);
+        } else {
+          abrirMovimientoHistorico(f.fecha, f.idTurno, f.idMovimiento);
+        }
       });
       body.appendChild(tr);
     });
+  }
+
+  // ---------- Albaranes: marcar como pagado ----------
+  var pagoAlbaranActual = null;
+
+  function abrirPagoAlbaran(f){
+    pagoAlbaranActual = f;
+    document.getElementById('pagoAlbaranResumen').textContent =
+      (f.proveedorTexto||'(sin proveedor)') + ' · Fact. ' + (f.factura||'(s/n)') + ' · ' + fmt(f.importe) + ' · ' + (f.fecha||'');
+    document.getElementById('pagoAlbaranPasoForma').style.display = '';
+    document.getElementById('pagoAlbaranPasoTurno').style.display = 'none';
+    renderChipRow(document.getElementById('pagoAlbaranFormaRow'), [
+      {k:'tarjeta', l:'Tarjeta'},
+      {k:'transferencia', l:'Transferencia'},
+      {k:'efectivo', l:'Efectivo'}
+    ], null, elegirFormaPagoAlbaran);
+    document.getElementById('pagoAlbaranOverlay').classList.add('open');
+  }
+
+  function cerrarPagoAlbaran(){
+    document.getElementById('pagoAlbaranOverlay').classList.remove('open');
+    pagoAlbaranActual = null;
+  }
+
+  function elegirFormaPagoAlbaran(forma){
+    if(forma === 'tarjeta' || forma === 'transferencia'){
+      aplicarFormaPagoNoEfectivoAlbaran(forma);
+      return;
+    }
+    // Efectivo: puede ser "efectivo antiguo" (sale de la caja de hoy) — si
+    // no sale de la caja de hoy, no se puede tocar el efectivo de una
+    // fecha vieja, así que se corta acá.
+    var saleDeCajaHoy = confirm('¿Sale de la caja de hoy (' + state.fecha + ')?');
+    if(!saleDeCajaHoy){
+      alert('No puedo cambiar el efectivo de una fecha antigua.');
+      return;
+    }
+    document.getElementById('pagoAlbaranPasoForma').style.display = 'none';
+    document.getElementById('pagoAlbaranPasoTurno').style.display = '';
+    renderChipRow(document.getElementById('pagoAlbaranTurnoRow'), [
+      {k:'mediodia', l:'Mediodía'},
+      {k:'noche', l:'Noche'}
+    ], null, aplicarPagoEfectivoAntiguoAlbaran);
+  }
+
+  // Cambia solo la etiqueta del albarán viejo (Tarjeta/Transferencia): no
+  // toca ninguna caja.
+  function aplicarFormaPagoNoEfectivoAlbaran(forma){
+    var f = pagoAlbaranActual;
+    if(!f) return;
+    cerrarPagoAlbaran();
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)){ toast('No hay conexión configurada con el Sheet'); return; }
+    fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ accionCambiarFormaPago: true, idMovimiento: f.idMovimiento, idTurno: f.idTurno, nuevaFormaPago: forma }),
+      keepalive: true
+    }).then(function(resp){ return resp.json(); }).then(function(res){
+      if(res && res.ok){
+        toast('Albarán marcado como pagado (' + (forma==='tarjeta'?'Tarjeta':'Transferencia') + ')');
+        actualizarSubtipoAlbaranLocal(f, forma);
+      } else {
+        toast('No se pudo actualizar el albarán: ' + ((res&&res.error)||'error desconocido'));
+      }
+      buscarAlbaranes();
+    }).catch(function(err){
+      toast('No se pudo conectar con el Sheet (' + err.message + ')');
+      buscarAlbaranes();
+    });
+  }
+
+  // Agrega un gasto "Efectivo antiguo" en la caja de HOY (descuenta ese
+  // efectivo del turno elegido) y, además, deja marcado el albarán viejo
+  // con la forma de pago "Efectivo antiguo".
+  function aplicarPagoEfectivoAntiguoAlbaran(turno){
+    var f = pagoAlbaranActual;
+    if(!f) return;
+    cerrarPagoAlbaran();
+
+    var proveedorFinal = f.proveedorTexto || '';
+    var proveedorDetalle = '';
+    if(proveedorFinal.indexOf('Varios') === 0){
+      var partes = proveedorFinal.split(' — ');
+      proveedorFinal = 'Varios';
+      proveedorDetalle = partes.slice(1).join(' — ');
+    }
+
+    var mov = {
+      id: uid(),
+      tipo: 'gasto',
+      subtipo: 'efectivo_antiguo',
+      importe: f.importe,
+      fecha: state.fecha,
+      proveedor: proveedorFinal,
+      proveedorDetalle: proveedorDetalle,
+      factura: f.factura || '',
+      info: 'Pago de factura ' + (f.factura||'(s/n)') + ' del ' + (f.fecha||''),
+      iva: (f.iva != null && f.iva !== '') ? f.iva : null,
+      motivo: '',
+      responsable: ''
+    };
+
+    state[turno].movimientos.push(mov);
+    saveDraft();
+    renderMovimientos(turno);
+    recalc(turno);
+    toast('Efectivo antiguo agregado a la caja de hoy (' + TURNO_LABEL[turno] + ')');
+
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)){ buscarAlbaranes(); return; }
+    fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ accionCambiarFormaPago: true, idMovimiento: f.idMovimiento, idTurno: f.idTurno, nuevaFormaPago: 'efectivo_antiguo' }),
+      keepalive: true
+    }).then(function(resp){ return resp.json(); }).then(function(res){
+      if(!(res && res.ok)){
+        toast('El movimiento de hoy se guardó, pero no se pudo actualizar el albarán viejo — revisalo a mano.');
+      }
+      actualizarSubtipoAlbaranLocal(f, 'efectivo_antiguo');
+      buscarAlbaranes();
+    }).catch(function(err){
+      toast('El movimiento de hoy se guardó, pero no se pudo actualizar el albarán viejo (sin conexión) — revisalo a mano.');
+      buscarAlbaranes();
+    });
+  }
+
+  // Si el día del albarán viejo está guardado en este dispositivo (o es el
+  // día abierto ahora mismo), le actualiza el subtipo ahí también, para que
+  // quede consistente sin depender de volver a traerlo del Sheet.
+  function actualizarSubtipoAlbaranLocal(f, subtipoNuevo){
+    if(f.fecha === state.fecha){
+      TURNOS.forEach(function(t){
+        var m = state[t].movimientos.find(function(x){ return x.id === f.idMovimiento; });
+        if(m) m.subtipo = subtipoNuevo;
+      });
+      guardarDiaActual();
+      return;
+    }
+    var store = getDiasStore();
+    var dia = store[f.fecha];
+    if(!dia) return;
+    TURNOS.forEach(function(t){
+      var turnoDia = dia[t];
+      if(!turnoDia || !turnoDia.movimientos) return;
+      var m = turnoDia.movimientos.find(function(x){ return x.id === f.idMovimiento; });
+      if(m) m.subtipo = subtipoNuevo;
+    });
+    saveDiasStore(store);
   }
 
   // Encuentra el día del movimiento elegido (localmente o trayéndolo del
@@ -1710,6 +1740,10 @@
     if(e.target === this) cerrarAlbaranes();
   });
   document.getElementById('albaranesProveedor').addEventListener('change', buscarAlbaranes);
+  document.getElementById('pagoAlbaranClose').addEventListener('click', cerrarPagoAlbaran);
+  document.getElementById('pagoAlbaranOverlay').addEventListener('click', function(e){
+    if(e.target === this) cerrarPagoAlbaran();
+  });
 
   // ---------- calculations ----------
   function recalc(t){

@@ -9,9 +9,9 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    if (data.accionMarcarPagada) {
+    if (data.accionCambiarFormaPago) {
       return ContentService
-        .createTextOutput(JSON.stringify(marcarFacturaPagada_(data)))
+        .createTextOutput(JSON.stringify(cambiarFormaPagoAlbaran_(data)))
         .setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -370,13 +370,6 @@ function doGet(e) {
       .createTextOutput(JSON.stringify(listarDiasConDatos_()))
       .setMimeType(ContentService.MimeType.JSON);
   }
-  var buscarProveedor = e && e.parameter && e.parameter.buscarFacturas;
-  if (buscarProveedor) {
-    var detalle = (e.parameter && e.parameter.detalle) || '';
-    return ContentService
-      .createTextOutput(JSON.stringify(buscarFacturasPendientes_(buscarProveedor, detalle)))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
   var listarFacturas = e && e.parameter && e.parameter.listarFacturas;
   if (listarFacturas) {
     var proveedorFiltro = (e.parameter && e.parameter.proveedor) || '';
@@ -392,7 +385,7 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
   return ContentService
-    .createTextOutput(JSON.stringify({ ok: true, msg: 'API de Cierre de Caja activa. Usá POST para enviar datos, GET ?fecha=YYYY-MM-DD para leer un día ya guardado, GET ?buscarFacturas=<proveedor> para buscar facturas pendientes, o GET ?listarFacturas=1 (con ?proveedor=<nombre> opcional) para ver todas las facturas y albaranes de proveedores.' }))
+    .createTextOutput(JSON.stringify({ ok: true, msg: 'API de Cierre de Caja activa. Usá POST para enviar datos, GET ?fecha=YYYY-MM-DD para leer un día ya guardado, o GET ?listarFacturas=1 (con ?proveedor=<nombre> opcional) para ver todas las facturas y albaranes de proveedores.' }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -404,69 +397,9 @@ function coincideProveedor_(textoProv, proveedor, detalleNorm) {
   return (textoProv === proveedor) || (textoProv.indexOf(proveedor + ' —') === 0);
 }
 
-function buscarFacturasPendientes_(proveedor, detalle) {
-  try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var mov = ss.getSheetByName('Movimientos');
-    if (!mov) return { ok: true, facturas: [] };
-
-    var valores = mov.getDataRange().getValues();
-    var header = valores[0];
-    var idxIdTurno = header.indexOf('ID');
-    var idxIdMov = header.indexOf('ID Movimiento');
-    var idxFecha = header.indexOf('Fecha');
-    var idxTurno = header.indexOf('Turno');
-    var idxTipo = header.indexOf('Tipo');
-    var idxSubtipo = header.indexOf('Subtipo');
-    var idxProvMotivo = header.indexOf('Proveedor / Motivo');
-    var idxFactura = header.indexOf('Nº Factura');
-    var idxInfo = header.indexOf('Info');
-    var idxIva = header.indexOf('IVA (€)');
-    var idxImporte = header.indexOf('Importe');
-
-    if (idxIdMov === -1) {
-      return { ok: true, facturas: [], error: 'La pestaña "Movimientos" es de una versión anterior y no tiene la columna "ID Movimiento". Volvé a sincronizar un cambio desde la app para que se agregue.' };
-    }
-
-    var detalleNorm = (detalle || '').toLowerCase().trim();
-    var resultado = [];
-
-    for (var i = 1; i < valores.length; i++) {
-      var fila = valores[i];
-      if (fila[idxTipo] !== 'Gasto') continue;
-      if (fila[idxSubtipo] === 'Efectivo antiguo') continue;
-
-      var textoProv = String(fila[idxProvMotivo] || '');
-      if (!coincideProveedor_(textoProv, proveedor, detalleNorm)) continue;
-
-      var infoTexto = String(fila[idxInfo] || '');
-      if (infoTexto.indexOf('PAGADA EFECTIVO') > -1) continue;
-
-      var fechaRaw = fila[idxFecha];
-      resultado.push({
-        idMovimiento: fila[idxIdMov],
-        idTurno: fila[idxIdTurno],
-        fecha: (fechaRaw instanceof Date) ? Utilities.formatDate(fechaRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(fechaRaw || ''),
-        turno: fila[idxTurno],
-        proveedorTexto: textoProv,
-        factura: fila[idxFactura],
-        info: infoTexto,
-        iva: fila[idxIva],
-        importe: fila[idxImporte]
-      });
-    }
-
-    return { ok: true, facturas: resultado };
-  } catch (err) {
-    return { ok: false, error: String(err) };
-  }
-}
-
-// A diferencia de buscarFacturasPendientes_ (que es para el flujo de
-// "Efectivo antiguo" y excluye lo ya pagado), esta trae TODO lo cargado
-// como "Gasto" — pagado o no, de cualquier fecha — para la pantalla de
-// Albaranes, donde se puede consultar y volver a abrir cualquier
-// proveedor/movimiento para editarlo.
+// Trae TODO lo cargado como "Gasto" — pagado o no, de cualquier fecha —
+// para la pantalla de Albaranes, donde se puede consultar y volver a abrir
+// cualquier proveedor/movimiento para editarlo, o marcarlo como pagado.
 function listarFacturasProveedores_(proveedor, detalle) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -914,8 +847,38 @@ function turnoParaHojaExacta_(turno) {
   return copia;
 }
 
-function marcarFacturaPagada_(data) {
+// Etiquetas que la app deja marcadas sola en el campo Info según la forma
+// de pago (ver GASTO_INFO_TAG en el front-end) — para poder sacarlas antes
+// de poner la etiqueta nueva al cambiar la forma de pago de un albarán ya
+// cargado.
+var FORMA_PAGO_LABEL_ = { tarjeta: 'Tarjeta', transferencia: 'Transferencia', efectivo_antiguo: 'Efectivo antiguo' };
+var FORMA_PAGO_INFO_TAG_ = { tarjeta: 'TARJETA', transferencia: 'TRANSFERENCIA' };
+var INFO_TAGS_CONOCIDAS_ = ['TARJETA', 'NO PAGADO', 'TRANSFERENCIA'];
+
+function quitarTagInfo_(info) {
+  info = String(info || '');
+  for (var i = 0; i < INFO_TAGS_CONOCIDAS_.length; i++) {
+    var tag = INFO_TAGS_CONOCIDAS_[i];
+    if (info === tag) return '';
+    var prefijo = tag + ' · ';
+    if (info.indexOf(prefijo) === 0) return info.slice(prefijo.length);
+  }
+  return info;
+}
+
+// Desde la pantalla de Albaranes: al tocar un albarán "No pagado" y elegir
+// cómo se pagó. Tarjeta/Transferencia solo cambian la etiqueta de este
+// movimiento viejo (no afectan ninguna caja). Efectivo antiguo se usa
+// cuando además se cargó, en el día de hoy, un gasto "Efectivo antiguo" que
+// sale de esa caja — acá solo se deja marcado el albarán viejo como pagado
+// de esa forma.
+function cambiarFormaPagoAlbaran_(data) {
   try {
+    var nuevaFormaPago = data.nuevaFormaPago;
+    if (!FORMA_PAGO_LABEL_[nuevaFormaPago]) {
+      return { ok: false, error: 'Forma de pago no válida.' };
+    }
+
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var mov = ss.getSheetByName('Movimientos');
     if (!mov) return { ok: false, error: 'No existe la pestaña "Movimientos".' };
@@ -923,9 +886,10 @@ function marcarFacturaPagada_(data) {
     var header = mov.getRange(1, 1, 1, mov.getLastColumn()).getValues()[0];
     var idxIdMov = header.indexOf('ID Movimiento');
     var idxIdTurno = header.indexOf('ID');
+    var idxSubtipo = header.indexOf('Subtipo');
     var idxInfo = header.indexOf('Info');
     var idxUltima = header.indexOf('Última actualización');
-    if (idxIdMov === -1 || idxInfo === -1) {
+    if (idxIdMov === -1 || idxSubtipo === -1 || idxInfo === -1) {
       return { ok: false, error: 'La pestaña "Movimientos" no tiene las columnas necesarias (¿versión vieja del script?).' };
     }
 
@@ -938,17 +902,18 @@ function marcarFacturaPagada_(data) {
       return { ok: false, error: 'No se encontró ese movimiento en "Movimientos" (puede que ya se haya reescrito).' };
     }
 
-    var infoActual = String(mov.getRange(filaEncontrada, idxInfo + 1).getValue() || '');
-    var etiquetaPago = 'PAGADA EFECTIVO ' + (data.fechaPago || '');
-    if (infoActual.indexOf('PAGADA EFECTIVO') > -1) {
-      return { ok: true, yaEstaba: true };
-    }
-    var nuevoInfo = infoActual ? (infoActual + ' · ' + etiquetaPago) : etiquetaPago;
+    var infoActual = String(valores[filaEncontrada - 1][idxInfo] || '');
+    var infoSinTag = quitarTagInfo_(infoActual);
+    var tagNuevo = FORMA_PAGO_INFO_TAG_[nuevaFormaPago];
+    var nuevoInfo = tagNuevo ? (tagNuevo + (infoSinTag ? ' · ' + infoSinTag : '')) : infoSinTag;
+    var nuevoSubtipoLabel = FORMA_PAGO_LABEL_[nuevaFormaPago];
+
+    mov.getRange(filaEncontrada, idxSubtipo + 1).setValue(nuevoSubtipoLabel);
     mov.getRange(filaEncontrada, idxInfo + 1).setValue(nuevoInfo);
     if (idxUltima > -1) mov.getRange(filaEncontrada, idxUltima + 1).setValue(new Date());
 
     var idTurno = valores[filaEncontrada - 1][idxIdTurno];
-    actualizarInfoMovimientoEnRegistro_(ss, idTurno, data.idMovimiento, nuevoInfo);
+    actualizarMovimientoEnRegistro_(ss, idTurno, data.idMovimiento, { subtipo: nuevaFormaPago, info: nuevoInfo });
 
     return { ok: true };
   } catch (err) {
@@ -956,7 +921,7 @@ function marcarFacturaPagada_(data) {
   }
 }
 
-function actualizarInfoMovimientoEnRegistro_(ss, idTurno, idMovimiento, nuevoInfo) {
+function actualizarMovimientoEnRegistro_(ss, idTurno, idMovimiento, cambios) {
   var registro = ss.getSheetByName('Registro');
   if (!registro) return;
   var filaN = buscarFilaPorId_(registro, idTurno);
@@ -977,7 +942,10 @@ function actualizarInfoMovimientoEnRegistro_(ss, idTurno, idMovimiento, nuevoInf
 
   var seEncontro = false;
   (turnoData.movimientos || []).forEach(function (m) {
-    if (m.id === idMovimiento) { m.info = nuevoInfo; seEncontro = true; }
+    if (m.id === idMovimiento) {
+      for (var k in cambios) m[k] = cambios[k];
+      seEncontro = true;
+    }
   });
   if (!seEncontro) return;
 
