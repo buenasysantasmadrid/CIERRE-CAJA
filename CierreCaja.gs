@@ -29,12 +29,22 @@ function doPost(e) {
       escribirRegistroYMovimientos_(registro, mov, data, t, turnoInfo.label);
     });
 
-    escribirHojaDelDiaExacta_(ss, data);
+    // Cada uno de estos dos pasos va en su propio try/catch: si uno falla
+    // (ej. falta la hoja plantilla "1", o hay un problema con la planilla
+    // de Contabilidad) no debe impedir que se intente el otro, ni tapar que
+    // Registro/Movimientos (arriba) ya se guardaron bien.
+    var hojaDia = { ok: true };
+    try {
+      escribirHojaDelDiaExacta_(ss, data);
+    } catch (errHoja) {
+      hojaDia = { ok: false, error: String(errHoja) };
+      Logger.log('escribirHojaDelDiaExacta_ error: ' + errHoja);
+    }
 
     var contabilidad = escribirContabilidad_(data);
 
     return ContentService
-      .createTextOutput(JSON.stringify({ ok: true, contabilidad: contabilidad }))
+      .createTextOutput(JSON.stringify({ ok: true, hojaDia: hojaDia, contabilidad: contabilidad }))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {

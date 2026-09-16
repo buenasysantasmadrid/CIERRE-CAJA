@@ -2280,6 +2280,12 @@
       .then(function(res){
         if(res && res.ok){
           logSheetStatus('Sincronizado a las ' + new Date().toLocaleTimeString('es-ES') + ' · pestaña "' + fechaTabName(state.fecha) + '"');
+          if(res.hojaDia && res.hojaDia.ok === false){
+            logSheetStatus('La pestaña del día no se pudo crear/actualizar: ' + res.hojaDia.error, true);
+          }
+          if(res.contabilidad && res.contabilidad.ok === false){
+            logSheetStatus('La planilla de Contabilidad no se pudo actualizar: ' + res.contabilidad.error, true);
+          }
         } else {
           logSheetStatus('El Sheet respondió con un error al sincronizar.', true);
           avisarFalloSyncUnaVez('El Sheet respondió con un error al guardar. Revisá que el Apps Script esté actualizado (F12 → Consola para más detalle).');
