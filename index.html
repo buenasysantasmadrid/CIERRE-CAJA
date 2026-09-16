@@ -222,6 +222,14 @@
   .movs-title{font-size:.82rem;font-weight:700;color:var(--ink);text-transform:uppercase;letter-spacing:.03em;}
   .movs-hint{font-size:.76rem;color:var(--ink-soft);margin-top:2px;}
   .btn-add{white-space:nowrap;}
+  .btn-cerrar-caja{
+    display:block;width:100%;text-align:center;background:var(--accent);color:#fff;
+    font-weight:800;font-size:1rem;text-transform:uppercase;letter-spacing:.05em;
+    padding:14px;border-radius:10px;margin:6px 0 14px;
+  }
+  .btn-cerrar-caja:hover{background:#255c41;}
+  .btn-cerrar-caja.abierto{background:#eceef1;color:var(--ink);}
+  .btn-cerrar-caja.abierto:hover{background:#e0e3e8;}
   .section-title{font-size:.82rem;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;margin:16px 0 8px;}
   .section-title:first-child{margin-top:0;}
   .section-title-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:16px 0 4px;flex-wrap:wrap;}
@@ -464,8 +472,9 @@
   // Estado de la calculadora de cambio (Ingreso → Cambio): billete/moneda,
   // denominación, sueltas/blister, cantidad.
   var cambioState = { modo:null, denom:null, subModo:null, cantidad:null };
-  // Estado del desplegable Pago/No pago en Empanadas.
-  var empanadaPago = 'no_pago';
+  // Estado del desplegable Pago/No pago en Empanadas. Empieza sin elegir:
+  // hay que tocarlo a mano, no permite guardar si queda sin elegir.
+  var empanadaPago = null;
 
   function todayISO(){
     var d = new Date();
@@ -567,8 +576,10 @@
 
   // ---------- turno section markup ----------
   // Cierre de caja + Diferencia van a la izquierda y Proveedores +
-  // Movimientos a la derecha, las dos columnas siempre visibles (sin
-  // colapsar), para poder ver todo el turno en una sola pantalla.
+  // Movimientos a la derecha, siempre visibles las dos columnas. Dentro de
+  // la columna de Cierre de caja, el detalle (fondo fijo/TPV/conteo) se
+  // puede colapsar como antes con el botón CERRAR CAJA/OCULTAR CIERRE; la
+  // Diferencia queda siempre visible, esté colapsado o no.
   function turnoSectionHTML(t){
     var label = TURNO_LABEL[t];
     var pillClass = t;
@@ -579,6 +590,8 @@
       '<div class="turno-grid">' +
         '<div class="turno-col">' +
           '<div class="section-title" style="margin-top:0;">Cierre de caja</div>' +
+          '<button type="button" class="btn-cerrar-caja" data-toggle-cierre="'+t+'" id="cierreToggleBtn_'+t+'">CERRAR CAJA</button>' +
+          '<div class="collapse" id="cierreContent_'+t+'">' +
           (t==='noche'
             ? '<p class="muted" style="margin-top:0;">Acá va la lectura de TODO el día (no solo de la noche): el número que marca la caja/TPV al cerrar, acumulado desde la mañana. El sistema calcula solo la parte que corresponde a Noche restando lo que ya cargaste en Mediodía.</p>'
             : '') +
@@ -606,6 +619,7 @@
             '<tbody id="monedasBody_'+t+'"></tbody>' +
           '</table>' +
           '<div class="subtotal-line total"><span>Total efectivo contado</span><span id="totalContadoLbl_'+t+'">0,00 €</span></div>' +
+          '</div>' +
 
           '<div class="result-box ok" id="resultBox_'+t+'">' +
             '<div class="diff" id="resultDiff_'+t+'">0,00 €</div>' +
@@ -802,14 +816,13 @@
     currentCategoria = null; currentTipo = null; currentSubtipo = null;
     scanImageBase64 = null; scanMediaType = null;
     cambioState = { modo:null, denom:null, subModo:null, cantidad:null };
-    empanadaPago = 'no_pago';
+    empanadaPago = null;
   }
 
   function renderCategoryButtons(){
     var label = document.getElementById('categoryLabel');
-    label.textContent = currentCategoria === 'proveedores' ? 'Proveedores'
-      : currentCategoria === 'otros' ? 'Otro movimiento' : '';
-    label.style.display = currentCategoria ? '' : 'none';
+    label.textContent = currentCategoria === 'proveedores' ? 'Proveedores' : '';
+    label.style.display = currentCategoria === 'proveedores' ? '' : 'none';
     document.getElementById('modalTitle').firstChild.textContent =
       (editingId ? 'Editar ' : 'Nuevo ') + (currentCategoria === 'proveedores' ? 'proveedor' : 'movimiento') + ' — ';
   }
@@ -877,7 +890,7 @@
       currentSubtipo = 'retiro';
     } else if(tipo === 'empanadas'){
       currentSubtipo = 'empanadas';
-      empanadaPago = 'no_pago';
+      empanadaPago = existing ? 'no_pago' : null;
       renderChipRow(l3, EMPANADA_PAGO_OPTS, empanadaPago, function(k){
         var valoresActuales = capturarValoresFormActuales();
         empanadaPago = k;
@@ -918,13 +931,15 @@
       html += '<div class="field" style="flex:1 1 100%;"><label>Info</label><input type="text" data-field="info" value="'+(f.info?escapeHtml(f.info):'')+'" placeholder="Detalle, observación"></div>';
       html += field('Importe (€)','importe','number', (f.importe!=null?f.importe:''), '0.00');
     } else if(tipo === 'empanadas'){
-      if(empanadaPago === 'pago'){
-        html += field('Cliente','motivo','text', f.motivo||'');
+      if(!empanadaPago){
+        html += '<p class="muted">Elegí Pago o No pago.</p>';
       } else {
-        html += empanadasProveedorField(f.proveedor||'');
+        html += (empanadaPago === 'pago')
+          ? field('Cliente','motivo','text', f.motivo||'')
+          : empanadasProveedorField(f.proveedor||'');
+        html += responsableField(f.responsable||'');
+        html += field('Importe (€)','importe','number', (f.importe!=null?f.importe:''), '0.00');
       }
-      html += responsableField(f.responsable||'');
-      html += field('Importe (€)','importe','number', (f.importe!=null?f.importe:''), '0.00');
     }
     container.innerHTML = '<div class="row">'+html+'</div>';
 
@@ -1373,11 +1388,11 @@
 
   var PROVEEDORES_EMPANADAS = ['BAKEA', 'LOMBAY', 'OTRO'];
   function empanadasProveedorField(selected){
-    var opts = '<option value="">Elegir proveedor…</option>';
+    var opts = '<option value="">Elegir cliente…</option>';
     opts += PROVEEDORES_EMPANADAS.map(function(p){
       return '<option value="'+p+'" '+(p===selected?'selected':'')+'>'+p+'</option>';
     }).join('');
-    return '<div class="field"><label>Proveedor</label><select data-field="proveedor">'+opts+'</select></div>';
+    return '<div class="field"><label>Cliente</label><select data-field="proveedor">'+opts+'</select></div>';
   }
 
   // Desplegable de responsables conocidos. Un nombre guardado que no esté
@@ -1416,6 +1431,7 @@
     if(!modalTurno){ toast('Error interno: no se sabe a qué turno pertenece'); return; }
     if(currentTipo === 'gasto' && !currentSubtipo){ toast('Elegí el tipo de pago (efectivo, tarjeta, etc.)'); return; }
     if(currentTipo === 'ingreso' && !currentSubtipo){ toast('Elegí el tipo de ingreso'); return; }
+    if(currentTipo === 'empanadas' && !empanadaPago){ toast('Elegí Pago o No pago'); return; }
     var data = collectForm();
     var importe = num(data.importe);
     if(!importe){ toast('Ingresá un importe válido'); return; }
@@ -2131,6 +2147,13 @@
     });
     document.querySelector('[data-add-otros="'+t+'"]').addEventListener('click', function(){
       openModal(null, 'otros', t);
+    });
+    document.getElementById('cierreToggleBtn_'+t).addEventListener('click', function(){
+      var el = document.getElementById('cierreContent_'+t);
+      var abrir = !el.classList.contains('open');
+      el.classList.toggle('open', abrir);
+      this.classList.toggle('abierto', abrir);
+      this.textContent = abrir ? 'OCULTAR CIERRE' : 'CERRAR CAJA';
     });
   }
 
