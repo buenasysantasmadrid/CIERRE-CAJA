@@ -431,6 +431,15 @@ function listarFacturasProveedores_(proveedor, detalle) {
       var fila = valores[i];
       if (fila[idxTipo] !== 'Gasto') continue;
 
+      // La pata "Efectivo antiguo" que sale de la caja de HOY (ver
+      // aplicarPagoEfectivoAntiguoAlbaran en el front-end) es un movimiento
+      // aparte, solo para descontar esa caja — no un albarán en sí. El
+      // albarán original ya queda marcado como "Efectivo antiguo" con su
+      // "PAGADO <fecha>" en Info, así que esta pata se oculta acá para no
+      // mostrar el mismo pago dos veces.
+      var infoFila = String(fila[idxInfo] || '');
+      if (infoFila.indexOf('Pago de factura ') === 0) continue;
+
       var textoProv = String(fila[idxProvMotivo] || '');
       if (!coincideProveedor_(textoProv, proveedor, detalleNorm)) continue;
 
@@ -852,11 +861,14 @@ function turnoParaHojaExacta_(turno) {
 // de poner la etiqueta nueva al cambiar la forma de pago de un albarán ya
 // cargado.
 var FORMA_PAGO_LABEL_ = { tarjeta: 'Tarjeta', transferencia: 'Transferencia', efectivo_antiguo: 'Efectivo antiguo' };
-var FORMA_PAGO_INFO_TAG_ = { tarjeta: 'TARJETA', transferencia: 'TRANSFERENCIA' };
 var INFO_TAGS_CONOCIDAS_ = ['TARJETA', 'NO PAGADO', 'TRANSFERENCIA'];
 
 function quitarTagInfo_(info) {
   info = String(info || '');
+  // Si ya tenía un "PAGADO <fecha>" puesto de una vez anterior, lo saca
+  // primero (para no duplicarlo si se cambia la forma de pago de nuevo).
+  var sinPagado = info.replace(/^PAGADO(\s+\S+)?\s*(?:·\s*)?/, '');
+  if (sinPagado !== info) info = sinPagado;
   for (var i = 0; i < INFO_TAGS_CONOCIDAS_.length; i++) {
     var tag = INFO_TAGS_CONOCIDAS_[i];
     if (info === tag) return '';
@@ -904,8 +916,8 @@ function cambiarFormaPagoAlbaran_(data) {
 
     var infoActual = String(valores[filaEncontrada - 1][idxInfo] || '');
     var infoSinTag = quitarTagInfo_(infoActual);
-    var tagNuevo = FORMA_PAGO_INFO_TAG_[nuevaFormaPago];
-    var nuevoInfo = tagNuevo ? (tagNuevo + (infoSinTag ? ' · ' + infoSinTag : '')) : infoSinTag;
+    var fechaPago = data.fechaPago ? String(data.fechaPago) : '';
+    var nuevoInfo = 'PAGADO' + (fechaPago ? ' ' + fechaPago : '') + (infoSinTag ? ' · ' + infoSinTag : '');
     var nuevoSubtipoLabel = FORMA_PAGO_LABEL_[nuevaFormaPago];
 
     mov.getRange(filaEncontrada, idxSubtipo + 1).setValue(nuevoSubtipoLabel);

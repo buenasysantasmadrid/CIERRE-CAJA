@@ -43,17 +43,7 @@
     z-index:30;
   }
   header .title-block{display:flex;flex-direction:column;gap:2px;}
-  header input#negocioNombre{
-    background:transparent;
-    border:none;
-    color:#fff;
-    font-size:1.15rem;
-    font-weight:600;
-    padding:2px 4px;
-    border-radius:6px;
-  }
-  header input#negocioNombre:focus{background:rgba(255,255,255,.12);outline:none;}
-  header .sub{font-size:.8rem;color:#b7bec9;}
+  header .header-logo{height:44px;width:auto;display:block;border-radius:6px;}
   header .header-actions{display:flex;gap:8px;flex-wrap:wrap;}
   main{max-width:1300px;margin:0 auto;padding:16px;}
   .card{
@@ -261,8 +251,9 @@
 
 <header>
   <div class="title-block">
-    <input id="negocioNombre" value="Mi Negocio" placeholder="Nombre del negocio">
-    <span class="sub">Cierre de caja — <span id="fechaCierreLabel"></span></span>
+    <img src="logo_buenasysantas.jpg" alt="Logo" class="header-logo">
+    <input type="hidden" id="negocioNombre" value="Mi Negocio">
+    <span id="fechaCierreLabel" style="display:none;"></span>
   </div>
   <div class="header-actions">
     <button type="button" class="btn-secondary" id="btnAlbaranes">Albaranes</button>
@@ -291,9 +282,6 @@
     <div class="result-box ok" id="diaResultBox">
       <div class="diff" id="diaResultDiff">0,00 €</div>
       <div class="lbl" id="diaResultLbl">CUADRA</div>
-    </div>
-    <div class="modal-actions" style="margin-top:16px;">
-      <button class="btn-secondary" id="btnLimpiar">Vaciar este día (mediodía + noche)</button>
     </div>
   </div>
 
@@ -728,6 +716,23 @@
     return (m.motivo || '(sin motivo)') + (m.responsable ? ' · '+m.responsable : '');
   }
 
+  // Orden fijo de Proveedores: primero Efectivo, luego Efectivo antiguo,
+  // después todas las Tarjeta, y por último Transferencia. Lo que no
+  // encaje en esas cuatro (ej. No pagado) queda al final. Dentro de cada
+  // grupo, lo más reciente primero.
+  var SUBTIPO_ORDEN_PROVEEDORES = { efectivo:0, efectivo_antiguo:1, tarjeta:2, transferencia:3 };
+  function ordenarProveedoresPorSubtipo(list){
+    return list
+      .map(function(m, i){ return { m:m, i:i }; })
+      .sort(function(a, b){
+        var oa = SUBTIPO_ORDEN_PROVEEDORES.hasOwnProperty(a.m.subtipo) ? SUBTIPO_ORDEN_PROVEEDORES[a.m.subtipo] : 99;
+        var ob = SUBTIPO_ORDEN_PROVEEDORES.hasOwnProperty(b.m.subtipo) ? SUBTIPO_ORDEN_PROVEEDORES[b.m.subtipo] : 99;
+        if(oa !== ob) return oa - ob;
+        return b.i - a.i;
+      })
+      .map(function(x){ return x.m; });
+  }
+
   function renderMovTable(bodyId, emptyId, list, t){
     var body = document.getElementById(bodyId);
     var empty = document.getElementById(emptyId);
@@ -737,13 +742,13 @@
       return;
     }
     empty.style.display = 'none';
-    list.slice().reverse().forEach(function(m){
+    list.forEach(function(m){
       var tr = document.createElement('tr');
       var tagClass = 'tag-' + m.tipo;
       var subLabel = SUBTIPO_LABEL[m.subtipo] || '';
       tr.innerHTML =
         '<td><span class="tag '+tagClass+'">'+TIPO_LABEL[m.tipo]+'</span><br><span class="muted">'+subLabel+'</span></td>' +
-        '<td>'+escapeHtml(detalleTexto(m))+(m.tipo==='gasto' && m.iva!=null ? ' <span class="muted">(IVA '+fmt(m.iva)+')</span>' : '')+(m.tipo==='gasto' && m.info ? ' <span class="muted">· '+escapeHtml(m.info)+'</span>' : '')+'</td>' +
+        '<td>'+escapeHtml(detalleTexto(m))+(m.tipo==='gasto' && m.info ? ' <span class="muted">· '+escapeHtml(m.info)+'</span>' : '')+'</td>' +
         '<td>'+ (m.fecha||'') +'</td>' +
         '<td class="num">'+fmt(m.importe)+'</td>' +
         '<td><button class="icon-btn" data-edit="'+m.id+'">✎</button></td>';
@@ -762,8 +767,8 @@
   function renderMovimientos(t){
     var proveedores = state[t].movimientos.filter(function(m){ return m.tipo === 'gasto'; });
     var otros = state[t].movimientos.filter(function(m){ return m.tipo !== 'gasto'; });
-    renderMovTable('provBody_'+t, 'provEmpty_'+t, proveedores, t);
-    renderMovTable('otrosBody_'+t, 'otrosEmpty_'+t, otros, t);
+    renderMovTable('provBody_'+t, 'provEmpty_'+t, ordenarProveedoresPorSubtipo(proveedores), t);
+    renderMovTable('otrosBody_'+t, 'otrosEmpty_'+t, otros.slice().reverse(), t);
   }
 
   // ---------- modal / form ----------
@@ -1097,15 +1102,15 @@
 
     if(cambioState.modo === 'billete' && cambioState.denom != null && cambioState.cantidad){
       total = cambioState.denom * cambioState.cantidad;
-      infoTexto = cambioState.denom + '€ x ' + cambioState.cantidad + ' billetes';
+      infoTexto = cambioState.cantidad + ' billetes ' + total.toLocaleString('es-ES') + '€';
     } else if(cambioState.modo === 'moneda' && cambioState.denom != null && cambioState.subModo && cambioState.cantidad){
       if(cambioState.subModo === 'blister'){
         var valorRollo = ROLL_VALUE[cambioState.denom] || 0;
         total = valorRollo * cambioState.cantidad;
-        infoTexto = cambioState.cantidad + ' blister de ' + cambioState.denom.toLocaleString('es-ES') + '€ (' + fmt(valorRollo) + ' c/u)';
+        infoTexto = cambioState.cantidad + ' blister de ' + cambioState.denom.toLocaleString('es-ES') + '€ ' + total.toLocaleString('es-ES') + '€';
       } else {
         total = cambioState.denom * cambioState.cantidad;
-        infoTexto = cambioState.denom.toLocaleString('es-ES') + '€ x ' + cambioState.cantidad + ' monedas';
+        infoTexto = cambioState.cantidad + ' monedas ' + total.toLocaleString('es-ES') + '€';
       }
     }
 
@@ -1113,7 +1118,7 @@
 
     if(total > 0){
       var importeEl = document.querySelector('#formFields [data-field="importe"]');
-      var infoEl = document.querySelector('#formFields [data-field="info"]');
+      var infoEl = document.querySelector('#formFields [data-field="motivo"]');
       if(importeEl) importeEl.value = total;
       if(infoEl) infoEl.value = infoTexto;
     }
@@ -1530,11 +1535,22 @@
   function abrirAlbaranes(){
     poblarAlbaranesProveedor();
     document.getElementById('albaranesOverlay').classList.add('open');
+    // Se pausa el sondeo automático del Sheet (cada 20s) mientras está
+    // abierta esta pantalla, para no pisarle pedidos al fetch de acá —
+    // dos pedidos al mismo tiempo contra el Apps Script pueden hacer que
+    // alguno de los dos vuelva con un error de cuota/concurrencia.
+    detenerSondeoSheet();
     buscarAlbaranes();
   }
   function cerrarAlbaranes(){
     document.getElementById('albaranesOverlay').classList.remove('open');
+    iniciarSondeoSheet();
   }
+
+  // Token de la última búsqueda: si llegan respuestas fuera de orden (ej.
+  // una búsqueda vieja que tarda más que una más nueva), se ignora
+  // cualquier respuesta que no sea la de la búsqueda más reciente.
+  var albaranesBusquedaId = 0;
 
   function buscarAlbaranes(){
     var statusEl = document.getElementById('albaranesStatus');
@@ -1550,9 +1566,18 @@
     statusEl.textContent = 'Buscando...';
     body.innerHTML = ''; empty.style.display = 'none';
 
+    var miBusquedaId = ++albaranesBusquedaId;
     var getUrl = url + (url.indexOf('?')>-1?'&':'?') + 'listarFacturas=1' +
       (proveedor ? '&proveedor=' + encodeURIComponent(proveedor) : '');
-    fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
+    fetch(getUrl).then(function(r){
+      return r.text().then(function(texto){
+        var data;
+        try { data = JSON.parse(texto); }
+        catch(e){ throw new Error('El servidor no devolvió datos válidos (puede ser un error temporal de Google Apps Script) — probá buscar de nuevo.'); }
+        return data;
+      });
+    }).then(function(data){
+      if(miBusquedaId !== albaranesBusquedaId) return; // ya hay una búsqueda más nueva en curso
       if(!data || !data.ok){
         statusEl.textContent = 'No se pudo traer la lista' + (data && data.error ? (': ' + data.error) : '') + '.';
         renderAlbaranesTabla([]);
@@ -1569,6 +1594,7 @@
       statusEl.textContent = facturas.length + ' movimiento(s) encontrado(s).' + (data.error ? ' (' + data.error + ')' : '');
       renderAlbaranesTabla(facturas);
     }).catch(function(err){
+      if(miBusquedaId !== albaranesBusquedaId) return;
       statusEl.textContent = 'Error al buscar: ' + err.message;
       renderAlbaranesTabla([]);
     });
@@ -1582,13 +1608,18 @@
     empty.style.display = 'none';
     facturas.forEach(function(f){
       var noPagado = f.subtipo === 'No pagado';
+      var mPagado = /^PAGADO(?:\s+(\S+))?/.exec(f.info||'');
+      var fechaPago = mPagado ? (mPagado[1]||'') : '';
       var tr = document.createElement('tr');
       tr.className = 'row-click';
       tr.innerHTML =
         '<td>'+escapeHtml(f.fecha||'')+'</td>' +
         '<td>'+escapeHtml(f.turno||'')+'</td>' +
         '<td>'+escapeHtml(f.proveedorTexto||'')+'</td>' +
-        '<td>'+escapeHtml(f.subtipo||'')+(noPagado?' <span class="muted" style="font-size:.75rem;">(tocar para pagar)</span>':'')+'</td>' +
+        '<td>'+escapeHtml(f.subtipo||'')+
+          (noPagado?' <span class="muted" style="font-size:.75rem;">(tocar para pagar)</span>':'')+
+          (fechaPago?'<br><span class="muted" style="font-size:.75rem;">Pagado '+escapeHtml(fechaPago)+'</span>':'')+
+        '</td>' +
         '<td>'+escapeHtml(f.factura||'')+'</td>' +
         '<td class="num">'+fmt(f.importe)+'</td>';
       tr.addEventListener('click', function(){
@@ -1656,7 +1687,7 @@
     fetch(url, {
       method: 'POST',
       headers: {'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({ accionCambiarFormaPago: true, idMovimiento: f.idMovimiento, idTurno: f.idTurno, nuevaFormaPago: forma }),
+      body: JSON.stringify({ accionCambiarFormaPago: true, idMovimiento: f.idMovimiento, idTurno: f.idTurno, nuevaFormaPago: forma, fechaPago: state.fecha }),
       keepalive: true
     }).then(function(resp){ return resp.json(); }).then(function(res){
       if(res && res.ok){
@@ -1714,7 +1745,7 @@
     fetch(url, {
       method: 'POST',
       headers: {'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({ accionCambiarFormaPago: true, idMovimiento: f.idMovimiento, idTurno: f.idTurno, nuevaFormaPago: 'efectivo_antiguo' }),
+      body: JSON.stringify({ accionCambiarFormaPago: true, idMovimiento: f.idMovimiento, idTurno: f.idTurno, nuevaFormaPago: 'efectivo_antiguo', fechaPago: state.fecha }),
       keepalive: true
     }).then(function(resp){ return resp.json(); }).then(function(res){
       if(!(res && res.ok)){
@@ -2158,16 +2189,6 @@
       this.textContent = abrir ? 'OCULTAR CIERRE' : 'CERRAR CAJA';
     });
   }
-
-  // ---------- vaciar (utilidad opcional, no hace falta para pasar de día) ----------
-  document.getElementById('btnLimpiar').addEventListener('click', function(){
-    if(!confirm('¿Vaciar todos los movimientos y datos del día ' + state.fecha + ' (mediodía y noche)? Esta acción no se puede deshacer.')) return;
-    var fechaActual = state.fecha;
-    state = crearDiaVacio(fechaActual, state.negocio);
-    aplicarEstadoATurnos();
-    saveDraft();
-    toast('Cierre del día vaciado');
-  });
 
   // ---------- Google Sheets ----------
   // La sincronización es silenciosa: no hay panel de estado en la página
