@@ -214,9 +214,11 @@
   .turno-pill.noche{background:var(--blue-soft);color:var(--blue);}
   .turno-grid{display:grid;grid-template-columns:1fr;gap:16px;align-items:start;}
   @media (min-width:900px){
-    .turno-grid{grid-template-columns:1fr 1fr;}
+    .turno-grid{grid-template-columns:2fr 1fr;}
   }
   .turno-col{min-width:0;}
+  .turno-col-cierre{font-size:.92rem;}
+  .turno-col-cierre .denom-table{font-size:.85rem;}
   .movs-section{border:1px solid var(--line);border-radius:10px;background:#fff;padding:12px 14px;margin-bottom:14px;}
   .movs-section-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
   .movs-title{font-size:.82rem;font-weight:700;color:var(--ink);text-transform:uppercase;letter-spacing:.03em;}
@@ -575,11 +577,12 @@
   }
 
   // ---------- turno section markup ----------
-  // Cierre de caja + Diferencia van a la izquierda y Proveedores +
-  // Movimientos a la derecha, siempre visibles las dos columnas. Dentro de
-  // la columna de Cierre de caja, el detalle (fondo fijo/TPV/conteo) se
-  // puede colapsar como antes con el botón CERRAR CAJA/OCULTAR CIERRE; la
-  // Diferencia queda siempre visible, esté colapsado o no.
+  // Proveedores + Movimientos van a la izquierda y más grandes, Cierre de
+  // caja + Diferencia van a la derecha y más chico, siempre visibles las
+  // dos columnas. Dentro de la columna de Cierre de caja, el detalle
+  // (fondo fijo/TPV/conteo) se puede colapsar como antes con el botón
+  // CERRAR CAJA/OCULTAR CIERRE; la Diferencia queda siempre visible, esté
+  // colapsado o no.
   function turnoSectionHTML(t){
     var label = TURNO_LABEL[t];
     var pillClass = t;
@@ -589,6 +592,32 @@
 
       '<div class="turno-grid">' +
         '<div class="turno-col">' +
+          '<div class="movs-section">' +
+            '<div class="movs-section-head">' +
+              '<div><div class="movs-title">Proveedores</div><div class="movs-hint">Cargá acá los pagos y facturas a proveedores.</div></div>' +
+              '<button class="btn-primary btn-add" data-add-prov="'+t+'">+ Agregar proveedor</button>' +
+            '</div>' +
+            '<table>' +
+              '<thead><tr><th>Tipo</th><th>Detalle</th><th>Fecha</th><th class="num">Importe</th><th></th></tr></thead>' +
+              '<tbody id="provBody_'+t+'"></tbody>' +
+            '</table>' +
+            '<div id="provEmpty_'+t+'" class="empty-row">Todavía no agregaste movimientos de proveedores.</div>' +
+          '</div>' +
+
+          '<div class="movs-section">' +
+            '<div class="movs-section-head">' +
+              '<div><div class="movs-title">Movimientos</div><div class="movs-hint">Cargá acá ingresos, egresos y empanadas.</div></div>' +
+              '<button class="btn-primary btn-add" data-add-otros="'+t+'">+ Agregar movimiento</button>' +
+            '</div>' +
+            '<table>' +
+              '<thead><tr><th>Tipo</th><th>Detalle</th><th>Fecha</th><th class="num">Importe</th><th></th></tr></thead>' +
+              '<tbody id="otrosBody_'+t+'"></tbody>' +
+            '</table>' +
+            '<div id="otrosEmpty_'+t+'" class="empty-row">Todavía no agregaste movimientos.</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="turno-col turno-col-cierre">' +
           '<div class="section-title" style="margin-top:0;">Cierre de caja</div>' +
           '<button type="button" class="btn-cerrar-caja" data-toggle-cierre="'+t+'" id="cierreToggleBtn_'+t+'">CERRAR CAJA</button>' +
           '<div class="collapse" id="cierreContent_'+t+'">' +
@@ -624,32 +653,6 @@
           '<div class="result-box ok" id="resultBox_'+t+'">' +
             '<div class="diff" id="resultDiff_'+t+'">0,00 €</div>' +
             '<div class="lbl" id="resultLbl_'+t+'">CUADRA</div>' +
-          '</div>' +
-        '</div>' +
-
-        '<div class="turno-col">' +
-          '<div class="movs-section">' +
-            '<div class="movs-section-head">' +
-              '<div><div class="movs-title">Proveedores</div><div class="movs-hint">Cargá acá los pagos y facturas a proveedores.</div></div>' +
-              '<button class="btn-primary btn-add" data-add-prov="'+t+'">+ Agregar proveedor</button>' +
-            '</div>' +
-            '<table>' +
-              '<thead><tr><th>Tipo</th><th>Detalle</th><th>Fecha</th><th class="num">Importe</th><th></th></tr></thead>' +
-              '<tbody id="provBody_'+t+'"></tbody>' +
-            '</table>' +
-            '<div id="provEmpty_'+t+'" class="empty-row">Todavía no agregaste movimientos de proveedores.</div>' +
-          '</div>' +
-
-          '<div class="movs-section">' +
-            '<div class="movs-section-head">' +
-              '<div><div class="movs-title">Movimientos</div><div class="movs-hint">Cargá acá ingresos, egresos y empanadas.</div></div>' +
-              '<button class="btn-primary btn-add" data-add-otros="'+t+'">+ Agregar movimiento</button>' +
-            '</div>' +
-            '<table>' +
-              '<thead><tr><th>Tipo</th><th>Detalle</th><th>Fecha</th><th class="num">Importe</th><th></th></tr></thead>' +
-              '<tbody id="otrosBody_'+t+'"></tbody>' +
-            '</table>' +
-            '<div id="otrosEmpty_'+t+'" class="empty-row">Todavía no agregaste movimientos.</div>' +
           '</div>' +
         '</div>' +
       '</div>' +
@@ -926,9 +929,8 @@
       if(tipo === 'ingreso' && currentSubtipo === 'cambio'){
         html += cambioCalculatorHTML();
       }
-      html += field('Motivo','motivo','text', f.motivo||'');
       html += responsableField(f.responsable||'');
-      html += '<div class="field" style="flex:1 1 100%;"><label>Info</label><input type="text" data-field="info" value="'+(f.info?escapeHtml(f.info):'')+'" placeholder="Detalle, observación"></div>';
+      html += '<div class="field" style="flex:1 1 100%;"><label>Info</label><input type="text" data-field="motivo" value="'+(f.motivo?escapeHtml(f.motivo):'')+'" placeholder="Detalle, observación"></div>';
       html += field('Importe (€)','importe','number', (f.importe!=null?f.importe:''), '0.00');
     } else if(tipo === 'empanadas'){
       if(!empanadaPago){
