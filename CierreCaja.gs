@@ -31,8 +31,10 @@ function doPost(e) {
 
     escribirHojaDelDiaExacta_(ss, data);
 
+    var contabilidad = escribirContabilidad_(data);
+
     return ContentService
-      .createTextOutput(JSON.stringify({ ok: true }))
+      .createTextOutput(JSON.stringify({ ok: true, contabilidad: contabilidad }))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
@@ -1017,6 +1019,113 @@ function listarDiasConDatos_() {
 
     return { ok: true, fechas: Object.keys(fechasSet) };
   } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+// ============================================================================
+// PARTE 4 — Envío a la planilla de Contabilidad (otra planilla, una pestaña
+// por mes: ENERO, FEBRERO, ... DICIEMBRE)
+// ============================================================================
+// Fila fija por día del mes: fila 3 = día 1, fila 4 = día 2, ... así un
+// mismo día sincronizado varias veces siempre pisa la misma fila (nunca
+// duplica), sin importar qué haya quedado antes ahí.
+//
+// Columnas que esta función escribe — el resto (C/F/G/I/L fórmulas propias
+// de la hoja, P-U, V, Y-AG a mano o vinculadas a otro Sheet) no se toca:
+//   A  días trabajados de ese día (0 / 0,5 / 1 — ver turnoTieneActividad_)
+//   B  fecha
+//   D  MEDIO DIA — total facturado de Mediodía
+//   E  NOCHE — la parte propia de Noche (total del día completo - Mediodía)
+//   H  EMPANADAS — Mediodía + Noche
+//   J  TPV 1 — acumulado del día completo (el que ya carga Noche)
+//   K  TPV 2 — ídem
+//   M  EFEVO — efectivo contado al cerrar el último turno trabajado (es lo
+//      que queda como fondo fijo para el día siguiente)
+//   N  DIFERENCIA — Mediodía + Noche
+//   O  RETIRA — egresos de Mediodía + Noche
+// A34 queda con la fórmula =SUM(A3:A33), así el total de días trabajados
+// del mes se actualiza solo cada vez que se escribe una fila nueva.
+var CONTABILIDAD_SHEET_ID_ = '1KpqnwtKv8Qz6MTgjyvmVSiPzbJj4-cTFIPHEphI6wDk';
+var MESES_MAYUS_ = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+
+function turnoTieneActividad_(t) {
+  var c = t.calc || {};
+  return (c.totalContado || 0) !== 0 || (t.fondoFijo || 0) !== 0 ||
+    (t.totalFacturado || 0) !== 0 || (t.tpv1 || 0) !== 0 || (t.tpv2 || 0) !== 0;
+}
+
+// Trae la pestaña del mes, creándola si todavía no existe (por ejemplo al
+// entrar a un año nuevo): duplica la pestaña del mes anterior o, si
+// tampoco existe, "MASTER", la renombra y limpia las filas de días 3-33
+// en las columnas de arriba (para no arrastrar datos viejos del mes que
+// se copió).
+function getOrCrearPestanaContabilidad_(mesIndex /* 0-11 */) {
+  var ss = SpreadsheetApp.openById(CONTABILIDAD_SHEET_ID_);
+  var nombre = MESES_MAYUS_[mesIndex];
+  var hoja = ss.getSheetByName(nombre);
+  if (hoja) return hoja;
+
+  var origenNombre = MESES_MAYUS_[(mesIndex + 11) % 12];
+  var origen = ss.getSheetByName(origenNombre) || ss.getSheetByName('MASTER');
+  if (!origen) throw new Error('No se encontró ninguna pestaña de mes para duplicar en la planilla de Contabilidad.');
+
+  hoja = origen.copyTo(ss);
+  hoja.setName(nombre);
+  var idxOrigen = origen.getIndex();
+  ss.setActiveSheet(hoja);
+  ss.moveActiveSheet(idxOrigen + 1);
+
+  ['A', 'B', 'D', 'E', 'H', 'J', 'K', 'M', 'N', 'O'].forEach(function (col) {
+    hoja.getRange(col + '3:' + col + '33').clearContent();
+  });
+  hoja.getRange('A34').setFormula('=SUM(A3:A33)');
+
+  return hoja;
+}
+
+function escribirContabilidad_(data) {
+  try {
+    var partes = String(data.fecha || '').split('-');
+    if (partes.length !== 3) return { ok: false, error: 'Fecha inválida' };
+    var anio = parseInt(partes[0], 10), mes = parseInt(partes[1], 10), diaDelMes = parseInt(partes[2], 10);
+    if (!anio || !mes || !diaDelMes) return { ok: false, error: 'Fecha inválida' };
+
+    var md = data.mediodia || {};
+    var nc = data.noche || {};
+    var cMd = md.calc || {};
+    var cNc = nc.calc || {};
+    var mdActivo = turnoTieneActividad_(md);
+    var ncActivo = turnoTieneActividad_(nc);
+
+    var hoja = getOrCrearPestanaContabilidad_(mes - 1);
+    var fila = 3 + (diaDelMes - 1);
+
+    var diasHoy = (mdActivo && ncActivo) ? 1 : ((mdActivo || ncActivo) ? 0.5 : 0);
+    var mediodiaTotal = md.totalFacturado || 0;
+    var nochePropio = Math.max(0, (nc.totalFacturado || 0) - mediodiaTotal);
+    var empanadasDia = (cMd.empanadas || 0) + (cNc.empanadas || 0);
+    var tpv1Dia = ncActivo ? (nc.tpv1 || 0) : (md.tpv1 || 0);
+    var tpv2Dia = ncActivo ? (nc.tpv2 || 0) : (md.tpv2 || 0);
+    var efevoDia = ncActivo ? (cNc.totalContado || 0) : (cMd.totalContado || 0);
+    var diferenciaDia = (cMd.diferencia || 0) + (cNc.diferencia || 0);
+    var retiraDia = (cMd.egreso || 0) + (cNc.egreso || 0);
+
+    hoja.getRange('A' + fila).setValue(diasHoy);
+    hoja.getRange('B' + fila).setValue(new Date(anio, mes - 1, diaDelMes));
+    hoja.getRange('D' + fila).setValue(mediodiaTotal);
+    hoja.getRange('E' + fila).setValue(nochePropio);
+    hoja.getRange('H' + fila).setValue(empanadasDia);
+    hoja.getRange('J' + fila).setValue(tpv1Dia);
+    hoja.getRange('K' + fila).setValue(tpv2Dia);
+    hoja.getRange('M' + fila).setValue(efevoDia);
+    hoja.getRange('N' + fila).setValue(diferenciaDia);
+    hoja.getRange('O' + fila).setValue(retiraDia);
+
+    return { ok: true, pestana: hoja.getName(), fila: fila };
+  } catch (err) {
+    // No corta el guardado normal del Cierre de Caja si esto falla.
+    Logger.log('escribirContabilidad_ error: ' + err);
     return { ok: false, error: String(err) };
   }
 }
