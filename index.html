@@ -2289,12 +2289,13 @@
             avisarFalloSyncUnaVez('No se pudo actualizar la planilla de Contabilidad: ' + res.contabilidad.error);
           }
         } else {
-          logSheetStatus('El Sheet respondió con un error al sincronizar.', true);
-          avisarFalloSyncUnaVez('El Sheet respondió con un error al guardar. Revisá que el Apps Script esté actualizado (F12 → Consola para más detalle).');
+          var detalleErr = res && res.error ? res.error : JSON.stringify(res);
+          logSheetStatus('El Sheet respondió con un error al sincronizar: ' + detalleErr, true);
+          avisarFalloSyncUnaVez('El Sheet respondió con un error al guardar: ' + detalleErr);
         }
       })
-      .catch(function(){
-        logSheetStatus('Sin conexión: los cambios quedan guardados en este dispositivo y se sincronizan solos cuando vuelva internet.', true);
+      .catch(function(err){
+        logSheetStatus('Sin conexión: los cambios quedan guardados en este dispositivo y se sincronizan solos cuando vuelva internet. (' + (err && err.message ? err.message : err) + ')', true);
         avisarFalloSyncUnaVez('Sin conexión con Google Sheets — se guarda en este dispositivo y se sincroniza solo cuando vuelva internet.');
       });
   }
