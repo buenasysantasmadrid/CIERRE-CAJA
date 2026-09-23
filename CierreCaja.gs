@@ -172,7 +172,7 @@ function reconstruirMovimientosDesdeRegistro() {
 //     esas filas ni ninguna otra fecha.
 // No toca ninguna otra fecha ni ninguna otra columna.
 // ============================================================================
-function borrarPruebasSept22y23_() {
+function borrarPruebasSept22y23() {
   var FECHAS_A_BORRAR = ['2026-09-22', '2026-09-23'];
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var resumen = { registro: 0, movimientos: 0, pestanasDia: [], contabilidad: [] };
