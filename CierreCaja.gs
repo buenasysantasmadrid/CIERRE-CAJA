@@ -1291,3 +1291,36 @@ function escribirContabilidad_(data) {
     return { ok: false, error: String(err) };
   }
 }
+
+// ============================================================================
+// PREPARAR UN AÑO NUEVO DE CONTABILIDAD — correr una sola vez desde el editor
+// de Apps Script (menú Ejecutar, elegir esta función) DESPUÉS de:
+//   1) Duplicar el archivo de Contabilidad del año anterior (Archivo → Hacer
+//      una copia) — eso trae los 12 meses ya creados, pero con los datos del
+//      año viejo adentro.
+//   2) Agregar la fila del año nuevo en la pestaña "Config" de ESTA planilla
+//      (Cierre de Caja), con el ID de esa copia.
+//   3) Revisar que ANIO_A_PREPARAR, acá abajo, diga el año correcto.
+// Limpia, en la copia, las columnas que escribe la app (A,B,D,E,H,J,K,M,N,O)
+// de los 12 meses (ENERO...DICIEMBRE) — así no arrastran los números del año
+// anterior. No toca ninguna otra columna ni pestaña.
+// ============================================================================
+var ANIO_A_PREPARAR = 2027;
+function prepararAnioNuevoContabilidad() {
+  var id = idPlanillaContabilidadDelAnio_(ANIO_A_PREPARAR);
+  if (id === CONTABILIDAD_SHEET_ID_) {
+    throw new Error('No hay una fila para el año ' + ANIO_A_PREPARAR + ' en la pestaña "Config" de esta planilla (Cierre de Caja) — agregala primero, con el ID de la planilla de Contabilidad de ' + ANIO_A_PREPARAR + '.');
+  }
+  var ss = SpreadsheetApp.openById(id);
+  var limpiadas = [];
+  MESES_MAYUS_.forEach(function (nombreMes) {
+    var hoja = ss.getSheetByName(nombreMes);
+    if (!hoja) return;
+    ['A', 'B', 'D', 'E', 'H', 'J', 'K', 'M', 'N', 'O'].forEach(function (col) {
+      hoja.getRange(col + '3:' + col + '33').clearContent();
+    });
+    limpiadas.push(nombreMes);
+  });
+  Logger.log('Planilla: ' + ss.getName() + ' — pestañas limpiadas: ' + limpiadas.join(', '));
+  return limpiadas;
+}
