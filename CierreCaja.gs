@@ -1339,3 +1339,120 @@ function escribirContabilidad_(data) {
   }
 }
 
+// ============================================================================
+// PARTE 5 — Herramienta de pruebas: borrar un día completo desde un menú en
+// el propio Google Sheet (para no tener que pedir un script nuevo cada vez
+// que se quiere repetir una prueba).
+// ============================================================================
+// Simple trigger: corre solo al abrir la planilla de Cierre de Caja, agrega
+// el menú "Cierre de Caja — Pruebas" en la barra de arriba.
+function onOpen(e) {
+  SpreadsheetApp.getUi()
+    .createMenu('Cierre de Caja — Pruebas')
+    .addItem('Borrar un día completo…', 'borrarDiaCompleto')
+    .addToUi();
+}
+
+// Pide una fecha, confirma, y borra TODO lo de ese día: filas de "Registro"
+// y "Movimientos" con esa fecha, la pestaña de ese día (si existe), y la
+// fila correspondiente en la planilla de Contabilidad de ese año/mes (solo
+// las columnas que escribe la app: A,B,D,E,H,J,K,M,N,O — el resto de esa
+// fila no se toca). Si la planilla de Contabilidad de ese año todavía no
+// existe en "Config", no la crea solo para borrar algo ahí — no hay nada
+// que borrar en un archivo que no existe.
+function borrarDiaCompleto() {
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.prompt('Borrar un día completo', 'Fecha a borrar (formato AAAA-MM-DD, ej. 2026-10-05):', ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+
+  var fecha = String(resp.getResponseText() || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+    ui.alert('Fecha inválida. Tiene que ser AAAA-MM-DD, ej. 2026-10-05.');
+    return;
+  }
+
+  var confirmacion = ui.alert(
+    'Confirmar borrado',
+    'Esto borra TODO lo del ' + fecha + ': filas de Registro y Movimientos, la pestaña del día (si existe), y la fila correspondiente en Contabilidad. No se puede deshacer. ¿Continuar?',
+    ui.ButtonSet.YES_NO
+  );
+  if (confirmacion !== ui.Button.YES) return;
+
+  var resumen = borrarDiaEnTodosLados_(fecha);
+  ui.alert('Listo', JSON.stringify(resumen, null, 2), ui.ButtonSet.OK);
+}
+
+// Busca en "Config" el ID de la planilla de Contabilidad de un año, pero
+// SIN crearla si no existe (a diferencia de idPlanillaContabilidadDelAnio_)
+// — para usos de solo lectura/borrado, donde no tiene sentido crear un
+// archivo nuevo solo para no encontrar nada que tocar en él.
+function idPlanillaContabilidadSiExiste_(anio) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var config = ss.getSheetByName('Config');
+  if (!config) return null;
+  var valores = config.getDataRange().getValues();
+  for (var i = 1; i < valores.length; i++) {
+    if (Number(valores[i][0]) === Number(anio) && valores[i][1]) return String(valores[i][1]).trim();
+  }
+  return null;
+}
+
+function borrarDiaEnTodosLados_(fecha) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var resumen = { fecha: fecha, registro: 0, movimientos: 0, pestanaDia: null, contabilidad: null };
+
+  function fechaDeFila_(fila, idxFecha) {
+    var raw = fila[idxFecha];
+    return (raw instanceof Date)
+      ? Utilities.formatDate(raw, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+      : String(raw || '');
+  }
+  function borrarFilasPorFecha_(hoja) {
+    if (!hoja) return 0;
+    var ultimaFila = hoja.getLastRow();
+    if (ultimaFila < 2) return 0;
+    var header = hoja.getRange(1, 1, 1, hoja.getLastColumn()).getValues()[0];
+    var idxFecha = header.indexOf('Fecha');
+    if (idxFecha === -1) return 0;
+    var valores = hoja.getRange(2, 1, ultimaFila - 1, hoja.getLastColumn()).getValues();
+    var borradas = 0;
+    for (var i = valores.length - 1; i >= 0; i--) {
+      if (fechaDeFila_(valores[i], idxFecha) === fecha) {
+        hoja.deleteRow(i + 2);
+        borradas++;
+      }
+    }
+    return borradas;
+  }
+
+  resumen.registro = borrarFilasPorFecha_(ss.getSheetByName('Registro'));
+  resumen.movimientos = borrarFilasPorFecha_(ss.getSheetByName('Movimientos'));
+
+  var nombreDia = nombreHojaDia_(fecha);
+  var hojaDia = ss.getSheetByName(nombreDia);
+  if (hojaDia) { ss.deleteSheet(hojaDia); resumen.pestanaDia = nombreDia; }
+
+  var partes = fecha.split('-');
+  var anio = parseInt(partes[0], 10), mes = parseInt(partes[1], 10), diaDelMes = parseInt(partes[2], 10);
+  if (anio && mes && diaDelMes) {
+    try {
+      var idPlanilla = idPlanillaContabilidadSiExiste_(anio);
+      if (idPlanilla) {
+        var ssC = SpreadsheetApp.openById(idPlanilla);
+        var hojaMes = ssC.getSheetByName(MESES_MAYUS_[mes - 1]);
+        if (hojaMes) {
+          var filaC = 3 + (diaDelMes - 1);
+          ['A', 'B', 'D', 'E', 'H', 'J', 'K', 'M', 'N', 'O'].forEach(function (col) {
+            hojaMes.getRange(col + filaC).clearContent();
+          });
+          resumen.contabilidad = MESES_MAYUS_[mes - 1] + ' fila ' + filaC;
+        }
+      }
+    } catch (errC) {
+      resumen.contabilidad = 'error: ' + errC;
+    }
+  }
+
+  return resumen;
+}
+
