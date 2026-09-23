@@ -1161,7 +1161,12 @@ function escribirContabilidad_(data) {
     var retiraDia = (cMd.egreso || 0) + (cNc.egreso || 0);
 
     hoja.getRange('A' + fila).setValue(diasHoy);
-    hoja.getRange('B' + fila).setValue(new Date(anio, mes - 1, diaDelMes));
+    // Mediodía (no medianoche): si el huso horario de esta planilla de
+    // Contabilidad no coincide exactamente con el del proyecto de Apps
+    // Script, medianoche puede caer del lado del día anterior al mostrarse,
+    // corriendo la fecha visible un día para atrás. Al mediodía queda lejos
+    // de cualquier límite de huso horario real.
+    hoja.getRange('B' + fila).setValue(new Date(anio, mes - 1, diaDelMes, 12));
     hoja.getRange('D' + fila).setValue(mediodiaTotal);
     hoja.getRange('E' + fila).setValue(nochePropio);
     hoja.getRange('H' + fila).setValue(empanadasDia);
