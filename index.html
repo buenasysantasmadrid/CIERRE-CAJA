@@ -2450,11 +2450,33 @@
   function iniciarSondeoSheet(){
     detenerSondeoSheet();
     pollTimer = setInterval(function(){
-      if(document.visibilityState === 'visible') revisarActualizacionesDesdeSheet();
+      if(document.visibilityState === 'visible'){
+        revisarSiCambioElDia_();
+        revisarActualizacionesDesdeSheet();
+      }
     }, POLL_INTERVAL_MS);
   }
   function detenerSondeoSheet(){
     if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  // Si la pestaña queda abierta de un día para el otro (ej. tablet que nunca
+  // se recarga), `state.fecha` se había calculado una sola vez al cargar la
+  // página y se quedaba viejo: todo lo que se cargaba "hoy" se seguía
+  // guardando bajo la fecha de ayer. Esto se revisa junto al sondeo normal
+  // (cada 20s mientras la pestaña está visible) para detectarlo enseguida.
+  // No cambia de día solo: siempre pregunta, igual que al elegir una fecha
+  // nueva a mano, para no interrumpir un turno de Noche que sigue después de
+  // medianoche.
+  var avisoCambioDiaEnFecha_ = null; // evita repreguntar cada 20s si ya se dijo que no
+  function revisarSiCambioElDia_(){
+    var hoy = todayISO();
+    if(hoy === state.fecha){ avisoCambioDiaEnFecha_ = null; return; }
+    if(avisoCambioDiaEnFecha_ === state.fecha) return;
+    avisoCambioDiaEnFecha_ = state.fecha;
+    if(confirm('Cambió el día (ahora es ' + hoy + ') pero seguís viendo el cierre del ' + state.fecha + '. ¿Querés abrir el de hoy?')){
+      cambiarDia(hoy);
+    }
   }
 
   function revisarActualizacionesDesdeSheet(){
@@ -2562,7 +2584,10 @@
   }
 
   document.addEventListener('visibilitychange', function(){
-    if(document.visibilityState === 'visible') revisarActualizacionesDesdeSheet();
+    if(document.visibilityState === 'visible'){
+      revisarSiCambioElDia_();
+      revisarActualizacionesDesdeSheet();
+    }
   });
 
   init();

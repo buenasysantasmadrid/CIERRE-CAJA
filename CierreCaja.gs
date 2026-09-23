@@ -376,6 +376,45 @@ function puntajeTurno_(t) {
 }
 
 function doGet(e) {
+  // Diagnóstico rápido desde el navegador (GET ?diag=1): lista el nombre
+  // exacto de cada pestaña de esta planilla, para poder comprobar sin
+  // entrar al editor de Apps Script si existe la hoja plantilla "1" (o si
+  // tiene un espacio/caracter invisible en el nombre).
+  var diag = e && e.parameter && e.parameter.diag;
+  if (diag) {
+    var ssDiag = SpreadsheetApp.getActiveSpreadsheet();
+    return ContentService
+      .createTextOutput(JSON.stringify({
+        ok: true,
+        planilla: ssDiag.getName(),
+        pestanas: ssDiag.getSheets().map(function (h) { return h.getName(); })
+      }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  // Diagnóstico de Contabilidad (GET ?diagContabilidad=1): intenta abrir la
+  // planilla de Contabilidad y listar sus pestañas, sin escribir nada. Sirve
+  // para ver el error real (permiso, ID incorrecto, etc.) sin tener que
+  // volver a sincronizar un día desde la app.
+  var diagContabilidad = e && e.parameter && e.parameter.diagContabilidad;
+  if (diagContabilidad) {
+    try {
+      var ssC = SpreadsheetApp.openById(CONTABILIDAD_SHEET_ID_);
+      var hojaSept = ssC.getSheetByName('SEPTIEMBRE');
+      return ContentService
+        .createTextOutput(JSON.stringify({
+          ok: true,
+          planilla: ssC.getName(),
+          pestanas: ssC.getSheets().map(function (h) { return h.getName(); }),
+          existeSeptiembre: !!hojaSept,
+          filaHoy: hojaSept ? hojaSept.getRange('A' + (3 + (new Date().getDate() - 1)) + ':O' + (3 + (new Date().getDate() - 1))).getValues()[0] : null
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (errDiag) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ ok: false, error: String(errDiag) }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
   var listarDias = e && e.parameter && e.parameter.listarDias;
   if (listarDias) {
     return ContentService
