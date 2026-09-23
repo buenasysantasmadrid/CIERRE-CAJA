@@ -160,6 +160,72 @@ function reconstruirMovimientosDesdeRegistro() {
   return filas.length;
 }
 
+// ============================================================================
+// LIMPIEZA MANUAL DE PRUEBAS — correr una sola vez desde el editor de Apps
+// Script (menú Ejecutar, elegir esta función). Borra SOLO lo cargado como
+// prueba el 22 y el 23 de septiembre de 2026:
+//   - Filas de "Registro" y "Movimientos" con esas fechas.
+//   - Las pestañas de día "22-09-2026" y "23-09-2026", si existen.
+//   - En la planilla de Contabilidad, pestaña "SEPTIEMBRE": limpia las
+//     columnas que escribe la app (A,B,D,E,H,J,K,M,N,O) en las filas de esos
+//     dos días (fila 24 = día 22, fila 25 = día 23), sin tocar el resto de
+//     esas filas ni ninguna otra fecha.
+// No toca ninguna otra fecha ni ninguna otra columna.
+// ============================================================================
+function borrarPruebasSept22y23_() {
+  var FECHAS_A_BORRAR = ['2026-09-22', '2026-09-23'];
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var resumen = { registro: 0, movimientos: 0, pestanasDia: [], contabilidad: [] };
+
+  function fechaDeFila_(fila, idxFecha) {
+    var raw = fila[idxFecha];
+    return (raw instanceof Date)
+      ? Utilities.formatDate(raw, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+      : String(raw || '');
+  }
+
+  function borrarFilasPorFecha_(hoja) {
+    if (!hoja) return 0;
+    var ultimaFila = hoja.getLastRow();
+    if (ultimaFila < 2) return 0;
+    var header = hoja.getRange(1, 1, 1, hoja.getLastColumn()).getValues()[0];
+    var idxFecha = header.indexOf('Fecha');
+    if (idxFecha === -1) return 0;
+    var valores = hoja.getRange(2, 1, ultimaFila - 1, hoja.getLastColumn()).getValues();
+    var borradas = 0;
+    for (var i = valores.length - 1; i >= 0; i--) {
+      if (FECHAS_A_BORRAR.indexOf(fechaDeFila_(valores[i], idxFecha)) > -1) {
+        hoja.deleteRow(i + 2);
+        borradas++;
+      }
+    }
+    return borradas;
+  }
+
+  resumen.registro = borrarFilasPorFecha_(ss.getSheetByName('Registro'));
+  resumen.movimientos = borrarFilasPorFecha_(ss.getSheetByName('Movimientos'));
+
+  ['22-09-2026', '23-09-2026'].forEach(function (nombre) {
+    var hoja = ss.getSheetByName(nombre);
+    if (hoja) { ss.deleteSheet(hoja); resumen.pestanasDia.push(nombre); }
+  });
+
+  var ssC = SpreadsheetApp.openById(CONTABILIDAD_SHEET_ID_);
+  var hojaSept = ssC.getSheetByName('SEPTIEMBRE');
+  if (hojaSept) {
+    [22, 23].forEach(function (diaDelMes) {
+      var fila = 3 + (diaDelMes - 1);
+      ['A', 'B', 'D', 'E', 'H', 'J', 'K', 'M', 'N', 'O'].forEach(function (col) {
+        hojaSept.getRange(col + fila).clearContent();
+      });
+      resumen.contabilidad.push('SEPTIEMBRE fila ' + fila + ' (día ' + diaDelMes + ')');
+    });
+  }
+
+  Logger.log(JSON.stringify(resumen));
+  return resumen;
+}
+
 function escribirRegistroYMovimientos_(registro, mov, data, t, turnoLabel) {
   var c = t.calc || {};
   var id = t.id || '';
