@@ -75,6 +75,12 @@
   input:focus,select:focus{outline:2px solid var(--accent);outline-offset:0;border-color:var(--accent);}
   input.input-readonly{background:#eef0f3;color:var(--ink-soft);cursor:not-allowed;}
   .fecha-grande{font-size:1.7rem;font-weight:800;color:var(--ink);margin-bottom:14px;letter-spacing:-.01em;}
+  .aviso-caja-antigua{
+    background:var(--red);color:#fff;font-weight:800;text-align:center;
+    padding:10px 12px;border-radius:10px;margin:-4px 0 14px;font-size:1rem;
+    letter-spacing:.01em;position:sticky;top:0;z-index:30;
+    box-shadow:0 2px 8px rgba(179,65,58,.35);
+  }
   .fecha-btn{width:100%;text-align:left;background:#fff;border:1px solid var(--line);color:var(--ink);font-weight:600;font-size:.95rem;padding:9px 10px;}
   .fecha-btn:hover{border-color:var(--ink-soft);}
   .calendario-popup{
@@ -265,6 +271,7 @@
   <div class="card">
     <h2>Día del cierre</h2>
     <div class="fecha-grande" id="fechaGrande"></div>
+    <div class="aviso-caja-antigua" id="avisoCajaAntigua" style="display:none;">⚠️ OJO — CAJA ANTIGUA, no es la de hoy</div>
     <div class="row">
       <div class="field" style="max-width:280px;position:relative;">
         <label for="fechaCierreBtn">Fecha</label>
@@ -2050,6 +2057,16 @@
     }
     var grande = document.getElementById('fechaGrande');
     if(grande) grande.textContent = formatearFechaLarga(f);
+    actualizarAvisoCajaAntigua();
+  }
+
+  // Cartel bien visible cuando lo que está en pantalla NO es el cierre de
+  // hoy — para que no se cargue por error un movimiento en una caja vieja
+  // pensando que es la de hoy.
+  function actualizarAvisoCajaAntigua(){
+    var aviso = document.getElementById('avisoCajaAntigua');
+    if(!aviso) return;
+    aviso.style.display = (state.fecha && state.fecha !== todayISO()) ? 'block' : 'none';
   }
 
   // ---------- calendario propio (el nativo no se puede pintar ni siempre se puede navegar bien) ----------
@@ -2472,6 +2489,7 @@
   function revisarSiCambioElDia_(){
     var hoy = todayISO();
     if(hoy === state.fecha){ avisoCambioDiaEnFecha_ = null; return; }
+    actualizarAvisoCajaAntigua();
     if(avisoCambioDiaEnFecha_ === state.fecha) return;
     avisoCambioDiaEnFecha_ = state.fecha;
     if(confirm('Cambió el día (ahora es ' + hoy + ') pero seguís viendo el cierre del ' + state.fecha + '. ¿Querés abrir el de hoy?')){
