@@ -1180,10 +1180,11 @@ function turnoTieneActividad_(t) {
 }
 
 // Pestaña "Config" en la propia planilla de Cierre de Caja (se crea sola la
-// primera vez, con la fila de 2026 ya cargada). Ahí se anota, un año por
-// fila, el ID de la planilla de Contabilidad de ESE año — así, para pasar
-// de año, alcanza con agregar una fila acá (aunque sea con meses de
-// anticipación); no hace falta tocar ni volver a implementar el código.
+// primera vez, con la fila de 2026 ya cargada). Ahí queda, un año por fila,
+// el ID de la planilla de Contabilidad de ESE año. Se llena sola: cuando se
+// necesita un año que todavía no tiene fila, crearPlanillaContabilidadAnioNuevo_
+// la agrega. También se puede agregar una fila a mano con anticipación si
+// se prefiere elegir el archivo en vez de que se cree solo.
 function getOrCrearConfig_(ss) {
   var config = ss.getSheetByName('Config');
   if (!config) {
@@ -1197,9 +1198,12 @@ function getOrCrearConfig_(ss) {
 }
 
 // Busca en "Config" el ID de la planilla de Contabilidad del año pedido. Si
-// todavía no hay una fila para ese año, usa CONTABILIDAD_SHEET_ID_ (la de
-// 2026) como respaldo, para no romper nada mientras no se cargue la fila
-// del año nuevo.
+// todavía no hay una fila para ese año (ej. arrancó un año nuevo), la crea
+// sola: duplica en Drive la planilla del año anterior más cercano que sí
+// esté en Config (o la de 2026 si no hay ninguna todavía), limpia los 12
+// meses copiados y agrega la fila nueva en Config — así, igual que con los
+// meses adentro de Contabilidad, pasar de año no requiere ningún paso
+// manual.
 function idPlanillaContabilidadDelAnio_(anio) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var config = getOrCrearConfig_(ss);
@@ -1209,7 +1213,50 @@ function idPlanillaContabilidadDelAnio_(anio) {
       return String(valores[i][1]).trim();
     }
   }
-  return CONTABILIDAD_SHEET_ID_;
+  return crearPlanillaContabilidadAnioNuevo_(anio, config, valores);
+}
+
+// Ver idPlanillaContabilidadDelAnio_. anioActual/valoresActuales se pasan
+// para no tener que releer "Config" de nuevo.
+function crearPlanillaContabilidadAnioNuevo_(anio, config, valoresConfig) {
+  var anioActual = new Date().getFullYear();
+  if (Math.abs(anio - anioActual) > 1) {
+    // Por las dudas de que sea una fecha mal cargada (typo de año): no crea
+    // un archivo de Drive solo por esto. El error queda visible igual que
+    // cualquier otro fallo de escribirContabilidad_ (toast en la app).
+    throw new Error('Año ' + anio + ' fuera de rango esperado (año actual: ' + anioActual + ') — no se crea una planilla de Contabilidad automáticamente por las dudas de que sea un error de fecha.');
+  }
+
+  var mejorAnioPrevio = null, idPrevio = null;
+  for (var i = 1; i < valoresConfig.length; i++) {
+    var a = Number(valoresConfig[i][0]);
+    if (a < anio && valoresConfig[i][1] && (mejorAnioPrevio === null || a > mejorAnioPrevio)) {
+      mejorAnioPrevio = a;
+      idPrevio = String(valoresConfig[i][1]).trim();
+    }
+  }
+  if (!idPrevio) idPrevio = CONTABILIDAD_SHEET_ID_; // no hay ningún año anterior cargado todavía: parte de la semilla de 2026
+
+  var archivoAnterior = DriveApp.getFileById(idPrevio);
+  var carpetas = archivoAnterior.getParents();
+  var carpetaDestino = carpetas.hasNext() ? carpetas.next() : null;
+  var nombreNuevo = 'CONTABILIDAD ' + anio + ' NUEVO SISTEMA';
+  var archivoNuevo = carpetaDestino ? archivoAnterior.makeCopy(nombreNuevo, carpetaDestino) : archivoAnterior.makeCopy(nombreNuevo);
+  var idNuevo = archivoNuevo.getId();
+
+  var ssNuevo = SpreadsheetApp.openById(idNuevo);
+  MESES_MAYUS_.forEach(function (nombreMes) {
+    var hoja = ssNuevo.getSheetByName(nombreMes);
+    if (!hoja) return;
+    ['A', 'B', 'D', 'E', 'H', 'J', 'K', 'M', 'N', 'O'].forEach(function (col) {
+      hoja.getRange(col + '3:' + col + '33').clearContent();
+    });
+  });
+
+  config.appendRow([anio, idNuevo]);
+  Logger.log('Creada automáticamente la planilla de Contabilidad de ' + anio + ': "' + nombreNuevo + '" (' + idNuevo + '), copiada de ' + (mejorAnioPrevio || 2026) + '.');
+
+  return idNuevo;
 }
 
 // Trae la pestaña del mes (de la planilla de Contabilidad del año pedido),
@@ -1292,35 +1339,3 @@ function escribirContabilidad_(data) {
   }
 }
 
-// ============================================================================
-// PREPARAR UN AÑO NUEVO DE CONTABILIDAD — correr una sola vez desde el editor
-// de Apps Script (menú Ejecutar, elegir esta función) DESPUÉS de:
-//   1) Duplicar el archivo de Contabilidad del año anterior (Archivo → Hacer
-//      una copia) — eso trae los 12 meses ya creados, pero con los datos del
-//      año viejo adentro.
-//   2) Agregar la fila del año nuevo en la pestaña "Config" de ESTA planilla
-//      (Cierre de Caja), con el ID de esa copia.
-//   3) Revisar que ANIO_A_PREPARAR, acá abajo, diga el año correcto.
-// Limpia, en la copia, las columnas que escribe la app (A,B,D,E,H,J,K,M,N,O)
-// de los 12 meses (ENERO...DICIEMBRE) — así no arrastran los números del año
-// anterior. No toca ninguna otra columna ni pestaña.
-// ============================================================================
-var ANIO_A_PREPARAR = 2027;
-function prepararAnioNuevoContabilidad() {
-  var id = idPlanillaContabilidadDelAnio_(ANIO_A_PREPARAR);
-  if (id === CONTABILIDAD_SHEET_ID_) {
-    throw new Error('No hay una fila para el año ' + ANIO_A_PREPARAR + ' en la pestaña "Config" de esta planilla (Cierre de Caja) — agregala primero, con el ID de la planilla de Contabilidad de ' + ANIO_A_PREPARAR + '.');
-  }
-  var ss = SpreadsheetApp.openById(id);
-  var limpiadas = [];
-  MESES_MAYUS_.forEach(function (nombreMes) {
-    var hoja = ss.getSheetByName(nombreMes);
-    if (!hoja) return;
-    ['A', 'B', 'D', 'E', 'H', 'J', 'K', 'M', 'N', 'O'].forEach(function (col) {
-      hoja.getRange(col + '3:' + col + '33').clearContent();
-    });
-    limpiadas.push(nombreMes);
-  });
-  Logger.log('Planilla: ' + ss.getName() + ' — pestañas limpiadas: ' + limpiadas.join(', '));
-  return limpiadas;
-}
