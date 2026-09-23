@@ -464,15 +464,20 @@ function doGet(e) {
   var diagContabilidad = e && e.parameter && e.parameter.diagContabilidad;
   if (diagContabilidad) {
     try {
-      var ssC = SpreadsheetApp.openById(CONTABILIDAD_SHEET_ID_);
-      var hojaSept = ssC.getSheetByName('SEPTIEMBRE');
+      var anioDiag = parseInt((e.parameter && e.parameter.anio) || new Date().getFullYear(), 10);
+      var idDiag = idPlanillaContabilidadDelAnio_(anioDiag);
+      var ssC = SpreadsheetApp.openById(idDiag);
+      var mesActual = MESES_MAYUS_[new Date().getMonth()];
+      var hojaMes = ssC.getSheetByName(mesActual);
       return ContentService
         .createTextOutput(JSON.stringify({
           ok: true,
+          anio: anioDiag,
+          idUsado: idDiag,
           planilla: ssC.getName(),
           pestanas: ssC.getSheets().map(function (h) { return h.getName(); }),
-          existeSeptiembre: !!hojaSept,
-          filaHoy: hojaSept ? hojaSept.getRange('A' + (3 + (new Date().getDate() - 1)) + ':O' + (3 + (new Date().getDate() - 1))).getValues()[0] : null
+          existePestanaMesActual: !!hojaMes,
+          filaHoy: hojaMes ? hojaMes.getRange('A' + (3 + (new Date().getDate() - 1)) + ':O' + (3 + (new Date().getDate() - 1))).getValues()[0] : null
         }))
         .setMimeType(ContentService.MimeType.JSON);
     } catch (errDiag) {
@@ -1161,6 +1166,10 @@ function listarDiasConDatos_() {
 //   O  RETIRA — egresos de Mediodía + Noche
 // A34 queda con la fórmula =SUM(A3:A33), así el total de días trabajados
 // del mes se actualiza solo cada vez que se escribe una fila nueva.
+// ID de la planilla de Contabilidad de 2026 — se usa como valor por defecto
+// (fallback) si la pestaña "Config" todavía no tiene una fila para el año
+// que se está escribiendo. Para años siguientes NO hace falta tocar esto:
+// ver getOrCrearConfig_ más abajo.
 var CONTABILIDAD_SHEET_ID_ = '1KpqnwtKv8Qz6MTgjyvmVSiPzbJj4-cTFIPHEphI6wDk';
 var MESES_MAYUS_ = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
 
@@ -1170,13 +1179,46 @@ function turnoTieneActividad_(t) {
     (t.totalFacturado || 0) !== 0 || (t.tpv1 || 0) !== 0 || (t.tpv2 || 0) !== 0;
 }
 
-// Trae la pestaña del mes, creándola si todavía no existe (por ejemplo al
-// entrar a un año nuevo): duplica la pestaña del mes anterior o, si
+// Pestaña "Config" en la propia planilla de Cierre de Caja (se crea sola la
+// primera vez, con la fila de 2026 ya cargada). Ahí se anota, un año por
+// fila, el ID de la planilla de Contabilidad de ESE año — así, para pasar
+// de año, alcanza con agregar una fila acá (aunque sea con meses de
+// anticipación); no hace falta tocar ni volver a implementar el código.
+function getOrCrearConfig_(ss) {
+  var config = ss.getSheetByName('Config');
+  if (!config) {
+    config = ss.insertSheet('Config');
+    config.appendRow(['Año', 'ID planilla de Contabilidad de ese año']);
+    config.appendRow([2026, CONTABILIDAD_SHEET_ID_]);
+    config.setFrozenRows(1);
+    config.setColumnWidth(2, 340);
+  }
+  return config;
+}
+
+// Busca en "Config" el ID de la planilla de Contabilidad del año pedido. Si
+// todavía no hay una fila para ese año, usa CONTABILIDAD_SHEET_ID_ (la de
+// 2026) como respaldo, para no romper nada mientras no se cargue la fila
+// del año nuevo.
+function idPlanillaContabilidadDelAnio_(anio) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var config = getOrCrearConfig_(ss);
+  var valores = config.getDataRange().getValues();
+  for (var i = 1; i < valores.length; i++) {
+    if (Number(valores[i][0]) === Number(anio) && valores[i][1]) {
+      return String(valores[i][1]).trim();
+    }
+  }
+  return CONTABILIDAD_SHEET_ID_;
+}
+
+// Trae la pestaña del mes (de la planilla de Contabilidad del año pedido),
+// creándola si todavía no existe: duplica la pestaña del mes anterior o, si
 // tampoco existe, "MASTER", la renombra y limpia las filas de días 3-33
 // en las columnas de arriba (para no arrastrar datos viejos del mes que
 // se copió).
-function getOrCrearPestanaContabilidad_(mesIndex /* 0-11 */) {
-  var ss = SpreadsheetApp.openById(CONTABILIDAD_SHEET_ID_);
+function getOrCrearPestanaContabilidad_(anio, mesIndex /* 0-11 */) {
+  var ss = SpreadsheetApp.openById(idPlanillaContabilidadDelAnio_(anio));
   var nombre = MESES_MAYUS_[mesIndex];
   var hoja = ss.getSheetByName(nombre);
   if (hoja) return hoja;
@@ -1213,7 +1255,7 @@ function escribirContabilidad_(data) {
     var mdActivo = turnoTieneActividad_(md);
     var ncActivo = turnoTieneActividad_(nc);
 
-    var hoja = getOrCrearPestanaContabilidad_(mes - 1);
+    var hoja = getOrCrearPestanaContabilidad_(anio, mes - 1);
     var fila = 3 + (diaDelMes - 1);
 
     var diasHoy = (mdActivo && ncActivo) ? 1 : ((mdActivo || ncActivo) ? 0.5 : 0);
