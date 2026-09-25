@@ -80,7 +80,13 @@
     padding:10px 12px;border-radius:10px;margin:-4px 0 14px;font-size:1rem;
     letter-spacing:.01em;position:sticky;top:0;z-index:30;
     box-shadow:0 2px 8px rgba(179,65,58,.35);
+    align-items:center;justify-content:center;gap:10px 14px;flex-wrap:wrap;
   }
+  .aviso-caja-antigua button{
+    background:#fff;color:var(--red);border:none;font-weight:800;font-size:.95rem;
+    padding:7px 14px;border-radius:8px;cursor:pointer;white-space:nowrap;
+  }
+  .aviso-caja-antigua button:hover{background:#fbeceb;}
   .fecha-btn{width:100%;text-align:left;background:#fff;border:1px solid var(--line);color:var(--ink);font-weight:600;font-size:.95rem;padding:9px 10px;}
   .fecha-btn:hover{border-color:var(--ink-soft);}
   .calendario-popup{
@@ -271,7 +277,10 @@
   <div class="card">
     <h2>Día del cierre</h2>
     <div class="fecha-grande" id="fechaGrande"></div>
-    <div class="aviso-caja-antigua" id="avisoCajaAntigua" style="display:none;">⚠️ OJO — CAJA ANTIGUA, no es la de hoy</div>
+    <div class="aviso-caja-antigua" id="avisoCajaAntigua" style="display:none;">
+      <span>⚠️ OJO — CAJA ANTIGUA, no es la de hoy</span>
+      <button type="button" id="btnVolverHoy">Ir a la caja de hoy</button>
+    </div>
     <div class="row">
       <div class="field" style="max-width:280px;position:relative;">
         <label for="fechaCierreBtn">Fecha</label>
@@ -2066,8 +2075,15 @@
   function actualizarAvisoCajaAntigua(){
     var aviso = document.getElementById('avisoCajaAntigua');
     if(!aviso) return;
-    aviso.style.display = (state.fecha && state.fecha !== todayISO()) ? 'block' : 'none';
+    aviso.style.display = (state.fecha && state.fecha !== todayISO()) ? 'flex' : 'none';
   }
+
+  // Botón del cartel: vuelve directo a la caja de hoy (si todavía no está
+  // abierta, la abre — igual que al cambiar de día con la pestaña abierta).
+  document.getElementById('btnVolverHoy').addEventListener('click', function(){
+    var hoy = todayISO();
+    if(state.fecha !== hoy) cambiarDia(hoy);
+  });
 
   // ---------- calendario propio (el nativo no se puede pintar ni siempre se puede navegar bien) ----------
   var calMesMostrado = null;  // 0-11
