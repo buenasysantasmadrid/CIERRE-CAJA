@@ -23,11 +23,10 @@
 // en la columna Z) no se tocan, salvo para ordenarlas por fecha dentro del
 // bloque.
 //
-// ANTES DE USARLO (una sola vez): menú "Cierre de Caja — Pruebas" >
-// "Albaranes: congelar datos viejos", que convierte en valores fijos lo que
-// hoy traen las fórmulas IMPORTRANGE de la planilla de caja vieja y borra
-// esas fórmulas (la mitad derecha de cada bloque). Mientras un bloque tenga
-// fórmulas, el script no escribe en él, para no pisarlas.
+// Los datos de 2026 que venían del sistema viejo (fórmulas IMPORTRANGE) se
+// cargan como valores fijos con "Albaranes: restaurar datos viejos 2026"
+// (menú del Índice, ver restaurarAlbaranesViejos2026 más abajo). Mientras
+// un bloque tenga fórmulas, el script no escribe en él, para no pisarlas.
 // ============================================================================
 
 var ALBARANES_COL_ID_ = 26; // Z
@@ -35,12 +34,15 @@ var ALBARANES_ANCHO_ = 7;   // A–G: la parte visible de cada bloque
 var ALBARANES_FILAS_DATOS_ = 42;
 var ALBARANES_HOJA_IDS_ = 'IDs app';
 // Pestañas del archivo de Albaranes que no son de un proveedor con la forma
-// de siempre: no se congelan ni se escribe en ellas.
+// de siempre: no se restauran ni se escribe en ellas.
 var ALBARANES_PESTANAS_EXCLUIDAS_ = ['TOTALES', 'VERDE REBELDE', ALBARANES_HOJA_IDS_];
+
+// Tildes y demás marcas que quedan sueltas después de normalize('NFD').
+var DIACRITICOS_ = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');
 
 function normalizarClave_(v) {
   return String(v == null ? '' : v)
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .normalize('NFD').replace(DIACRITICOS_, '')
     .toUpperCase().replace(/\s+/g, ' ').trim();
 }
 
@@ -160,7 +162,7 @@ function reescribirBloqueAlbaranes_(hoja, filaEncabezado, idsABorrar, nuevas) {
   for (var f = 0; f < formulas.length; f++) {
     for (var c = 0; c < formulas[f].length; c++) {
       if (formulas[f][c]) {
-        throw new Error('El bloque de la pestaña "' + hoja.getName() + '" (fila ' + primera + ') todavía tiene fórmulas — primero hay que correr "Albaranes: congelar datos viejos" desde el menú del Índice.');
+        throw new Error('El bloque de la pestaña "' + hoja.getName() + '" (fila ' + primera + ') todavía tiene fórmulas (IMPORTRANGE del sistema viejo) — hay que borrarlas antes de que la app pueda escribir ahí.');
       }
     }
   }
@@ -186,6 +188,15 @@ function reescribirBloqueAlbaranes_(hoja, filaEncabezado, idsABorrar, nuevas) {
   }
   Object.keys(nuevasPorId).forEach(function (id) { filas.push({ id: id, fila: nuevasPorId[id] }); });
 
+  guardarBloqueOrdenado_(hoja, filaEncabezado, filas);
+}
+
+// Escribe `filas` ({id, fila}) en el bloque, ordenadas por fecha y sin
+// huecos, y borra lo que sobre.
+function guardarBloqueOrdenado_(hoja, filaEncabezado, filas) {
+  var primera = filaEncabezado + 1;
+  var rango = hoja.getRange(primera, 1, ALBARANES_FILAS_DATOS_, ALBARANES_ANCHO_);
+  var rangoIds = hoja.getRange(primera, ALBARANES_COL_ID_, ALBARANES_FILAS_DATOS_, 1);
   if (filas.length > ALBARANES_FILAS_DATOS_) {
     throw new Error('El bloque de la pestaña "' + hoja.getName() + '" (fila ' + primera + ') no tiene más lugar (' + ALBARANES_FILAS_DATOS_ + ' filas).');
   }
@@ -303,69 +314,83 @@ function escribirAlbaranes_(data) {
 }
 
 // ============================================================================
-// Una sola vez: congelar los datos viejos (menú del Índice).
+// Una sola vez: restaurar los datos viejos de 2026 (menú del Índice).
 // ============================================================================
-// En cada pestaña de proveedor: copia como valores fijos lo que hoy se ve en
-// las columnas A–G de cada bloque de mes (lo que traen las fórmulas FILTER /
-// IMPORTRANGE), y borra todo lo que hay de la columna H hacia la derecha (la
-// mitad que traía los datos de la planilla de caja vieja). Los totales de
-// cada mes y la pestaña TOTALES no se tocan. Las pestañas de
-// ALBARANES_PESTANAS_EXCLUIDAS_ (TOTALES, VERDE REBELDE) no se tocan.
-function congelarAlbaranesViejos(anio) {
-  anio = String(anio || periodoAnual_(hoyISO_()));
-  var id = buscarEnIndice_('ALBARANES', anio);
-  if (!id) throw new Error('No hay fila ALBARANES ' + anio + ' en la pestaña "Archivos" del Índice.');
+// Los datos de enero a septiembre que traían las fórmulas IMPORTRANGE de la
+// planilla de caja vieja están guardados como valores fijos en
+// AlbaranesDatos2026.gs (sacados de la copia ALBARANES 2026.xlsx). Esto los
+// escribe en cada bloque de mes, junto con lo que ya haya cargado la app
+// (filas con ID en la columna Z), todo ordenado por fecha.
+//
+// No pisa nada: un bloque que ya tiene filas sin ID (cargadas a mano o de
+// una restauración anterior) o que tiene fórmulas se saltea y se avisa en
+// el resumen. Y no se puede correr dos veces.
+function restaurarAlbaranesViejos2026() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('ALBARANES_2026_RESTAURADO')) {
+    throw new Error('Los datos viejos de Albaranes 2026 ya se restauraron el ' + props.getProperty('ALBARANES_2026_RESTAURADO') + ' — no se vuelve a hacer para no duplicar.');
+  }
+  var id = buscarEnIndice_('ALBARANES', '2026');
+  if (!id) throw new Error('No hay fila ALBARANES 2026 en la pestaña "Archivos" del Índice.');
   var ss = SpreadsheetApp.openById(id);
   var resumen = [];
 
-  ss.getSheets().forEach(function (hoja) {
-    var nombre = hoja.getName();
-    if (ALBARANES_PESTANAS_EXCLUIDAS_.indexOf(nombre) > -1) return;
+  Object.keys(ALBARANES_DATOS_VIEJOS_2026_).forEach(function (nombre) {
+    var bloquesDatos = ALBARANES_DATOS_VIEJOS_2026_[nombre];
+    var total = bloquesDatos.reduce(function (s, b) { return s + b.length; }, 0);
+    if (!total) return;
+    var hoja = ss.getSheetByName(nombre);
+    if (!hoja) { resumen.push(nombre + ': NO EXISTE la pestaña — no se restauró'); return; }
     var encabezados = filasEncabezadoAlbaranes_(hoja);
-    if (encabezados.length !== 12) {
-      resumen.push(nombre + ': no se tocó (tiene ' + encabezados.length + ' bloques "FECHA", se esperaban 12)');
-      return;
-    }
+    if (encabezados.length !== 12) { resumen.push(nombre + ': tiene ' + encabezados.length + ' bloques "FECHA" (se esperaban 12) — no se restauró'); return; }
 
-    // 1) Leer lo que se ve ahora (antes de borrar las fórmulas de la derecha).
-    var bloques = encabezados.map(function (filaEnc) {
-      var valores = hoja.getRange(filaEnc + 1, 1, ALBARANES_FILAS_DATOS_, ALBARANES_ANCHO_).getValues();
-      return valores.map(function (fila) {
-        return fila.map(function (v) { return (typeof v === 'string' && v.charAt(0) === '#') ? '' : v; });
+    var escritas = 0, salteados = [];
+    bloquesDatos.forEach(function (filasViejas, b) {
+      if (!filasViejas.length) return;
+      var filaEnc = encabezados[b];
+      var primera = filaEnc + 1;
+      var rango = hoja.getRange(primera, 1, ALBARANES_FILAS_DATOS_, ALBARANES_ANCHO_);
+      var tieneFormulas = rango.getFormulas().some(function (f) { return f.some(String); });
+      var valores = rango.getValues();
+      var ids = hoja.getRange(primera, ALBARANES_COL_ID_, ALBARANES_FILAS_DATOS_, 1).getValues();
+
+      var actuales = [], hayManuales = false;
+      for (var i = 0; i < valores.length; i++) {
+        var vacia = valores[i].every(function (v) { return v === '' || v == null; });
+        if (vacia) continue;
+        if (!ids[i][0]) hayManuales = true;
+        actuales.push({ id: String(ids[i][0] || ''), fila: valores[i] });
+      }
+      if (tieneFormulas || hayManuales) { salteados.push(b + 1); return; }
+
+      var viejas = filasViejas.map(function (fila) {
+        return {
+          id: '',
+          fila: fila.map(function (v) {
+            return (typeof v === 'string' && v.indexOf('D:') === 0) ? fechaComoDate_(v.substring(2)) : v;
+          })
+        };
       });
+      guardarBloqueOrdenado_(hoja, filaEnc, viejas.concat(actuales));
+      escritas += viejas.length;
     });
-
-    // 2) Borrar la mitad derecha (columna H en adelante).
-    var ultimaCol = hoja.getMaxColumns();
-    if (ultimaCol >= 8) hoja.getRange(1, 8, hoja.getMaxRows(), ultimaCol - 7).clearContent();
-
-    // 3) Escribir los valores fijos, compactados (sin filas vacías en el medio).
-    var filasCongeladas = 0;
-    encabezados.forEach(function (filaEnc, b) {
-      var llenas = bloques[b].filter(function (fila) {
-        return fila.some(function (v) { return v !== '' && v != null; });
-      });
-      filasCongeladas += llenas.length;
-      while (llenas.length < ALBARANES_FILAS_DATOS_) llenas.push(['', '', '', '', '', '', '']);
-      hoja.getRange(filaEnc + 1, 1, ALBARANES_FILAS_DATOS_, ALBARANES_ANCHO_).setValues(llenas.slice(0, ALBARANES_FILAS_DATOS_));
-    });
-    resumen.push(nombre + ': ' + filasCongeladas + ' filas fijas');
+    resumen.push(nombre + ': ' + escritas + ' filas restauradas' + (salteados.length ? ' — meses salteados porque ya tenían datos: ' + salteados.join(', ') : ''));
   });
 
+  props.setProperty('ALBARANES_2026_RESTAURADO', hoyISO_());
   Logger.log(resumen.join('\n'));
   return resumen;
 }
 
-function congelarAlbaranesViejosDesdeMenu() {
+function restaurarAlbaranesViejos2026DesdeMenu() {
   var ui = SpreadsheetApp.getUi();
   var ok = ui.alert(
-    'Albaranes: congelar datos viejos',
-    'Esto convierte en valores fijos los datos que hoy traen las fórmulas de la planilla de caja vieja, y borra esas fórmulas (columna H en adelante de cada pestaña de proveedor). Hacelo UNA sola vez, y conviene antes hacer una copia del archivo (Archivo > Crear una copia). ¿Continuar?',
+    'Albaranes: restaurar datos viejos 2026',
+    'Esto vuelve a escribir en ALBARANES 2026 los datos de enero a septiembre (los que se borraron), sin tocar lo que haya cargado la app. Se hace una sola vez. ¿Continuar?',
     ui.ButtonSet.YES_NO
   );
   if (ok !== ui.Button.YES) return;
-  var resumen = congelarAlbaranesViejos();
-  ui.alert('Listo', resumen.join('\n'), ui.ButtonSet.OK);
+  ui.alert('Listo', restaurarAlbaranesViejos2026().join('\n'), ui.ButtonSet.OK);
 }
 
 // Vuelve a escribir en Albaranes todos los días de un mes de Cierre de

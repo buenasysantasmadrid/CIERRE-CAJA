@@ -1298,7 +1298,7 @@ function onOpen(e) {
     .addItem('Borrar un día completo…', 'borrarDiaCompleto')
     .addItem('Conectar los meses cargados en el Índice', 'conectarMesesCierreCajaDesdeMenu')
     .addSeparator()
-    .addItem('Albaranes: congelar datos viejos (una sola vez)', 'congelarAlbaranesViejosDesdeMenu')
+    .addItem('Albaranes: restaurar datos viejos 2026 (una sola vez)', 'restaurarAlbaranesViejos2026DesdeMenu')
     .addItem('Albaranes: reenviar un mes desde Cierre de Caja…', 'reenviarMesAAlbaranesDesdeMenu')
     .addToUi();
 }
