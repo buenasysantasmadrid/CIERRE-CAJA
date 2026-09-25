@@ -2106,6 +2106,35 @@
     });
   }
 
+  // Días que se borraron en el Sheet (ej. con "Borrar un día completo"):
+  // este navegador guarda su propia copia de cada caja que se abrió acá, y
+  // sin esto la seguía mostrando (y podía volver a mandarla al Sheet). Se
+  // olvidan solo los días PASADOS que el Sheet ya no tiene, dentro de los
+  // meses que abarca su lista (del mes actual hasta 5 meses atrás) — un día
+  // más viejo que eso, de hoy, o el que está en pantalla, no se toca.
+  function olvidarDiasBorradosEnSheet(fechasSheet){
+    var enSheet = {};
+    fechasSheet.forEach(function(f){ enSheet[f] = true; });
+    var hoy = todayISO();
+    var p = hoy.split('-').map(Number);
+    var desde = new Date(p[0], p[1] - 1 - 5, 1);
+    var desdeISO = desde.getFullYear() + '-' + String(desde.getMonth() + 1).padStart(2, '0') + '-01';
+
+    var store = getDiasStore();
+    var borrados = [];
+    Object.keys(store).forEach(function(f){
+      if(f >= desdeISO && f < hoy && f !== state.fecha && !enSheet[f]){
+        delete store[f];
+        delete fechasConDatos[f];
+        borrados.push(f);
+      }
+    });
+    if(borrados.length){
+      saveDiasStore(store);
+      logSheetStatus('Se olvidaron en este dispositivo ' + borrados.length + ' día(s) que ya no están en el Sheet: ' + borrados.sort().join(', '));
+    }
+  }
+
   // Trae la lista completa de días con datos en el Sheet (de cualquier
   // dispositivo) para poder pintarlos aunque nunca se hayan abierto en este
   // navegador. Devuelve una promesa que SIEMPRE se resuelve (nunca rechaza,
@@ -2118,6 +2147,7 @@
     var getUrl = url + (url.indexOf('?')>-1?'&':'?') + 'listarDias=1';
     var pedido = fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
       if(data && data.ok && data.fechas){
+        olvidarDiasBorradosEnSheet(data.fechas);
         data.fechas.forEach(function(f){ fechasConDatos[f] = true; });
         if(data.cierres) cierresSheet = data.cierres;
         var pop = document.getElementById('calendarioPopup');
