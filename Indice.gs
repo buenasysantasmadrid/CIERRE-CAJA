@@ -255,15 +255,17 @@ function planillaContabilidad_(fechaISOoAnio) {
   return SpreadsheetApp.openById(obtenerOCrearPlanilla_('CONTABILIDAD', periodoAnual_(fechaISOoAnio)));
 }
 
-// Últimas `cantidadMeses` (incluyendo el actual) planillas de Cierre de Caja
-// que YA EXISTEN — no crea meses pasados que nunca se usaron. Se usa para
+// Últimas `cantidadMeses` (incluyendo el actual), más la del mes que viene,
+// planillas de Cierre de Caja que YA EXISTEN — no crea meses que nunca se usaron. Se usa para
 // listados que necesitan mirar hacia atrás cruzando meses: calendario de
 // días con datos, fondo fijo sugerido del turno anterior y, más adelante,
 // Albaranes. Devuelve [{periodo, ss}], del más nuevo al más viejo.
 function planillasCierreCajaRecientes_(cantidadMeses) {
   var periodoActual = periodoMensual_(hoyISO_());
   var resultado = [];
-  for (var i = 0; i < cantidadMeses; i++) {
+  // i = -1 es el mes que viene: puede tener una caja abierta por adelantado
+  // (ej. a fin de mes, el día 1 del mes siguiente).
+  for (var i = -1; i < cantidadMeses; i++) {
     var periodo = i === 0 ? periodoActual : periodoMensualMenos_(periodoActual, i);
     var id = buscarEnIndice_('CIERRE_CAJA', periodo);
     if (id) resultado.push({ periodo: periodo, ss: SpreadsheetApp.openById(id) });

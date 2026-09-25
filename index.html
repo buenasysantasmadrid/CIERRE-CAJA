@@ -2458,7 +2458,6 @@
           state = diaDesdeSheet;
           aplicarEstadoATurnos(true);
           guardarDiaActual();
-          toast('Se trajeron los datos de ' + fecha + ' desde Google Sheets');
           logSheetStatus('Día ' + fecha + ' aplicado a la pantalla correctamente.');
         })
         .catch(function(err){
@@ -2499,22 +2498,13 @@
 
   // Si la pestaña queda abierta de un día para el otro (ej. tablet que nunca
   // se recarga), `state.fecha` se había calculado una sola vez al cargar la
-  // página y se quedaba viejo: todo lo que se cargaba "hoy" se seguía
-  // guardando bajo la fecha de ayer. Esto se revisa junto al sondeo normal
-  // (cada 20s mientras la pestaña está visible) para detectarlo enseguida.
-  // No cambia de día solo: siempre pregunta, igual que al elegir una fecha
-  // nueva a mano, para no interrumpir un turno de Noche que sigue después de
-  // medianoche.
-  var avisoCambioDiaEnFecha_ = null; // evita repreguntar cada 20s si ya se dijo que no
+  // página y se quedaba viejo. Esto se revisa junto al sondeo normal (cada
+  // 20s mientras la pestaña está visible) y solo muestra el cartel rojo
+  // "OJO, NO ES LA CAJA DEL DÍA DE HOY" con su botón "VOLVER A HOY" — no
+  // cambia de día solo ni pregunta, para no interrumpir un turno de Noche
+  // que sigue después de medianoche.
   function revisarSiCambioElDia_(){
-    var hoy = todayISO();
-    if(hoy === state.fecha){ avisoCambioDiaEnFecha_ = null; return; }
     actualizarAvisoCajaAntigua();
-    if(avisoCambioDiaEnFecha_ === state.fecha) return;
-    avisoCambioDiaEnFecha_ = state.fecha;
-    if(confirm('Cambió el día (ahora es ' + hoy + ') pero seguís viendo el cierre del ' + state.fecha + '. ¿Querés abrir el de hoy?')){
-      cambiarDia(hoy);
-    }
   }
 
   function revisarActualizacionesDesdeSheet(){
@@ -2547,7 +2537,6 @@
           if(huboCambios){
             aplicarEstadoATurnos(true);
             guardarDiaActual();
-            toast('Se actualizó desde Google Sheets (edición manual)');
             logSheetStatus('Día ' + fechaAlMomento + ' actualizado desde el Sheet por sondeo periódico.');
           }
         })
