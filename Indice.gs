@@ -136,14 +136,19 @@ function buscarEnIndice_(tipo, periodo) {
   return null;
 }
 
-// Todas las planillas de `tipo` que figuran en "Archivos": [{id, nombre}].
+// Todas las planillas de `tipo` que figuran en "Archivos":
+// [{id, nombre, periodo}]. `periodo` queda como "YYYY-MM" o "YYYY" aunque
+// Sheets haya convertido la celda en fecha (en ese caso, como "YYYY-MM").
 function planillasDelTipo_(tipo) {
   var valores = hojaIndice_('Archivos').getDataRange().getValues();
   var resultado = [];
   for (var i = 1; i < valores.length; i++) {
     if (normalizarTexto_(valores[i][0]) !== tipo) continue;
     var id = normalizarTexto_(valores[i][2]);
-    if (id) resultado.push({ id: id, nombre: normalizarTexto_(valores[i][3]) || id });
+    var periodo = valores[i][1] instanceof Date
+      ? Utilities.formatDate(valores[i][1], Session.getScriptTimeZone(), 'yyyy-MM')
+      : normalizarTexto_(valores[i][1]);
+    if (id) resultado.push({ id: id, nombre: normalizarTexto_(valores[i][3]) || id, periodo: periodo });
   }
   return resultado;
 }

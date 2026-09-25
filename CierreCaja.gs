@@ -1297,10 +1297,106 @@ function onOpen(e) {
     .createMenu('Cierre de Caja — Pruebas')
     .addItem('Borrar un día completo…', 'borrarDiaCompleto')
     .addItem('Conectar los meses cargados en el Índice', 'conectarMesesCierreCajaDesdeMenu')
+    .addItem('Mover días que quedaron en otro mes', 'moverDiasAlMesCorrectoDesdeMenu')
     .addSeparator()
     .addItem('Albaranes: restaurar datos viejos 2026 (una sola vez)', 'restaurarAlbaranesViejos2026DesdeMenu')
     .addItem('Albaranes: reenviar un mes desde Cierre de Caja…', 'reenviarMesAAlbaranesDesdeMenu')
     .addToUi();
+}
+
+// Días que quedaron guardados en la planilla de otro mes (por ejemplo, el
+// 01-10 cargado en septiembre antes de partir Cierre de Caja en un archivo
+// por mes): los pasa a la planilla de su mes — filas de "Registro" y
+// "Movimientos" y la pestaña del día. Sin esto la app no los encuentra,
+// porque busca cada día en la planilla de su mes.
+function moverDiasAlMesCorrecto() {
+  var resumen = [];
+  planillasDelTipo_('CIERRE_CAJA').forEach(function (p) {
+    if (!/^\d{4}-\d{2}$/.test(p.periodo)) return;
+    var ss = SpreadsheetApp.openById(p.id);
+    var registro = ss.getSheetByName('Registro');
+    if (!registro) return;
+    var valores = registro.getDataRange().getValues();
+    var idxFecha = valores[0].indexOf('Fecha');
+    if (idxFecha === -1) return;
+
+    var fechas = {};
+    for (var i = 1; i < valores.length; i++) {
+      var f = textoFecha_(valores[i][idxFecha]);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(f) && f.substring(0, 7) !== p.periodo) fechas[f] = true;
+    }
+    Object.keys(fechas).sort().forEach(function (fecha) {
+      try {
+        var destino = planillaCierreCaja_(fecha);
+        if (destino.getId() === ss.getId()) return;
+        resumen.push(fecha + ': de "' + p.nombre + '" a "' + destino.getName() + '" — ' + moverDia_(ss, destino, fecha));
+      } catch (err) {
+        resumen.push(fecha + ': ERROR — ' + err);
+      }
+    });
+  });
+  Logger.log(resumen.join('\n'));
+  return resumen.length ? resumen : ['No hay días en una planilla de otro mes.'];
+}
+
+function textoFecha_(raw) {
+  return (raw instanceof Date)
+    ? Utilities.formatDate(raw, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+    : String(raw || '');
+}
+
+function moverDia_(origen, destino, fecha) {
+  var partes = [];
+  partes.push(moverFilasPorFecha_(origen.getSheetByName('Registro'), getOrCrearRegistro_(destino), fecha) + ' filas de Registro');
+  partes.push(moverFilasPorFecha_(origen.getSheetByName('Movimientos'), getOrCrearMovimientos_(destino), fecha) + ' de Movimientos');
+
+  var nombre = nombreHojaDia_(fecha);
+  var hojaDia = origen.getSheetByName(nombre);
+  if (hojaDia) {
+    if (destino.getSheetByName(nombre)) {
+      partes.push('la pestaña "' + nombre + '" ya existía en el destino: se dejó la del destino y se borró la de origen');
+    } else {
+      hojaDia.copyTo(destino).setName(nombre);
+      partes.push('pestaña "' + nombre + '" movida');
+    }
+    origen.deleteSheet(hojaDia);
+  }
+  return partes.join(', ');
+}
+
+// Pasa las filas de `fecha` de una pestaña a otra (ubicando cada columna por
+// su encabezado) y las borra del origen. Devuelve cuántas movió.
+function moverFilasPorFecha_(hOrigen, hDestino, fecha) {
+  if (!hOrigen || hOrigen.getLastRow() < 2) return 0;
+  var valores = hOrigen.getDataRange().getValues();
+  var header = valores[0];
+  var idxFecha = header.indexOf('Fecha');
+  if (idxFecha === -1) return 0;
+  var headerDestino = hDestino.getRange(1, 1, 1, hDestino.getLastColumn()).getValues()[0];
+  var mapa = headerDestino.map(function (h) { return header.indexOf(h); });
+
+  var filasOrigen = [], filasDestino = [];
+  for (var i = 1; i < valores.length; i++) {
+    if (textoFecha_(valores[i][idxFecha]) !== fecha) continue;
+    filasOrigen.push(i + 1);
+    filasDestino.push(mapa.map(function (j) { return j > -1 ? valores[i][j] : ''; }));
+  }
+  if (!filasDestino.length) return 0;
+
+  hDestino.getRange(hDestino.getLastRow() + 1, 1, filasDestino.length, headerDestino.length).setValues(filasDestino);
+  for (var k = filasOrigen.length - 1; k >= 0; k--) hOrigen.deleteRow(filasOrigen[k]);
+  return filasDestino.length;
+}
+
+function moverDiasAlMesCorrectoDesdeMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var ok = ui.alert(
+    'Mover días al mes correcto',
+    'Busca en todas las planillas de Cierre de Caja los días que quedaron guardados en otro mes y los pasa a la planilla de su mes. Antes, revisá que en "Archivos" esté la planilla de cada mes (si falta, se crea una nueva desde la plantilla). ¿Continuar?',
+    ui.ButtonSet.YES_NO
+  );
+  if (ok !== ui.Button.YES) return;
+  ui.alert('Listo', moverDiasAlMesCorrecto().join('\n'), ui.ButtonSet.OK);
 }
 
 function conectarMesesCierreCajaDesdeMenu() {
