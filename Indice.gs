@@ -191,7 +191,7 @@ function obtenerOCrearPlanilla_(tipo, periodo) {
 
   var cfg = configTipo_(tipo);
   if (!cfg.plantillaId) {
-    throw new Error('El tipo "' + tipo + '" todavía no tiene una planilla plantilla configurada en el Índice (columna "Plantilla ID" vacía) — falta terminar de construir ese archivo.');
+    throw new Error('No hay planilla de ' + tipo + ' para ' + periodo + ' en la pestaña "Archivos" del Índice, y el tipo no tiene plantilla para crearla sola (columna "Plantilla ID" vacía en "Tipos"). Cargá en "Archivos" la fila ' + tipo + ' | ' + periodo + ' | <ID de la planilla>, o poné una plantilla en "Tipos".');
   }
 
   var plantilla = DriveApp.getFileById(cfg.plantillaId);

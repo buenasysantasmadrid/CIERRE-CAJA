@@ -45,9 +45,10 @@ function doPost(e) {
     }
 
     var contabilidad = escribirContabilidad_(data);
+    var albaranes = escribirAlbaranes_(data); // ver Albaranes.gs
 
     return ContentService
-      .createTextOutput(JSON.stringify({ ok: true, hojaDia: hojaDia, contabilidad: contabilidad }))
+      .createTextOutput(JSON.stringify({ ok: true, hojaDia: hojaDia, contabilidad: contabilidad, albaranes: albaranes }))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
@@ -1076,7 +1077,12 @@ function cambiarFormaPagoAlbaran_(data) {
     var idTurno = valores[filaEncontrada - 1][idxIdTurno];
     actualizarMovimientoEnRegistro_(ss, idTurno, data.idMovimiento, { subtipo: nuevaFormaPago, info: nuevoInfo });
 
-    return { ok: true };
+    // Que el archivo de Albaranes muestre la forma de pago nueva.
+    var albaranes;
+    try { albaranes = sincronizarAlbaranesDelDia_(data.fecha, gastosDelDia_(obtenerDiaJSON_(ss, data.fecha)), true); }
+    catch (errAlb) { albaranes = { ok: false, error: String(errAlb) }; }
+
+    return { ok: true, albaranes: albaranes };
   } catch (err) {
     return { ok: false, error: String(err) };
   }
@@ -1291,6 +1297,9 @@ function onOpen(e) {
     .createMenu('Cierre de Caja — Pruebas')
     .addItem('Borrar un día completo…', 'borrarDiaCompleto')
     .addItem('Conectar los meses cargados en el Índice', 'conectarMesesCierreCajaDesdeMenu')
+    .addSeparator()
+    .addItem('Albaranes: congelar datos viejos (una sola vez)', 'congelarAlbaranesViejosDesdeMenu')
+    .addItem('Albaranes: reenviar un mes desde Cierre de Caja…', 'reenviarMesAAlbaranesDesdeMenu')
     .addToUi();
 }
 
@@ -1402,6 +1411,14 @@ function borrarDiaEnTodosLados_(fecha) {
     } catch (errC) {
       resumen.contabilidad = 'error: ' + errC;
     }
+  }
+
+  // Albaranes: sacar los gastos de ese día (solo los que cargó la app).
+  try {
+    var rAlb = sincronizarAlbaranesDelDia_(fecha, [], true);
+    resumen.albaranes = rAlb.ok ? 'listo' : 'error: ' + rAlb.error;
+  } catch (errAlb) {
+    resumen.albaranes = 'error: ' + errAlb;
   }
 
   return resumen;

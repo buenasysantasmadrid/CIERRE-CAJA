@@ -395,7 +395,7 @@
     "Varios","Frutapro","Mercandalucia","Polleria","Super","Las 3B","Dia Carne","Extras",
     "Alimentos Australes","cbg","Atlanta","cream de luxe","Disbesa","Duo Harinero","Envapro",
     "Franco Arg","Gabarrera","Gamo","Hughes","Iberolactal","La Jaula","Mercadona","Monbake",
-    "Delta Cafe","Terrevileña","Vino"
+    "Delta Cafe","Vino"
   ];
 
   // Proveedores genéricos: al elegirlos, piden escribir a mano el nombre
@@ -2304,6 +2304,10 @@
           if(res.contabilidad && res.contabilidad.ok === false){
             logSheetStatus('La planilla de Contabilidad no se pudo actualizar: ' + res.contabilidad.error, true);
             avisarFalloSyncUnaVez('No se pudo actualizar la planilla de Contabilidad: ' + res.contabilidad.error);
+          }
+          if(res.albaranes && res.albaranes.ok === false){
+            logSheetStatus('La planilla de Albaranes no se pudo actualizar: ' + res.albaranes.error, true);
+            avisarFalloSyncUnaVez('No se pudo actualizar la planilla de Albaranes: ' + res.albaranes.error);
           }
         } else {
           var detalleErr = res && res.error ? res.error : JSON.stringify(res);
