@@ -457,19 +457,27 @@
   // última caja trabajó Noche (tiene efectivo contado > 0), se toma de
   // Noche; si solo se trabajó Mediodía, se toma de Mediodía. Se recalcula
   // cada vez que se abre el día (no queda "pegado" a un valor viejo).
+  //
+  // Se miran tanto las cajas guardadas en este dispositivo como las del Sheet
+  // (cierresSheet, que trae la lista de días): así, si la última caja se
+  // cargó desde otro dispositivo, igual se toma esa y no una anterior.
   function fondoFijoSugerido(fecha){
     var store = getDiasStore();
-    var fechasAnteriores = Object.keys(store).filter(function(f){ return f < fecha; }).sort();
-    for(var i = fechasAnteriores.length - 1; i >= 0; i--){
-      var dia = store[fechasAnteriores[i]];
-      if(!diaTieneActividad(dia)) continue;
-      var cMD = (dia.mediodia && dia.mediodia._calc) || {};
-      var cNC = (dia.noche && dia.noche._calc) || {};
-      var contadoNoche = cNC.totalContado || 0;
-      var contadoMediodia = cMD.totalContado || 0;
-      return contadoNoche > 0 ? contadoNoche : contadoMediodia;
+    var fechas = {};
+    Object.keys(store).forEach(function(f){ if(f < fecha && diaTieneActividad(store[f])) fechas[f] = true; });
+    Object.keys(cierresSheet).forEach(function(f){ if(f < fecha && cierresSheet[f].actividad) fechas[f] = true; });
+    var ultima = Object.keys(fechas).sort().pop();
+    if(!ultima) return 0;
+    var contadoNoche, contadoMediodia;
+    var dia = store[ultima];
+    if(dia && diaTieneActividad(dia)){
+      contadoNoche = ((dia.noche && dia.noche._calc) || {}).totalContado || 0;
+      contadoMediodia = ((dia.mediodia && dia.mediodia._calc) || {}).totalContado || 0;
+    } else {
+      contadoNoche = cierresSheet[ultima].noche || 0;
+      contadoMediodia = cierresSheet[ultima].mediodia || 0;
     }
-    return 0;
+    return contadoNoche > 0 ? contadoNoche : contadoMediodia;
   }
 
   var state = crearDiaVacio(todayISO(), "Mi Negocio");
@@ -2089,6 +2097,7 @@
   var calMesMostrado = null;  // 0-11
   var calAnioMostrado = null;
   var fechasConDatos = {};    // 'YYYY-MM-DD' -> true, mezcla de lo local y lo que devuelve el Sheet
+  var cierresSheet = {};      // 'YYYY-MM-DD' -> {mediodia, noche (efectivo contado), actividad} — del Sheet, para el fondo fijo
 
   function actualizarFechasConDatosLocal(){
     var store = getDiasStore();
@@ -2110,6 +2119,7 @@
     var pedido = fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
       if(data && data.ok && data.fechas){
         data.fechas.forEach(function(f){ fechasConDatos[f] = true; });
+        if(data.cierres) cierresSheet = data.cierres;
         var pop = document.getElementById('calendarioPopup');
         if(pop && pop.classList.contains('open')) renderCalendario();
       }
@@ -2552,11 +2562,15 @@
   // Sheet), sin contar excluirFecha. Se usa cuando el usuario cancela abrir
   // el día nuevo: en ese caso hay que volver a mostrar la última caja que sí
   // se abrió, no dejar el formulario en blanco en la fecha que rechazó.
+  // Solo hasta hoy: una caja de un día futuro (ej. el 1 del mes que viene,
+  // abierta por adelantado o de prueba) no cuenta como "la última abierta",
+  // porque mostrarla le pone el fondo fijo y la vuelve a guardar.
   function obtenerUltimaFechaAbierta(excluirFecha){
     var store = getDiasStore();
+    var hoy = todayISO();
     var fechas = {};
-    Object.keys(store).forEach(function(f){ fechas[f] = true; });
-    Object.keys(fechasConDatos).forEach(function(f){ fechas[f] = true; });
+    Object.keys(store).forEach(function(f){ if(f <= hoy) fechas[f] = true; });
+    Object.keys(fechasConDatos).forEach(function(f){ if(f <= hoy) fechas[f] = true; });
     delete fechas[excluirFecha];
     var lista = Object.keys(fechas).sort();
     return lista.length ? lista[lista.length - 1] : null;

@@ -1143,9 +1143,15 @@ function actualizarMovimientoEnRegistro_(ss, idTurno, idMovimiento, cambios) {
 // Junta los días con datos de los últimos MESES_HISTORIAL_ meses (los que
 // ya existen) para el calendario y para el fondo fijo sugerido del turno
 // anterior — ver planillasCierreCajaRecientes_ en Indice.gs.
+//
+// Además devuelve `cierres`: por fecha, el efectivo contado de cada turno y
+// si ese día tuvo actividad — la app lo usa para el fondo fijo sugerido
+// (efectivo contado de la última caja trabajada), aunque esa caja se haya
+// cargado desde otro dispositivo.
 function listarDiasConDatos_() {
   try {
     var fechasSet = {};
+    var cierres = {};
 
     planillasCierreCajaRecientes_(MESES_HISTORIAL_).forEach(function (p) {
       var registro = p.ss.getSheetByName('Registro');
@@ -1155,17 +1161,36 @@ function listarDiasConDatos_() {
       var header = valores[0];
       var idxFecha = header.indexOf('Fecha');
       if (idxFecha === -1) return;
+      var idxTurno = header.indexOf('Turno');
+      var idxContado = header.indexOf('Efectivo contado');
+      var idxCantMov = header.indexOf('Cant. movimientos');
+      var idxFacturado = header.indexOf('Total facturado');
+      var idxTpv1 = header.indexOf('TPV 1');
+      var idxTpv2 = header.indexOf('TPV 2');
+      function num(fila, idx) { return idx > -1 ? (Number(fila[idx]) || 0) : 0; }
 
       for (var i = 1; i < valores.length; i++) {
         var raw = valores[i][idxFecha];
         var fechaStr = (raw instanceof Date)
           ? Utilities.formatDate(raw, Session.getScriptTimeZone(), 'yyyy-MM-dd')
           : String(raw || '');
-        if (fechaStr) fechasSet[fechaStr] = true;
+        if (!fechaStr) continue;
+        fechasSet[fechaStr] = true;
+
+        var fila = valores[i];
+        var contado = num(fila, idxContado);
+        var activo = num(fila, idxCantMov) > 0 || contado !== 0 || num(fila, idxFacturado) !== 0 ||
+          num(fila, idxTpv1) !== 0 || num(fila, idxTpv2) !== 0;
+        var c = cierres[fechaStr] || (cierres[fechaStr] = { mediodia: 0, noche: 0, actividad: false });
+        var turno = String(idxTurno > -1 ? fila[idxTurno] : '').toLowerCase() === 'noche' ? 'noche' : 'mediodia';
+        if (activo) {
+          c.actividad = true;
+          c[turno] = contado;
+        }
       }
     });
 
-    return { ok: true, fechas: Object.keys(fechasSet) };
+    return { ok: true, fechas: Object.keys(fechasSet), cierres: cierres };
   } catch (err) {
     return { ok: false, error: String(err) };
   }
@@ -1196,9 +1221,13 @@ function listarDiasConDatos_() {
 // del mes se actualiza solo cada vez que se escribe una fila nueva.
 var MESES_MAYUS_ = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
 
+// El fondo fijo solo NO cuenta como actividad: la app lo pone sola al abrir
+// un día (viene de la caja anterior), así que un día abierto sin cargar
+// nada no es un día trabajado (antes quedaba con diferencia = -fondo fijo).
 function turnoTieneActividad_(t) {
   var c = t.calc || {};
-  return (c.totalContado || 0) !== 0 || (t.fondoFijo || 0) !== 0 ||
+  var movs = t.movimientosRaw || t.movimientos || [];
+  return movs.length > 0 || (c.totalContado || 0) !== 0 ||
     (t.totalFacturado || 0) !== 0 || (t.tpv1 || 0) !== 0 || (t.tpv2 || 0) !== 0;
 }
 
@@ -1249,6 +1278,15 @@ function escribirContabilidad_(data) {
     var ssContabilidad = planillaContabilidad_(data.fecha);
     var hoja = getOrCrearPestanaContabilidad_(ssContabilidad, mes - 1);
     var fila = 3 + (diaDelMes - 1);
+
+    // Día sin nada cargado (o que se vació desde la app): la fila queda en
+    // blanco en vez de con ceros y diferencia negativa.
+    if (!mdActivo && !ncActivo) {
+      ['A', 'B', 'D', 'E', 'H', 'J', 'K', 'M', 'N', 'O'].forEach(function (col) {
+        hoja.getRange(col + fila).clearContent();
+      });
+      return { ok: true, pestana: hoja.getName(), fila: fila, vacio: true };
+    }
 
     var diasHoy = (mdActivo && ncActivo) ? 1 : ((mdActivo || ncActivo) ? 0.5 : 0);
     var mediodiaTotal = md.totalFacturado || 0;
