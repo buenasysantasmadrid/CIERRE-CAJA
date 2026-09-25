@@ -136,6 +136,18 @@ function buscarEnIndice_(tipo, periodo) {
   return null;
 }
 
+// Todas las planillas de `tipo` que figuran en "Archivos": [{id, nombre}].
+function planillasDelTipo_(tipo) {
+  var valores = hojaIndice_('Archivos').getDataRange().getValues();
+  var resultado = [];
+  for (var i = 1; i < valores.length; i++) {
+    if (normalizarTexto_(valores[i][0]) !== tipo) continue;
+    var id = normalizarTexto_(valores[i][2]);
+    if (id) resultado.push({ id: id, nombre: normalizarTexto_(valores[i][3]) || id });
+  }
+  return resultado;
+}
+
 function registrarEnIndice_(tipo, periodo, id, nombre) {
   var hoja = hojaIndice_('Archivos');
   hoja.appendRow([tipo, periodo, id, nombre, new Date()]);
@@ -218,19 +230,14 @@ function instalarTriggerOnEditSiFalta_(idPlanilla) {
 // script solo ya quedan conectadas). Se puede correr las veces que haga
 // falta: no duplica.
 function conectarMesesCierreCaja() {
-  var valores = hojaIndice_('Archivos').getDataRange().getValues();
   var resumen = [];
-  for (var i = 1; i < valores.length; i++) {
-    if (normalizarTexto_(valores[i][0]) !== 'CIERRE_CAJA') continue;
-    var id = normalizarTexto_(valores[i][2]);
-    if (!id) continue;
-    var etiqueta = valores[i][3] || id;
+  planillasDelTipo_('CIERRE_CAJA').forEach(function (p) {
     try {
-      resumen.push(etiqueta + ': ' + (instalarTriggerOnEditSiFalta_(id) ? 'conectado ahora' : 'ya estaba conectado'));
+      resumen.push(p.nombre + ': ' + (instalarTriggerOnEditSiFalta_(p.id) ? 'conectado ahora' : 'ya estaba conectado'));
     } catch (err) {
-      resumen.push(etiqueta + ': ERROR — ' + err);
+      resumen.push(p.nombre + ': ERROR — ' + err);
     }
-  }
+  });
   Logger.log(resumen.join('\n'));
   return resumen;
 }

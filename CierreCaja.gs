@@ -1303,8 +1303,8 @@ function conectarMesesCierreCajaDesdeMenu() {
 // y "Movimientos" con esa fecha, la pestaña de ese día (si existe), y la
 // fila correspondiente en la planilla de Contabilidad de ese año/mes (solo
 // las columnas que escribe la app: A,B,D,E,H,J,K,M,N,O — el resto de esa
-// fila no se toca). Busca las planillas del mes/año de esa fecha en el
-// Índice; si alguna todavía no existe, no la crea solo para borrar algo
+// fila no se toca). Busca el día en todas las planillas de Cierre de Caja
+// del Índice y la Contabilidad de ese año; si esta no existe, no la crea solo para borrar algo
 // ahí — no hay nada que borrar en un archivo que no existe.
 //
 // El menú solo aparece en la planilla a la que está pegado este proyecto de
@@ -1362,18 +1362,26 @@ function borrarDiaEnTodosLados_(fecha) {
     return borradas;
   }
 
-  var idCierre = buscarEnIndice_('CIERRE_CAJA', periodoMensual_(fecha));
-  if (idCierre) {
-    var ss = SpreadsheetApp.openById(idCierre);
-    resumen.registro = borrarFilasPorFecha_(ss.getSheetByName('Registro'));
-    resumen.movimientos = borrarFilasPorFecha_(ss.getSheetByName('Movimientos'));
-
-    var nombreDia = nombreHojaDia_(fecha);
-    var hojaDia = ss.getSheetByName(nombreDia);
-    if (hojaDia) { ss.deleteSheet(hojaDia); resumen.pestanaDia = nombreDia; }
-  } else {
-    resumen.cierreDeCaja = 'No hay planilla de Cierre de Caja para ' + periodoMensual_(fecha) + ' en el Índice — nada que borrar.';
-  }
+  // Se busca en TODAS las planillas de Cierre de Caja del Índice, no solo
+  // en la del mes de la fecha: un día puede haber quedado guardado en otro
+  // mes (por ejemplo, días cargados antes de partir Cierre de Caja en un
+  // archivo por mes).
+  var nombreDia = nombreHojaDia_(fecha);
+  resumen.planillas = [];
+  planillasDelTipo_('CIERRE_CAJA').forEach(function (p) {
+    try {
+      var ss = SpreadsheetApp.openById(p.id);
+      var reg = borrarFilasPorFecha_(ss.getSheetByName('Registro'));
+      var mov = borrarFilasPorFecha_(ss.getSheetByName('Movimientos'));
+      var hojaDia = ss.getSheetByName(nombreDia);
+      if (hojaDia) { ss.deleteSheet(hojaDia); resumen.pestanaDia = nombreDia + ' (en ' + p.nombre + ')'; }
+      resumen.registro += reg;
+      resumen.movimientos += mov;
+      if (reg || mov || hojaDia) resumen.planillas.push(p.nombre);
+    } catch (errP) {
+      resumen.planillas.push(p.nombre + ': error — ' + errP);
+    }
+  });
 
   var partes = fecha.split('-');
   var anio = parseInt(partes[0], 10), mes = parseInt(partes[1], 10), diaDelMes = parseInt(partes[2], 10);
