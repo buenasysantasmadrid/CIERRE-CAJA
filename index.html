@@ -1702,7 +1702,7 @@
     fetch(url, {
       method: 'POST',
       headers: {'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({ accionCambiarFormaPago: true, idMovimiento: f.idMovimiento, idTurno: f.idTurno, nuevaFormaPago: forma, fechaPago: state.fecha }),
+      body: JSON.stringify({ accionCambiarFormaPago: true, idMovimiento: f.idMovimiento, idTurno: f.idTurno, fecha: f.fecha, nuevaFormaPago: forma, fechaPago: state.fecha }),
       keepalive: true
     }).then(function(resp){ return resp.json(); }).then(function(res){
       if(res && res.ok){
@@ -1761,7 +1761,7 @@
     fetch(url, {
       method: 'POST',
       headers: {'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({ accionCambiarFormaPago: true, idMovimiento: f.idMovimiento, idTurno: f.idTurno, nuevaFormaPago: 'efectivo_antiguo', fechaPago: state.fecha }),
+      body: JSON.stringify({ accionCambiarFormaPago: true, idMovimiento: f.idMovimiento, idTurno: f.idTurno, fecha: f.fecha, nuevaFormaPago: 'efectivo_antiguo', fechaPago: state.fecha }),
       keepalive: true
     }).then(function(resp){ return resp.json(); }).then(function(res){
       if(!(res && res.ok)){

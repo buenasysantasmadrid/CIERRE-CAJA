@@ -1,7 +1,6 @@
 function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
 
     if (data.test) {
       return ContentService
@@ -14,6 +13,10 @@ function doPost(e) {
         .createTextOutput(JSON.stringify(cambiarFormaPagoAlbaran_(data)))
         .setMimeType(ContentService.MimeType.JSON);
     }
+
+    // Planilla de Cierre de Caja DEL MES al que pertenece esta fecha (ver
+    // Indice.gs) — se crea sola la primera vez que hace falta.
+    var ss = planillaCierreCaja_(data.fecha);
 
     var TURNOS = [
       { key: 'mediodia', label: 'Mediodía' },
@@ -97,9 +100,17 @@ function getOrCrearMovimientos_(ss) {
 // que es la fuente confiable para reconstruir esto). Reutiliza el mismo
 // mapeo tipo/subtipo -> etiqueta que ya usa la reconciliación manual más
 // abajo (TIPO_LABEL_MAP_ / SUBTIPO_LABEL_MAP_).
+//
+// Desde que Cierre de Caja es una planilla por mes (ver Indice.gs), esta
+// función ya no tiene una "planilla activa" implícita: pasale el ID de la
+// planilla del mes que haga falta reconstruir (Extensiones > Apps Script >
+// elegir esta función > Ejecutar te va a pedir que edites este llamado, o
+// se puede correr manualmente desde el editor con
+// reconstruirMovimientosDesdeRegistro('<ID de esa planilla mensual>')).
 // ============================================================================
-function reconstruirMovimientosDesdeRegistro() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+function reconstruirMovimientosDesdeRegistro(idPlanillaCierreCaja) {
+  if (!idPlanillaCierreCaja) throw new Error('Pasale el ID de la planilla mensual de Cierre de Caja a reconstruir, ej.: reconstruirMovimientosDesdeRegistro("1AbC...")');
+  var ss = SpreadsheetApp.openById(idPlanillaCierreCaja);
   var registro = ss.getSheetByName('Registro');
   if (!registro) throw new Error('No existe la pestaña "Registro".');
 
@@ -158,72 +169,6 @@ function reconstruirMovimientosDesdeRegistro() {
 
   Logger.log('Reconstruidas ' + filas.length + ' filas en "Movimientos" a partir de "Registro".');
   return filas.length;
-}
-
-// ============================================================================
-// LIMPIEZA MANUAL DE PRUEBAS — correr una sola vez desde el editor de Apps
-// Script (menú Ejecutar, elegir esta función). Borra SOLO lo cargado como
-// prueba el 22 y el 23 de septiembre de 2026:
-//   - Filas de "Registro" y "Movimientos" con esas fechas.
-//   - Las pestañas de día "22-09-2026" y "23-09-2026", si existen.
-//   - En la planilla de Contabilidad, pestaña "SEPTIEMBRE": limpia las
-//     columnas que escribe la app (A,B,D,E,H,J,K,M,N,O) en las filas de esos
-//     dos días (fila 24 = día 22, fila 25 = día 23), sin tocar el resto de
-//     esas filas ni ninguna otra fecha.
-// No toca ninguna otra fecha ni ninguna otra columna.
-// ============================================================================
-function borrarPruebasSept22y23() {
-  var FECHAS_A_BORRAR = ['2026-09-22', '2026-09-23'];
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var resumen = { registro: 0, movimientos: 0, pestanasDia: [], contabilidad: [] };
-
-  function fechaDeFila_(fila, idxFecha) {
-    var raw = fila[idxFecha];
-    return (raw instanceof Date)
-      ? Utilities.formatDate(raw, Session.getScriptTimeZone(), 'yyyy-MM-dd')
-      : String(raw || '');
-  }
-
-  function borrarFilasPorFecha_(hoja) {
-    if (!hoja) return 0;
-    var ultimaFila = hoja.getLastRow();
-    if (ultimaFila < 2) return 0;
-    var header = hoja.getRange(1, 1, 1, hoja.getLastColumn()).getValues()[0];
-    var idxFecha = header.indexOf('Fecha');
-    if (idxFecha === -1) return 0;
-    var valores = hoja.getRange(2, 1, ultimaFila - 1, hoja.getLastColumn()).getValues();
-    var borradas = 0;
-    for (var i = valores.length - 1; i >= 0; i--) {
-      if (FECHAS_A_BORRAR.indexOf(fechaDeFila_(valores[i], idxFecha)) > -1) {
-        hoja.deleteRow(i + 2);
-        borradas++;
-      }
-    }
-    return borradas;
-  }
-
-  resumen.registro = borrarFilasPorFecha_(ss.getSheetByName('Registro'));
-  resumen.movimientos = borrarFilasPorFecha_(ss.getSheetByName('Movimientos'));
-
-  ['22-09-2026', '23-09-2026'].forEach(function (nombre) {
-    var hoja = ss.getSheetByName(nombre);
-    if (hoja) { ss.deleteSheet(hoja); resumen.pestanasDia.push(nombre); }
-  });
-
-  var ssC = SpreadsheetApp.openById(CONTABILIDAD_SHEET_ID_);
-  var hojaSept = ssC.getSheetByName('SEPTIEMBRE');
-  if (hojaSept) {
-    [22, 23].forEach(function (diaDelMes) {
-      var fila = 3 + (diaDelMes - 1);
-      ['A', 'B', 'D', 'E', 'H', 'J', 'K', 'M', 'N', 'O'].forEach(function (col) {
-        hojaSept.getRange(col + fila).clearContent();
-      });
-      resumen.contabilidad.push('SEPTIEMBRE fila ' + fila + ' (día ' + diaDelMes + ')');
-    });
-  }
-
-  Logger.log(JSON.stringify(resumen));
-  return resumen;
 }
 
 function escribirRegistroYMovimientos_(registro, mov, data, t, turnoLabel) {
@@ -442,30 +387,39 @@ function puntajeTurno_(t) {
 }
 
 function doGet(e) {
-  // Diagnóstico rápido desde el navegador (GET ?diag=1): lista el nombre
-  // exacto de cada pestaña de esta planilla, para poder comprobar sin
-  // entrar al editor de Apps Script si existe la hoja plantilla "1" (o si
-  // tiene un espacio/caracter invisible en el nombre).
+  // Diagnóstico rápido desde el navegador (GET ?diag=1, opcionalmente
+  // &fecha=YYYY-MM-DD): lista el nombre exacto de cada pestaña de la
+  // planilla de Cierre de Caja del mes de esa fecha (hoy por defecto), para
+  // poder comprobar sin entrar al editor de Apps Script si existe la hoja
+  // plantilla "1" (o si tiene un espacio/caracter invisible en el nombre).
   var diag = e && e.parameter && e.parameter.diag;
   if (diag) {
-    var ssDiag = SpreadsheetApp.getActiveSpreadsheet();
-    return ContentService
-      .createTextOutput(JSON.stringify({
+    var salidaDiag;
+    try {
+      var ssDiag = planillaCierreCaja_((e.parameter && e.parameter.fecha) || hoyISO_());
+      salidaDiag = {
         ok: true,
         planilla: ssDiag.getName(),
         pestanas: ssDiag.getSheets().map(function (h) { return h.getName(); })
-      }))
+      };
+    } catch (errDiagCierre) {
+      salidaDiag = { ok: false, error: String(errDiagCierre) };
+    }
+    return ContentService
+      .createTextOutput(JSON.stringify(salidaDiag))
       .setMimeType(ContentService.MimeType.JSON);
   }
   // Diagnóstico de Contabilidad (GET ?diagContabilidad=1): intenta abrir la
-  // planilla de Contabilidad y listar sus pestañas, sin escribir nada. Sirve
+  // planilla de Contabilidad del año (la que figura en el Índice) y listar
+  // sus pestañas, sin escribir nada ni crear la planilla si no existe. Sirve
   // para ver el error real (permiso, ID incorrecto, etc.) sin tener que
   // volver a sincronizar un día desde la app.
   var diagContabilidad = e && e.parameter && e.parameter.diagContabilidad;
   if (diagContabilidad) {
     try {
       var anioDiag = parseInt((e.parameter && e.parameter.anio) || new Date().getFullYear(), 10);
-      var idDiag = idPlanillaContabilidadDelAnio_(anioDiag);
+      var idDiag = buscarEnIndice_('CONTABILIDAD', String(anioDiag));
+      if (!idDiag) throw new Error('La pestaña "Archivos" del Índice no tiene una fila CONTABILIDAD para ' + anioDiag + ' (se crea sola al guardar el primer día de ese año).');
       var ssC = SpreadsheetApp.openById(idDiag);
       var mesActual = MESES_MAYUS_[new Date().getMonth()];
       var hojaMes = ssC.getSheetByName(mesActual);
@@ -486,6 +440,30 @@ function doGet(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
   }
+  // Prueba manual: abrir esta URL con ?testContabilidad=1 (opcionalmente
+  // &fecha=YYYY-MM-DD) para repetir, con los datos reales ya guardados de
+  // ese día, el mismo escribirContabilidad_ que corre en cada guardado
+  // normal — útil para diagnosticar sin depender del registro de
+  // Ejecuciones (que no muestra estos errores porque quedan atrapados
+  // adentro de esa función) ni de las herramientas de desarrollador del
+  // navegador.
+  var testContabilidad = e && e.parameter && e.parameter.testContabilidad;
+  if (testContabilidad) {
+    var fechaTest = (e.parameter && e.parameter.fecha) || hoyISO_();
+    var resultadoTest;
+    try {
+      var ssCierreTest = planillaCierreCaja_(fechaTest);
+      var diaTest = obtenerDiaJSON_(ssCierreTest, fechaTest);
+      resultadoTest = escribirContabilidad_({ fecha: fechaTest, mediodia: diaTest.mediodia, noche: diaTest.noche });
+      resultadoTest.diaEncontradoEnCierreDeCaja = !!diaTest.encontrado;
+    } catch (errTest) {
+      resultadoTest = { ok: false, error: String(errTest) };
+    }
+    return ContentService
+      .createTextOutput(JSON.stringify(resultadoTest))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
   var listarDias = e && e.parameter && e.parameter.listarDias;
   if (listarDias) {
     return ContentService
@@ -502,8 +480,14 @@ function doGet(e) {
   }
   var fecha = e && e.parameter && e.parameter.fecha;
   if (fecha) {
+    var resultadoDia;
+    try {
+      resultadoDia = obtenerDiaJSON_(planillaCierreCaja_(fecha), fecha);
+    } catch (errSs) {
+      resultadoDia = { ok: false, error: String(errSs) };
+    }
     return ContentService
-      .createTextOutput(JSON.stringify(obtenerDiaJSON_(fecha)))
+      .createTextOutput(JSON.stringify(resultadoDia))
       .setMimeType(ContentService.MimeType.JSON);
   }
   return ContentService
@@ -519,14 +503,19 @@ function coincideProveedor_(textoProv, proveedor, detalleNorm) {
   return (textoProv === proveedor) || (textoProv.indexOf(proveedor + ' —') === 0);
 }
 
-// Trae TODO lo cargado como "Gasto" — pagado o no, de cualquier fecha —
-// para la pantalla de Albaranes, donde se puede consultar y volver a abrir
-// cualquier proveedor/movimiento para editarlo, o marcarlo como pagado.
-function listarFacturasProveedores_(proveedor, detalle) {
-  try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+// Trae TODO lo cargado como "Gasto" — pagado o no — en UNA planilla mensual
+// de Cierre de Caja, para la pantalla de Albaranes, donde se puede
+// consultar y volver a abrir cualquier proveedor/movimiento para editarlo,
+// o marcarlo como pagado.
+//
+// NOTA: esto sigue siendo la búsqueda de Albaranes "vieja" (todavía no está
+// construida la pantalla nueva pensada para esto — ver Indice.gs, tipo
+// ALBARANES). Por ahora, para que no deje de funcionar al partir Cierre de
+// Caja en un archivo por mes, listarFacturasProveedores_ (más abajo) junta
+// esto de los últimos MESES_HISTORIAL_ meses.
+function listarFacturasProveedoresEnPlanilla_(ss, proveedor, detalleNorm) {
     var mov = ss.getSheetByName('Movimientos');
-    if (!mov) return { ok: true, facturas: [] };
+    if (!mov) return { facturas: [] };
 
     var valores = mov.getDataRange().getValues();
     var header = valores[0];
@@ -543,10 +532,9 @@ function listarFacturasProveedores_(proveedor, detalle) {
     var idxImporte = header.indexOf('Importe');
 
     if (idxIdMov === -1) {
-      return { ok: true, facturas: [], error: 'La pestaña "Movimientos" es de una versión anterior y no tiene la columna "ID Movimiento". Volvé a sincronizar un cambio desde la app para que se agregue.' };
+      return { facturas: [], error: 'La pestaña "Movimientos" es de una versión anterior y no tiene la columna "ID Movimiento". Volvé a sincronizar un cambio desde la app para que se agregue.' };
     }
 
-    var detalleNorm = (detalle || '').toLowerCase().trim();
     var resultado = [];
 
     for (var i = 1; i < valores.length; i++) {
@@ -582,15 +570,38 @@ function listarFacturasProveedores_(proveedor, detalle) {
 
     resultado.sort(function (a, b) { return a.fecha < b.fecha ? 1 : (a.fecha > b.fecha ? -1 : 0); });
 
-    return { ok: true, facturas: resultado };
+    return { facturas: resultado };
+}
+
+// Junta listarFacturasProveedoresEnPlanilla_ de los últimos MESES_HISTORIAL_
+// meses (los que ya existen — ver planillasCierreCajaRecientes_ en
+// Indice.gs) para que Albaranes no pierda historial al partir Cierre de
+// Caja en un archivo por mes.
+function listarFacturasProveedores_(proveedor, detalle) {
+  try {
+    var detalleNorm = (detalle || '').toLowerCase().trim();
+    var planillas = planillasCierreCajaRecientes_(MESES_HISTORIAL_);
+    var resultado = [];
+    var error = null;
+
+    planillas.forEach(function (p) {
+      var r = listarFacturasProveedoresEnPlanilla_(p.ss, proveedor, detalleNorm);
+      if (r.error) error = r.error;
+      resultado = resultado.concat(r.facturas);
+    });
+
+    resultado.sort(function (a, b) { return a.fecha < b.fecha ? 1 : (a.fecha > b.fecha ? -1 : 0); });
+
+    var salida = { ok: true, facturas: resultado };
+    if (error) salida.error = error;
+    return salida;
   } catch (err) {
     return { ok: false, error: String(err) };
   }
 }
 
-function obtenerDiaJSON_(fecha) {
+function obtenerDiaJSON_(ss, fecha) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
     var registro = ss.getSheetByName('Registro');
     if (!registro) {
       return { ok: true, encontrado: false, fecha: fecha, negocio: '', mediodia: null, noche: null };
@@ -753,7 +764,7 @@ function manejarEdicionRegistro_(e, hoja) {
   turnoEditado.tpv2 = Number(filaValores[idxTpv2]) || 0;
 
   var turnoKey = (String(filaValores[idxTurno]).toLowerCase() === 'noche') ? 'noche' : 'mediodia';
-  var diaExistente = obtenerDiaJSON_(fechaStr) || {};
+  var diaExistente = obtenerDiaJSON_(hoja.getParent(), fechaStr) || {};
 
   var dia = {
     mediodia: turnoKey === 'mediodia' ? turnoEditado : (diaExistente.mediodia || null),
@@ -802,7 +813,7 @@ function manejarEdicionHojaDelDia_(e, hoja, nombreHoja) {
 
   if (!tocaMd && !tocaNc) return; // se editó otra celda de esta pestaña (movimientos, etc.)
 
-  var diaExistente = obtenerDiaJSON_(fechaStr);
+  var diaExistente = obtenerDiaJSON_(hoja.getParent(), fechaStr);
   if (!diaExistente || !diaExistente.encontrado) return; // este día nunca se sincronizó desde la app
 
   var huboCambio = false;
@@ -1022,7 +1033,13 @@ function cambiarFormaPagoAlbaran_(data) {
       return { ok: false, error: 'Forma de pago no válida.' };
     }
 
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!data.fecha) {
+      return { ok: false, error: 'Falta la fecha del albarán — hace falta para saber en qué planilla mensual buscarlo. Volvé a sincronizar un cambio desde la app para que se mande.' };
+    }
+    var ss;
+    try { ss = planillaCierreCaja_(data.fecha); }
+    catch (errSs) { return { ok: false, error: String(errSs) }; }
+
     var mov = ss.getSheetByName('Movimientos');
     if (!mov) return { ok: false, error: 'No existe la pestaña "Movimientos".' };
 
@@ -1106,7 +1123,7 @@ function actualizarMovimientoEnRegistro_(ss, idTurno, idMovimiento, cambios) {
     : String(fechaRaw || '');
   if (!fechaStr) return;
 
-  var dia = obtenerDiaJSON_(fechaStr);
+  var dia = obtenerDiaJSON_(ss, fechaStr);
   if (!dia || !dia.encontrado) return;
   var dataParaHoja = {
     fecha: fechaStr,
@@ -1117,25 +1134,30 @@ function actualizarMovimientoEnRegistro_(ss, idTurno, idMovimiento, cambios) {
   escribirHojaDelDiaExacta_(ss, dataParaHoja);
 }
 
+// Junta los días con datos de los últimos MESES_HISTORIAL_ meses (los que
+// ya existen) para el calendario y para el fondo fijo sugerido del turno
+// anterior — ver planillasCierreCajaRecientes_ en Indice.gs.
 function listarDiasConDatos_() {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var registro = ss.getSheetByName('Registro');
-    if (!registro) return { ok: true, fechas: [] };
-
-    var valores = registro.getDataRange().getValues();
-    var header = valores[0];
-    var idxFecha = header.indexOf('Fecha');
-    if (idxFecha === -1) return { ok: true, fechas: [] };
-
     var fechasSet = {};
-    for (var i = 1; i < valores.length; i++) {
-      var raw = valores[i][idxFecha];
-      var fechaStr = (raw instanceof Date)
-        ? Utilities.formatDate(raw, Session.getScriptTimeZone(), 'yyyy-MM-dd')
-        : String(raw || '');
-      if (fechaStr) fechasSet[fechaStr] = true;
-    }
+
+    planillasCierreCajaRecientes_(MESES_HISTORIAL_).forEach(function (p) {
+      var registro = p.ss.getSheetByName('Registro');
+      if (!registro) return;
+
+      var valores = registro.getDataRange().getValues();
+      var header = valores[0];
+      var idxFecha = header.indexOf('Fecha');
+      if (idxFecha === -1) return;
+
+      for (var i = 1; i < valores.length; i++) {
+        var raw = valores[i][idxFecha];
+        var fechaStr = (raw instanceof Date)
+          ? Utilities.formatDate(raw, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+          : String(raw || '');
+        if (fechaStr) fechasSet[fechaStr] = true;
+      }
+    });
 
     return { ok: true, fechas: Object.keys(fechasSet) };
   } catch (err) {
@@ -1166,11 +1188,6 @@ function listarDiasConDatos_() {
 //   O  RETIRA — egresos de Mediodía + Noche
 // A34 queda con la fórmula =SUM(A3:A33), así el total de días trabajados
 // del mes se actualiza solo cada vez que se escribe una fila nueva.
-// ID de la planilla de Contabilidad de 2026 — se usa como valor por defecto
-// (fallback) si la pestaña "Config" todavía no tiene una fila para el año
-// que se está escribiendo. Para años siguientes NO hace falta tocar esto:
-// ver getOrCrearConfig_ más abajo.
-var CONTABILIDAD_SHEET_ID_ = '1KpqnwtKv8Qz6MTgjyvmVSiPzbJj4-cTFIPHEphI6wDk';
 var MESES_MAYUS_ = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
 
 function turnoTieneActividad_(t) {
@@ -1179,93 +1196,14 @@ function turnoTieneActividad_(t) {
     (t.totalFacturado || 0) !== 0 || (t.tpv1 || 0) !== 0 || (t.tpv2 || 0) !== 0;
 }
 
-// Pestaña "Config" en la propia planilla de Cierre de Caja (se crea sola la
-// primera vez, con la fila de 2026 ya cargada). Ahí queda, un año por fila,
-// el ID de la planilla de Contabilidad de ESE año. Se llena sola: cuando se
-// necesita un año que todavía no tiene fila, crearPlanillaContabilidadAnioNuevo_
-// la agrega. También se puede agregar una fila a mano con anticipación si
-// se prefiere elegir el archivo en vez de que se cree solo.
-function getOrCrearConfig_(ss) {
-  var config = ss.getSheetByName('Config');
-  if (!config) {
-    config = ss.insertSheet('Config');
-    config.appendRow(['Año', 'ID planilla de Contabilidad de ese año']);
-    config.appendRow([2026, CONTABILIDAD_SHEET_ID_]);
-    config.setFrozenRows(1);
-    config.setColumnWidth(2, 340);
-  }
-  return config;
-}
-
-// Busca en "Config" el ID de la planilla de Contabilidad del año pedido. Si
-// todavía no hay una fila para ese año (ej. arrancó un año nuevo), la crea
-// sola: duplica en Drive la planilla del año anterior más cercano que sí
-// esté en Config (o la de 2026 si no hay ninguna todavía), limpia los 12
-// meses copiados y agrega la fila nueva en Config — así, igual que con los
-// meses adentro de Contabilidad, pasar de año no requiere ningún paso
-// manual.
-function idPlanillaContabilidadDelAnio_(anio) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var config = getOrCrearConfig_(ss);
-  var valores = config.getDataRange().getValues();
-  for (var i = 1; i < valores.length; i++) {
-    if (Number(valores[i][0]) === Number(anio) && valores[i][1]) {
-      return String(valores[i][1]).trim();
-    }
-  }
-  return crearPlanillaContabilidadAnioNuevo_(anio, config, valores);
-}
-
-// Ver idPlanillaContabilidadDelAnio_. anioActual/valoresActuales se pasan
-// para no tener que releer "Config" de nuevo.
-function crearPlanillaContabilidadAnioNuevo_(anio, config, valoresConfig) {
-  var anioActual = new Date().getFullYear();
-  if (Math.abs(anio - anioActual) > 1) {
-    // Por las dudas de que sea una fecha mal cargada (typo de año): no crea
-    // un archivo de Drive solo por esto. El error queda visible igual que
-    // cualquier otro fallo de escribirContabilidad_ (toast en la app).
-    throw new Error('Año ' + anio + ' fuera de rango esperado (año actual: ' + anioActual + ') — no se crea una planilla de Contabilidad automáticamente por las dudas de que sea un error de fecha.');
-  }
-
-  var mejorAnioPrevio = null, idPrevio = null;
-  for (var i = 1; i < valoresConfig.length; i++) {
-    var a = Number(valoresConfig[i][0]);
-    if (a < anio && valoresConfig[i][1] && (mejorAnioPrevio === null || a > mejorAnioPrevio)) {
-      mejorAnioPrevio = a;
-      idPrevio = String(valoresConfig[i][1]).trim();
-    }
-  }
-  if (!idPrevio) idPrevio = CONTABILIDAD_SHEET_ID_; // no hay ningún año anterior cargado todavía: parte de la semilla de 2026
-
-  var archivoAnterior = DriveApp.getFileById(idPrevio);
-  var carpetas = archivoAnterior.getParents();
-  var carpetaDestino = carpetas.hasNext() ? carpetas.next() : null;
-  var nombreNuevo = 'CONTABILIDAD ' + anio + ' NUEVO SISTEMA';
-  var archivoNuevo = carpetaDestino ? archivoAnterior.makeCopy(nombreNuevo, carpetaDestino) : archivoAnterior.makeCopy(nombreNuevo);
-  var idNuevo = archivoNuevo.getId();
-
-  var ssNuevo = SpreadsheetApp.openById(idNuevo);
-  MESES_MAYUS_.forEach(function (nombreMes) {
-    var hoja = ssNuevo.getSheetByName(nombreMes);
-    if (!hoja) return;
-    ['A', 'B', 'D', 'E', 'H', 'J', 'K', 'M', 'N', 'O'].forEach(function (col) {
-      hoja.getRange(col + '3:' + col + '33').clearContent();
-    });
-  });
-
-  config.appendRow([anio, idNuevo]);
-  Logger.log('Creada automáticamente la planilla de Contabilidad de ' + anio + ': "' + nombreNuevo + '" (' + idNuevo + '), copiada de ' + (mejorAnioPrevio || 2026) + '.');
-
-  return idNuevo;
-}
-
-// Trae la pestaña del mes (de la planilla de Contabilidad del año pedido),
-// creándola si todavía no existe: duplica la pestaña del mes anterior o, si
-// tampoco existe, "MASTER", la renombra y limpia las filas de días 3-33
-// en las columnas de arriba (para no arrastrar datos viejos del mes que
-// se copió).
-function getOrCrearPestanaContabilidad_(anio, mesIndex /* 0-11 */) {
-  var ss = SpreadsheetApp.openById(idPlanillaContabilidadDelAnio_(anio));
+// Trae la pestaña del mes en la planilla de Contabilidad DEL AÑO que
+// corresponda (ver Indice.gs — esa planilla anual se crea sola la primera
+// vez que hace falta), creando la pestaña del mes si todavía no existe:
+// duplica la pestaña del mes anterior o, si tampoco existe (por ejemplo, el
+// primer mes del año), "MASTER", la renombra y limpia las filas de días
+// 3-33 en las columnas de arriba (para no arrastrar datos viejos del mes
+// que se copió).
+function getOrCrearPestanaContabilidad_(ss, mesIndex /* 0-11 */) {
   var nombre = MESES_MAYUS_[mesIndex];
   var hoja = ss.getSheetByName(nombre);
   if (hoja) return hoja;
@@ -1302,7 +1240,8 @@ function escribirContabilidad_(data) {
     var mdActivo = turnoTieneActividad_(md);
     var ncActivo = turnoTieneActividad_(nc);
 
-    var hoja = getOrCrearPestanaContabilidad_(anio, mes - 1);
+    var ssContabilidad = planillaContabilidad_(data.fecha);
+    var hoja = getOrCrearPestanaContabilidad_(ssContabilidad, mes - 1);
     var fila = 3 + (diaDelMes - 1);
 
     var diasHoy = (mdActivo && ncActivo) ? 1 : ((mdActivo || ncActivo) ? 0.5 : 0);
@@ -1357,9 +1296,12 @@ function onOpen(e) {
 // y "Movimientos" con esa fecha, la pestaña de ese día (si existe), y la
 // fila correspondiente en la planilla de Contabilidad de ese año/mes (solo
 // las columnas que escribe la app: A,B,D,E,H,J,K,M,N,O — el resto de esa
-// fila no se toca). Si la planilla de Contabilidad de ese año todavía no
-// existe en "Config", no la crea solo para borrar algo ahí — no hay nada
-// que borrar en un archivo que no existe.
+// fila no se toca). Busca las planillas del mes/año de esa fecha en el
+// Índice; si alguna todavía no existe, no la crea solo para borrar algo
+// ahí — no hay nada que borrar en un archivo que no existe.
+//
+// El menú solo aparece en la planilla a la que está pegado este proyecto de
+// Apps Script, pero sirve para borrar un día de CUALQUIER mes.
 function borrarDiaCompleto() {
   var ui = SpreadsheetApp.getUi();
   var resp = ui.prompt('Borrar un día completo', 'Fecha a borrar (formato AAAA-MM-DD, ej. 2026-10-05):', ui.ButtonSet.OK_CANCEL);
@@ -1382,23 +1324,11 @@ function borrarDiaCompleto() {
   ui.alert('Listo', JSON.stringify(resumen, null, 2), ui.ButtonSet.OK);
 }
 
-// Busca en "Config" el ID de la planilla de Contabilidad de un año, pero
-// SIN crearla si no existe (a diferencia de idPlanillaContabilidadDelAnio_)
-// — para usos de solo lectura/borrado, donde no tiene sentido crear un
+// Las planillas (Cierre de Caja del mes, Contabilidad del año) se buscan en
+// el Índice con buscarEnIndice_, que — a diferencia de obtenerOCrearPlanilla_
+// — NO las crea si no existen: para borrar no tiene sentido crear un
 // archivo nuevo solo para no encontrar nada que tocar en él.
-function idPlanillaContabilidadSiExiste_(anio) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var config = ss.getSheetByName('Config');
-  if (!config) return null;
-  var valores = config.getDataRange().getValues();
-  for (var i = 1; i < valores.length; i++) {
-    if (Number(valores[i][0]) === Number(anio) && valores[i][1]) return String(valores[i][1]).trim();
-  }
-  return null;
-}
-
 function borrarDiaEnTodosLados_(fecha) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
   var resumen = { fecha: fecha, registro: 0, movimientos: 0, pestanaDia: null, contabilidad: null };
 
   function fechaDeFila_(fila, idxFecha) {
@@ -1425,18 +1355,24 @@ function borrarDiaEnTodosLados_(fecha) {
     return borradas;
   }
 
-  resumen.registro = borrarFilasPorFecha_(ss.getSheetByName('Registro'));
-  resumen.movimientos = borrarFilasPorFecha_(ss.getSheetByName('Movimientos'));
+  var idCierre = buscarEnIndice_('CIERRE_CAJA', periodoMensual_(fecha));
+  if (idCierre) {
+    var ss = SpreadsheetApp.openById(idCierre);
+    resumen.registro = borrarFilasPorFecha_(ss.getSheetByName('Registro'));
+    resumen.movimientos = borrarFilasPorFecha_(ss.getSheetByName('Movimientos'));
 
-  var nombreDia = nombreHojaDia_(fecha);
-  var hojaDia = ss.getSheetByName(nombreDia);
-  if (hojaDia) { ss.deleteSheet(hojaDia); resumen.pestanaDia = nombreDia; }
+    var nombreDia = nombreHojaDia_(fecha);
+    var hojaDia = ss.getSheetByName(nombreDia);
+    if (hojaDia) { ss.deleteSheet(hojaDia); resumen.pestanaDia = nombreDia; }
+  } else {
+    resumen.cierreDeCaja = 'No hay planilla de Cierre de Caja para ' + periodoMensual_(fecha) + ' en el Índice — nada que borrar.';
+  }
 
   var partes = fecha.split('-');
   var anio = parseInt(partes[0], 10), mes = parseInt(partes[1], 10), diaDelMes = parseInt(partes[2], 10);
   if (anio && mes && diaDelMes) {
     try {
-      var idPlanilla = idPlanillaContabilidadSiExiste_(anio);
+      var idPlanilla = buscarEnIndice_('CONTABILIDAD', String(anio));
       if (idPlanilla) {
         var ssC = SpreadsheetApp.openById(idPlanilla);
         var hojaMes = ssC.getSheetByName(MESES_MAYUS_[mes - 1]);
