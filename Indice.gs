@@ -46,10 +46,15 @@
 // 4) Preparar la planilla PLANTILLA de Contabilidad: una copia de la
 //    planilla de Contabilidad actual, dejando solo la pestaña "MASTER"
 //    (el mes en blanco). Pegar su ID en "Tipos".
-// 5) Pegar este archivo (Indice.gs) y el CierreCaja.gs actualizado en el
-//    proyecto de Apps Script, crear una Nueva versión de la implementación
-//    web y confirmar que la URL en index.html siga siendo la misma (no debería
-//    hacer falta cambiarla: es un solo Web App para todos los meses/años).
+// 5) Pegar este archivo (Indice.gs) y CierreCaja.gs en el proyecto de Apps
+//    Script de la PROPIA planilla Índice (Extensiones > Apps Script desde
+//    el Índice) — NO en la plantilla ni en las planillas de cada mes: lo que
+//    tenga la plantilla se copia a cada mes nuevo, y el onEdit correría dos
+//    veces. Implementar como aplicación web y poner esa URL en index.html
+//    (es un solo Web App para todos los meses/años).
+// 6) Correr una vez el menú "Cierre de Caja — Pruebas" > "Conectar los
+//    meses cargados en el Índice", para conectar las planillas de mes que
+//    se cargaron a mano en "Archivos".
 // ============================================================================
 
 var INDICE_SHEET_ID_ = '1ZqE4UZqXIYmnmwu-uNLgHDhRpl62WbbRNKY9i2ePyEY';
@@ -185,12 +190,49 @@ function obtenerOCrearPlanilla_(tipo, periodo) {
   var id = archivoNuevo.getId();
 
   if (tipo === 'CIERRE_CAJA') {
-    try { ScriptApp.newTrigger('onEdit').forSpreadsheet(id).onEdit().create(); }
+    try { instalarTriggerOnEditSiFalta_(id); }
     catch (errTrigger) { Logger.log('No se pudo instalar el trigger onEdit en "' + nombre + '": ' + errTrigger); }
   }
 
   registrarEnIndice_(tipo, periodo, id, nombre);
   return id;
+}
+
+// Conecta el onEdit de este proyecto a una planilla mensual de Cierre de
+// Caja (para que las ediciones a mano en "Registro" o en la pestaña del día
+// se reflejen). No duplica: si esa planilla ya tiene el trigger, no hace
+// nada. Devuelve true si lo instaló.
+function instalarTriggerOnEditSiFalta_(idPlanilla) {
+  var yaEsta = ScriptApp.getProjectTriggers().some(function (t) {
+    return t.getHandlerFunction() === 'onEdit' && t.getTriggerSourceId() === idPlanilla;
+  });
+  if (yaEsta) return false;
+  ScriptApp.newTrigger('onEdit').forSpreadsheet(idPlanilla).onEdit().create();
+  return true;
+}
+
+// Correr a mano (menú "Cierre de Caja — Pruebas" > "Conectar los meses
+// cargados en el Índice", o desde el editor): conecta el onEdit a TODAS las
+// planillas CIERRE_CAJA de la pestaña "Archivos" que todavía no lo tengan —
+// hace falta para las que se cargaron a mano en el Índice (las que crea el
+// script solo ya quedan conectadas). Se puede correr las veces que haga
+// falta: no duplica.
+function conectarMesesCierreCaja() {
+  var valores = hojaIndice_('Archivos').getDataRange().getValues();
+  var resumen = [];
+  for (var i = 1; i < valores.length; i++) {
+    if (normalizarTexto_(valores[i][0]) !== 'CIERRE_CAJA') continue;
+    var id = normalizarTexto_(valores[i][2]);
+    if (!id) continue;
+    var etiqueta = valores[i][3] || id;
+    try {
+      resumen.push(etiqueta + ': ' + (instalarTriggerOnEditSiFalta_(id) ? 'conectado ahora' : 'ya estaba conectado'));
+    } catch (err) {
+      resumen.push(etiqueta + ': ERROR — ' + err);
+    }
+  }
+  Logger.log(resumen.join('\n'));
+  return resumen;
 }
 
 function planillaCierreCaja_(fechaISO) {

@@ -1283,13 +1283,20 @@ function escribirContabilidad_(data) {
 // el propio Google Sheet (para no tener que pedir un script nuevo cada vez
 // que se quiere repetir una prueba).
 // ============================================================================
-// Simple trigger: corre solo al abrir la planilla de Cierre de Caja, agrega
-// el menú "Cierre de Caja — Pruebas" en la barra de arriba.
+// Simple trigger: corre solo al abrir la planilla a la que está pegado este
+// proyecto (la planilla Índice), agrega el menú "Cierre de Caja — Pruebas"
+// en la barra de arriba.
 function onOpen(e) {
   SpreadsheetApp.getUi()
     .createMenu('Cierre de Caja — Pruebas')
     .addItem('Borrar un día completo…', 'borrarDiaCompleto')
+    .addItem('Conectar los meses cargados en el Índice', 'conectarMesesCierreCajaDesdeMenu')
     .addToUi();
+}
+
+function conectarMesesCierreCajaDesdeMenu() {
+  var resumen = conectarMesesCierreCaja();
+  SpreadsheetApp.getUi().alert('Meses de Cierre de Caja', resumen.join('\n') || 'No hay filas CIERRE_CAJA en "Archivos".', SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 // Pide una fecha, confirma, y borra TODO lo de ese día: filas de "Registro"
