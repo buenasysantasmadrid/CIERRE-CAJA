@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#F3EFE6">
+<meta name="theme-color" content="#E6F2E9">
 <title>Cierre de Caja</title>
 <style>
   :root{
-    --bg:#F3EFE6;
+    --bg:#E6F2E9;
     --panel:#F7F6F3;
     --ink:#1F2430;
     --ink-soft:#6B6F7A;
@@ -102,6 +102,9 @@
   .pill-btn.icon-only{padding:0;width:42px;justify-content:center;}
   .pill-btn:active{background:var(--panel);}
   .fecha-grande{font-family:var(--serif);font-weight:400;font-size:1.95rem;line-height:1.15;margin:4px 0 6px;letter-spacing:-.01em;}
+  .fecha-row{display:flex;align-items:center;gap:12px;position:relative;margin:4px 0 6px;}
+  .fecha-row .fecha-grande{margin:0;flex:0 1 auto;}
+  .fecha-row .pill-btn{flex-shrink:0;width:46px;min-height:46px;}
   .dia-diff{font-size:.95rem;color:var(--ink-soft);}
   .dia-diff b{font-weight:700;}
   .pos{color:var(--green);}
@@ -321,7 +324,7 @@
 
   /* ---------- calendario ---------- */
   .calendario-popup{
-    display:none;position:absolute;top:66px;right:16px;z-index:80;
+    display:none;position:absolute;top:100%;left:0;margin-top:8px;z-index:80;
     background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px;
     box-shadow:0 12px 32px rgba(20,22,28,.16);width:min(330px,calc(100vw - 32px));
   }
@@ -398,16 +401,18 @@
     <img src="logo_buenasysantas.jpg" alt="Buenas y Santas" class="header-logo">
     <div class="header-actions">
       <button type="button" class="pill-btn" id="btnAlbaranes"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1-2-2v-14a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 7h1"/><path d="M9 13h6"/><path d="M13 17h2"/></svg>Albaranes</button>
-      <button type="button" class="pill-btn icon-only" id="fechaCierreBtn" aria-label="Calendario"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none;"><path d="M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-12a2 2 0 0 1-2-2v-12z"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M4 11h16"/></svg></button>
     </div>
   </div>
   <span class="eyebrow">Cierre de caja</span>
-  <h1 class="fecha-grande" id="fechaGrande"></h1>
+  <div class="fecha-row">
+    <h1 class="fecha-grande" id="fechaGrande"></h1>
+    <button type="button" class="pill-btn icon-only" id="fechaCierreBtn" aria-label="Calendario"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none;"><path d="M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-12a2 2 0 0 1-2-2v-12z"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M4 11h16"/></svg></button>
+    <div class="calendario-popup" id="calendarioPopup"></div>
+  </div>
   <div class="dia-diff" id="diaResultBox">Diferencia del día · <b id="diaResultDiff" class="none">—</b> <span id="diaResultLbl"></span></div>
   <input type="hidden" id="negocioNombre" value="Mi Negocio">
   <span id="fechaCierreLabel" style="display:none;"></span>
   <input type="date" id="fechaCierre" style="display:none;">
-  <div class="calendario-popup" id="calendarioPopup"></div>
 </header>
 
 <main>
