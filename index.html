@@ -108,16 +108,18 @@
   main{max-width:720px;margin:0 auto;padding:12px 16px 40px;}
 
   /* ---------- tarjetas de turno ---------- */
-  .turno-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px;}
+  .turno-bloque{margin-top:16px;}
+  .turno-bloque + .turno-bloque{margin-top:34px;padding-top:26px;border-top:1px solid var(--line);}
   .turno-card{border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:2px;min-width:0;}
   .turno-card.mediodia{background:var(--md-bg);color:var(--md-ink);}
   .turno-card.noche{background:var(--nc-bg);color:var(--nc-ink);}
-  .tc-head{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-bottom:10px;}
+  .tc-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
+  .tc-row{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;}
   .tc-name{display:flex;align-items:center;gap:6px;font-weight:700;font-size:.95rem;}
   .tc-estado{font-size:.7rem;font-weight:700;padding:3px 8px;border-radius:999px;background:rgba(255,255,255,.65);white-space:nowrap;}
   .tc-lbl{font-size:.75rem;color:var(--ink-soft);}
-  .tc-diff{font-family:var(--serif);font-size:1.45rem;line-height:1.2;margin-bottom:12px;font-variant-numeric:tabular-nums;white-space:nowrap;}
-  .tc-btn{margin-top:auto;width:100%;border-radius:12px;padding:11px 8px;font-size:.88rem;min-height:44px;}
+  .tc-diff{font-family:var(--serif);font-size:1.6rem;line-height:1.2;margin-bottom:0;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .tc-btn{border-radius:12px;padding:11px 16px;font-size:.9rem;min-height:46px;white-space:nowrap;margin-bottom:2px;}
   .turno-card.mediodia .tc-btn.filled{background:var(--md-ink);color:#fff;}
   .turno-card.noche .tc-btn.filled{background:var(--nc-ink);color:#fff;}
   .turno-card.mediodia .tc-btn.outline{background:transparent;border:1.5px solid var(--md-ink);color:var(--md-ink);}
@@ -133,6 +135,10 @@
   .ficha .ico-circle{margin-bottom:8px;}
   .ficha-name{font-size:1rem;font-weight:700;}
   .ficha-hint{font-size:.8rem;color:var(--ink-soft);font-weight:400;}
+  .fichas-mini{grid-template-columns:repeat(4,1fr);gap:8px;}
+  .fichas-mini .ficha{min-height:0;padding:10px 4px;align-items:center;text-align:center;gap:6px;border-radius:14px;}
+  .fichas-mini .ficha .ico-circle{margin-bottom:0;}
+  .fichas-mini .ficha-name{font-size:.78rem;}
   .ico-circle{
     width:38px;height:38px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
   }
@@ -402,25 +408,7 @@
 </header>
 
 <main>
-  <div class="turno-cards" id="turnoCards"></div>
-
-  <div class="section-label">Anotar</div>
-  <div class="fichas" id="fichasAnotar">
-    <button type="button" class="ficha" data-anotar="proveedores"><span class="ico-circle big c-gasto" data-icon="truck"></span><span class="ficha-name">Proveedor</span><span class="ficha-hint">Pagos y facturas</span></button>
-    <button type="button" class="ficha" data-anotar="ingreso"><span class="ico-circle big c-ingreso" data-icon="arrowDown"></span><span class="ficha-name">Ingreso</span><span class="ficha-hint">Entra dinero</span></button>
-    <button type="button" class="ficha" data-anotar="egreso"><span class="ico-circle big c-egreso" data-icon="arrowUp"></span><span class="ficha-name">Retiro</span><span class="ficha-hint">Sale dinero</span></button>
-    <button type="button" class="ficha" data-anotar="empanadas"><span class="ico-circle big c-empanadas" data-icon="empanada"></span><span class="ficha-name">Empanadas</span><span class="ficha-hint">Bakea, Lombay…</span></button>
-  </div>
-
-  <div class="section-label">Movimientos del día</div>
-  <div class="mov-box">
-    <div class="mov-box-title">Proveedores</div>
-    <div id="movProvList"></div>
-  </div>
-  <div class="mov-box">
-    <div class="mov-box-title">Otros movimientos</div>
-    <div id="movOtrosList"></div>
-  </div>
+  <div id="turnoBloques"></div>
 </main>
 
 <!-- Pantallas de cierre (una por turno) -->
@@ -1002,78 +990,104 @@
       '<span class="ico-circle c-'+m.tipo+'">'+icon((ANOTAR_TIPOS[m.tipo]||{}).icon)+'</span>' +
       '<span class="mov-main">' +
         '<span class="mov-name">'+escapeHtml(nombreMovimiento(m))+'</span>' +
-        '<span class="mov-sub">'+turnoTagHTML(item.t)+(detalle ? '<span>· '+escapeHtml(detalle)+'</span>' : '')+'</span>' +
+        (detalle ? '<span class="mov-sub">'+escapeHtml(detalle)+'</span>' : '') +
       '</span>' +
       '<span class="mov-amt '+claseImporte+'">'+signo+fmt(m.importe)+'</span>' +
     '</button>';
   }
 
+  // Cada turno tiene su propio bloque en la pantalla principal (primero
+  // Mediodía, debajo Noche), con sus movimientos.
   function renderMovimientos(){
     var todos = movimientosDelDia();
+    TURNOS.forEach(function(t){
+      var delTurno = todos.filter(function(x){ return x.t === t; });
 
-    var htmlProv = '';
-    GRUPOS_PROVEEDORES.forEach(function(g){
-      var items = todos.filter(function(x){ return x.m.tipo === 'gasto' && x.m.subtipo === g.k; });
-      if(!items.length) return;
-      htmlProv += '<div class="mov-group-title">'+g.l+(g.noCaja ? ' <span>· no afecta la caja</span>' : '')+'</div>';
-      htmlProv += items.map(function(x){ return filaMovimientoHTML(x, g.noCaja); }).join('');
-    });
-    // Cualquier forma de pago que no esté en la lista (por si aparece una
-    // nueva) se muestra igual, al final, para que no quede oculta.
-    var conocidos = GRUPOS_PROVEEDORES.map(function(g){ return g.k; });
-    var sueltos = todos.filter(function(x){ return x.m.tipo === 'gasto' && conocidos.indexOf(x.m.subtipo) === -1; });
-    if(sueltos.length){
-      htmlProv += '<div class="mov-group-title">Otros</div>' + sueltos.map(function(x){ return filaMovimientoHTML(x, false); }).join('');
-    }
-    document.getElementById('movProvList').innerHTML = htmlProv || '<div class="mov-empty">Todavía no hay pagos a proveedores.</div>';
+      var htmlProv = '';
+      GRUPOS_PROVEEDORES.forEach(function(g){
+        var items = delTurno.filter(function(x){ return x.m.tipo === 'gasto' && x.m.subtipo === g.k; });
+        if(!items.length) return;
+        htmlProv += '<div class="mov-group-title">'+g.l+(g.noCaja ? ' <span>· no afecta la caja</span>' : '')+'</div>';
+        htmlProv += items.map(function(x){ return filaMovimientoHTML(x, g.noCaja); }).join('');
+      });
+      // Cualquier forma de pago que no esté en la lista (por si aparece una
+      // nueva) se muestra igual, al final, para que no quede oculta.
+      var conocidos = GRUPOS_PROVEEDORES.map(function(g){ return g.k; });
+      var sueltos = delTurno.filter(function(x){ return x.m.tipo === 'gasto' && conocidos.indexOf(x.m.subtipo) === -1; });
+      if(sueltos.length){
+        htmlProv += '<div class="mov-group-title">Otros</div>' + sueltos.map(function(x){ return filaMovimientoHTML(x, false); }).join('');
+      }
+      document.getElementById('movProvList_'+t).innerHTML = htmlProv || '<div class="mov-empty">Todavía no hay pagos a proveedores.</div>';
 
-    var htmlOtros = '';
-    GRUPOS_OTROS.forEach(function(g){
-      var items = todos.filter(function(x){ return x.m.tipo === g.k; });
-      if(!items.length) return;
-      htmlOtros += '<div class="mov-group-title">'+g.l+'</div>';
-      htmlOtros += items.map(function(x){ return filaMovimientoHTML(x, false); }).join('');
+      var htmlOtros = '';
+      GRUPOS_OTROS.forEach(function(g){
+        var items = delTurno.filter(function(x){ return x.m.tipo === g.k; });
+        if(!items.length) return;
+        htmlOtros += '<div class="mov-group-title">'+g.l+'</div>';
+        htmlOtros += items.map(function(x){ return filaMovimientoHTML(x, false); }).join('');
+      });
+      document.getElementById('movOtrosList_'+t).innerHTML = htmlOtros || '<div class="mov-empty">Todavía no hay ingresos, retiros ni empanadas.</div>';
     });
-    document.getElementById('movOtrosList').innerHTML = htmlOtros || '<div class="mov-empty">Todavía no hay ingresos, retiros ni empanadas.</div>';
   }
 
-  // Tocar una fila abre la edición de ese movimiento.
-  function abrirMovimientoDesdeLista(e){
-    var btn = e.target.closest('[data-edit]');
-    if(!btn) return;
-    var t = btn.getAttribute('data-turno');
-    var id = btn.getAttribute('data-edit');
-    var m = state[t] && state[t].movimientos.find(function(x){ return x.id === id; });
-    if(m) openModal(m, null, t);
+  // ---------- bloques de turno (pantalla principal) ----------
+  var FICHAS_ANOTAR = [
+    {k:'proveedores', tipo:'gasto'},
+    {k:'ingreso',     tipo:'ingreso'},
+    {k:'egreso',      tipo:'egreso'},
+    {k:'empanadas',   tipo:'empanadas'}
+  ];
+  function bloqueTurnoHTML(t){
+    return '<section class="turno-bloque" id="bloque_'+t+'">' +
+      '<div class="turno-card '+t+'" id="turnoCard_'+t+'"></div>' +
+      '<div class="section-label">Anotar en '+TURNO_LABEL[t]+'</div>' +
+      '<div class="fichas fichas-mini">' +
+        FICHAS_ANOTAR.map(function(f){
+          var info = ANOTAR_TIPOS[f.tipo];
+          return '<button type="button" class="ficha" data-anotar="'+f.k+'" data-turno="'+t+'">' +
+            '<span class="ico-circle c-'+f.tipo+'">'+icon(info.icon)+'</span>' +
+            '<span class="ficha-name">'+info.nombre+'</span></button>';
+        }).join('') +
+      '</div>' +
+      '<div class="section-label">Movimientos de '+TURNO_LABEL[t]+'</div>' +
+      '<div class="mov-box"><div class="mov-box-title">Proveedores</div><div id="movProvList_'+t+'"></div></div>' +
+      '<div class="mov-box"><div class="mov-box-title">Otros movimientos</div><div id="movOtrosList_'+t+'"></div></div>' +
+    '</section>';
   }
-  document.getElementById('movProvList').addEventListener('click', abrirMovimientoDesdeLista);
-  document.getElementById('movOtrosList').addEventListener('click', abrirMovimientoDesdeLista);
+  document.getElementById('turnoBloques').innerHTML = TURNOS.map(bloqueTurnoHTML).join('');
 
-  // ---------- tarjetas de turno (pantalla principal) ----------
   function renderTarjetasTurno(){
-    var cont = document.getElementById('turnoCards');
-    if(!cont) return;
-    cont.innerHTML = TURNOS.map(function(t){
+    TURNOS.forEach(function(t){
+      var cont = document.getElementById('turnoCard_'+t);
+      if(!cont) return;
       var cerrado = turnoCerrado(t);
       var dif = ((state[t] && state[t]._calc) || {}).diferencia;
-      return '<div class="turno-card '+t+'">' +
-        '<div class="tc-head"><span class="tc-name">'+icon(TURNO_ICON[t])+TURNO_LABEL[t]+'</span>' +
+      cont.innerHTML =
+        '<div class="tc-head"><span class="tc-name">'+icon(TURNO_ICON[t])+'Cierre '+TURNO_LABEL[t]+'</span>' +
           '<span class="tc-estado">'+(cerrado ? 'Cerrado' : 'Pendiente')+'</span></div>' +
-        '<div class="tc-lbl">Diferencia</div>' +
-        '<div class="tc-diff '+(cerrado ? claseSigno(dif) : 'none')+'">'+(cerrado ? fmtSigno(dif) : '—')+'</div>' +
-        '<button type="button" class="tc-btn '+(cerrado ? 'outline' : 'filled')+'" data-abrir-cierre="'+t+'">'+(cerrado ? 'Ver cierre' : 'Completar cierre')+'</button>' +
-      '</div>';
-    }).join('');
+        '<div class="tc-row">' +
+          '<div><div class="tc-lbl">Diferencia</div>' +
+          '<div class="tc-diff '+(cerrado ? claseSigno(dif) : 'none')+'">'+(cerrado ? fmtSigno(dif) : '—')+'</div></div>' +
+          '<button type="button" class="tc-btn '+(cerrado ? 'outline' : 'filled')+'" data-abrir-cierre="'+t+'">'+(cerrado ? 'Ver cierre' : 'Completar cierre')+'</button>' +
+        '</div>';
+    });
   }
-  document.getElementById('turnoCards').addEventListener('click', function(e){
-    var btn = e.target.closest('[data-abrir-cierre]');
-    if(btn) abrirCierre(btn.getAttribute('data-abrir-cierre'));
-  });
 
-  // Fichas "Anotar": abren la hoja ya en ese tipo.
-  document.getElementById('fichasAnotar').addEventListener('click', function(e){
-    var btn = e.target.closest('[data-anotar]');
-    if(btn) openModal(null, btn.getAttribute('data-anotar'), null);
+  // Un solo manejador para los dos bloques: abrir el cierre, anotar en ese
+  // turno (la ficha abre la hoja ya en ese tipo y turno) o editar un
+  // movimiento tocando su fila.
+  document.getElementById('turnoBloques').addEventListener('click', function(e){
+    var cierre = e.target.closest('[data-abrir-cierre]');
+    if(cierre){ abrirCierre(cierre.getAttribute('data-abrir-cierre')); return; }
+    var ficha = e.target.closest('[data-anotar]');
+    if(ficha){ openModal(null, ficha.getAttribute('data-anotar'), ficha.getAttribute('data-turno')); return; }
+    var fila = e.target.closest('[data-edit]');
+    if(fila){
+      var t = fila.getAttribute('data-turno');
+      var id = fila.getAttribute('data-edit');
+      var m = state[t] && state[t].movimientos.find(function(x){ return x.id === id; });
+      if(m) openModal(m, null, t);
+    }
   });
 
   // ---------- hoja para anotar (modal / form) ----------
@@ -3002,7 +3016,6 @@
     loadNegocio();
     logSheetStatus('URL configurada: ' + loadSheetUrl());
     pintarIconosEstaticos();
-    document.getElementById('turnoCards').innerHTML = '<p class="muted">Cargando…</p>';
 
     // Antes de preguntar si hay que "abrir" el día, hay que saber si ya se
     // trabajó desde OTRO dispositivo (esa info vive en el Sheet, no en este
