@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#E6F2E9">
+<meta name="theme-color" content="#E9F3DC">
 <title>Cierre de Caja</title>
 <style>
   :root{
-    --bg:#E6F2E9;
+    --bg:#E9F3DC;
     --panel:#F7F6F3;
     --ink:#1F2430;
     --ink-soft:#6B6F7A;
@@ -105,7 +105,9 @@
   .fecha-row{display:flex;align-items:center;gap:12px;position:relative;margin:4px 0 6px;}
   .fecha-row .fecha-grande{margin:0;flex:0 1 auto;}
   .fecha-row .pill-btn{flex-shrink:0;width:46px;min-height:46px;}
-  .dia-diff{font-size:.95rem;color:var(--ink-soft);}
+  .dia-total-num{font-family:var(--serif);font-size:2.2rem;line-height:1.1;font-variant-numeric:tabular-nums;margin:2px 0 4px;}
+  .dia-total-num.none{color:var(--ink-soft);}
+  .dia-diff{font-size:.88rem;color:var(--ink-soft);}
   .dia-diff b{font-weight:700;}
   .pos{color:var(--green);}
   .neg{color:var(--red);}
@@ -412,7 +414,9 @@
     <button type="button" class="pill-btn icon-only" id="fechaCierreBtn" aria-label="Calendario"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none;"><path d="M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-12a2 2 0 0 1-2-2v-12z"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M4 11h16"/></svg></button>
     <div class="calendario-popup" id="calendarioPopup"></div>
   </div>
-  <div class="dia-diff" id="diaResultBox">Diferencia del día · <b id="diaResultDiff" class="none">—</b> <span id="diaResultLbl"></span></div>
+  <div class="tc-lbl">Total del día sin empanadas</div>
+  <div class="dia-total-num none" id="diaTotal">—</div>
+  <div class="dia-diff" id="diaResultBox">Diferencia · <b id="diaResultDiff" class="none">—</b> <span id="diaResultLbl"></span></div>
   <input type="hidden" id="negocioNombre" value="Mi Negocio">
   <span id="fechaCierreLabel" style="display:none;"></span>
   <input type="date" id="fechaCierre" style="display:none;">
@@ -2391,6 +2395,14 @@
     lblEl.textContent = pendientes.length
       ? '(falta cerrar ' + pendientes.map(function(t){ return TURNO_LABEL[t]; }).join(' y ') + ')'
       : '';
+    // Total del día: lo vendido sin empanadas de los turnos que ya tienen
+    // cargado el total facturado (en Noche ya es solo la parte de Noche).
+    var conTotal = TURNOS.filter(function(t){ return state[t] && state[t].totalFacturado; });
+    var totalDia = 0;
+    conTotal.forEach(function(t){ totalDia += ((state[t]._calc || {}).facturadoNeto || 0); });
+    var totalEl = document.getElementById('diaTotal');
+    totalEl.textContent = conTotal.length ? fmt(totalDia) : '—';
+    totalEl.className = 'dia-total-num' + (conTotal.length ? '' : ' none');
     renderTarjetasTurno();
   }
 
