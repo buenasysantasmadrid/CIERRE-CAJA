@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#ffffff">
+<meta name="theme-color" content="#F3EFE6">
 <title>Cierre de Caja</title>
 <style>
   :root{
-    --bg:#ffffff;
+    --bg:#F3EFE6;
     --panel:#F7F6F3;
     --ink:#1F2430;
     --ink-soft:#6B6F7A;
@@ -92,6 +92,8 @@
   /* ---------- cabecera ---------- */
   .app-header{max-width:720px;margin:0 auto;padding:18px 16px 4px;position:relative;}
   .header-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .header-logo{height:52px;width:auto;display:block;mix-blend-mode:multiply;}
+  .app-header .eyebrow{display:block;margin-top:14px;}
   .header-actions{display:flex;gap:8px;}
   .pill-btn{
     display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid var(--line);
@@ -99,7 +101,7 @@
   }
   .pill-btn.icon-only{padding:0;width:42px;justify-content:center;}
   .pill-btn:active{background:var(--panel);}
-  .fecha-grande{font-family:var(--serif);font-weight:400;font-size:1.95rem;line-height:1.15;margin:14px 0 6px;letter-spacing:-.01em;}
+  .fecha-grande{font-family:var(--serif);font-weight:400;font-size:1.95rem;line-height:1.15;margin:4px 0 6px;letter-spacing:-.01em;}
   .dia-diff{font-size:.95rem;color:var(--ink-soft);}
   .dia-diff b{font-weight:700;}
   .pos{color:var(--green);}
@@ -151,7 +153,7 @@
   .c-empanadas{background:#E0F2FE;color:#0284C7;}
 
   /* ---------- movimientos del día ---------- */
-  .mov-box{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 12px 6px;margin-bottom:12px;}
+  .mov-box{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px 12px 6px;margin-bottom:12px;}
   .mov-box-title{font-family:var(--serif);font-size:1.12rem;margin:0 4px 4px;}
   .mov-group-title{font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);margin:12px 4px 4px;}
   .mov-group-title span{font-weight:500;letter-spacing:.02em;text-transform:none;}
@@ -257,7 +259,7 @@
 
   /* ---------- pantallas completas (cierre, albaranes) ---------- */
   .screen{
-    position:fixed;left:0;right:0;bottom:0;top:var(--aviso-h);background:#fff;z-index:90;
+    position:fixed;left:0;right:0;bottom:0;top:var(--aviso-h);background:var(--bg);z-index:90;
     display:none;flex-direction:column;
   }
   .screen.open{display:flex;}
@@ -297,7 +299,7 @@
   .monedas-row.head{border-bottom:none;padding:0 0 2px;font-size:.72rem;color:var(--ink-soft);font-weight:600;}
   .monedas-row input{text-align:center;padding:8px 4px;}
   .monedas-row .denom-sub{font-size:.85rem;}
-  .total-contado{display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding:14px;background:var(--panel);border-radius:14px;font-weight:700;}
+  .total-contado{display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding:14px;background:#fff;border:1px solid var(--line);border-radius:14px;font-weight:700;}
   .total-contado span:last-child{font-family:var(--serif);font-size:1.3rem;font-weight:400;}
   .cierre-bar{flex-shrink:0;border-top:1px solid var(--line);background:#fff;padding:12px 16px calc(12px + env(safe-area-inset-bottom));box-shadow:0 -6px 18px rgba(20,22,28,.06);}
   .cierre-bar-inner{max-width:640px;margin:0 auto;}
@@ -393,12 +395,13 @@
 
 <header class="app-header">
   <div class="header-top">
-    <span class="eyebrow">Cierre de caja</span>
+    <img src="logo_buenasysantas.jpg" alt="Buenas y Santas" class="header-logo">
     <div class="header-actions">
       <button type="button" class="pill-btn" id="btnAlbaranes"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1-2-2v-14a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 7h1"/><path d="M9 13h6"/><path d="M13 17h2"/></svg>Albaranes</button>
       <button type="button" class="pill-btn icon-only" id="fechaCierreBtn" aria-label="Calendario"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none;"><path d="M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-12a2 2 0 0 1-2-2v-12z"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M4 11h16"/></svg></button>
     </div>
   </div>
+  <span class="eyebrow">Cierre de caja</span>
   <h1 class="fecha-grande" id="fechaGrande"></h1>
   <div class="dia-diff" id="diaResultBox">Diferencia del día · <b id="diaResultDiff" class="none">—</b> <span id="diaResultLbl"></span></div>
   <input type="hidden" id="negocioNombre" value="Mi Negocio">
