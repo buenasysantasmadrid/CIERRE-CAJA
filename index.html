@@ -119,12 +119,15 @@
   .turno-card.mediodia{background:var(--md-bg);color:var(--md-ink);}
   .turno-card.noche{background:var(--nc-bg);color:var(--nc-ink);}
   .tc-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
-  .tc-row{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;}
+  .tc-row{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:12px;}
+  .tc-total{font-family:var(--serif);font-size:1.75rem;line-height:1.15;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .tc-total.none{color:var(--ink-soft);}
+  .tc-dif-mini{text-align:right;}
   .tc-name{display:flex;align-items:center;gap:6px;font-weight:700;font-size:.95rem;}
   .tc-estado{font-size:.7rem;font-weight:700;padding:3px 8px;border-radius:999px;background:rgba(255,255,255,.65);white-space:nowrap;}
   .tc-lbl{font-size:.75rem;color:var(--ink-soft);}
-  .tc-diff{font-family:var(--serif);font-size:1.6rem;line-height:1.2;margin-bottom:0;font-variant-numeric:tabular-nums;white-space:nowrap;}
-  .tc-btn{border-radius:12px;padding:11px 16px;font-size:.9rem;min-height:46px;white-space:nowrap;margin-bottom:2px;}
+  .tc-diff{font-family:var(--serif);font-size:1.15rem;line-height:1.2;margin-bottom:0;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .tc-btn{border-radius:12px;padding:11px 16px;font-size:.9rem;min-height:46px;width:100%;}
   .turno-card.mediodia .tc-btn.filled{background:var(--md-ink);color:#fff;}
   .turno-card.noche .tc-btn.filled{background:var(--nc-ink);color:#fff;}
   .turno-card.mediodia .tc-btn.outline{background:transparent;border:1.5px solid var(--md-ink);color:var(--md-ink);}
@@ -1064,20 +1067,26 @@
   }
   document.getElementById('turnoBloques').innerHTML = TURNOS.map(bloqueTurnoHTML).join('');
 
+  // Tarjeta de cada turno: el total vendido del turno SIN empanadas (en
+  // Noche, solo la parte de Noche: el total del día menos lo de Mediodía)
+  // en grande y, al costado y más chica, la diferencia de caja.
   function renderTarjetasTurno(){
     TURNOS.forEach(function(t){
       var cont = document.getElementById('turnoCard_'+t);
       if(!cont) return;
       var cerrado = turnoCerrado(t);
-      var dif = ((state[t] && state[t]._calc) || {}).diferencia;
+      var c = (state[t] && state[t]._calc) || {};
+      var hayTotal = !!(state[t] && state[t].totalFacturado);
       cont.innerHTML =
         '<div class="tc-head"><span class="tc-name">'+icon(TURNO_ICON[t])+'Cierre '+TURNO_LABEL[t]+'</span>' +
           '<span class="tc-estado">'+(cerrado ? 'Cerrado' : 'Pendiente')+'</span></div>' +
         '<div class="tc-row">' +
-          '<div><div class="tc-lbl">Diferencia</div>' +
-          '<div class="tc-diff '+(cerrado ? claseSigno(dif) : 'none')+'">'+(cerrado ? fmtSigno(dif) : '—')+'</div></div>' +
-          '<button type="button" class="tc-btn '+(cerrado ? 'outline' : 'filled')+'" data-abrir-cierre="'+t+'">'+(cerrado ? 'Ver cierre' : 'Completar cierre')+'</button>' +
-        '</div>';
+          '<div><div class="tc-lbl">Total sin empanadas</div>' +
+            '<div class="tc-total'+(hayTotal ? '' : ' none')+'">'+(hayTotal ? fmt(c.facturadoNeto) : '—')+'</div></div>' +
+          '<div class="tc-dif-mini"><div class="tc-lbl">Diferencia</div>' +
+            '<div class="tc-diff '+(cerrado ? claseSigno(c.diferencia) : 'none')+'">'+(cerrado ? fmtSigno(c.diferencia) : '—')+'</div></div>' +
+        '</div>' +
+        '<button type="button" class="tc-btn '+(cerrado ? 'outline' : 'filled')+'" data-abrir-cierre="'+t+'">'+(cerrado ? 'Ver cierre' : 'Completar cierre')+'</button>';
     });
   }
 
