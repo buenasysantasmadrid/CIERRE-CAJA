@@ -203,6 +203,10 @@
   .sheet-head{display:flex;align-items:center;gap:12px;padding-right:48px;}
   .sheet-head h3{font-family:var(--serif);font-weight:400;font-size:1.45rem;margin:0;line-height:1.2;}
   .sheet-hint{font-size:.85rem;color:var(--ink-soft);}
+  .sheet-turno{margin-top:4px;font-size:.88rem;}
+  .sheet-turno .turno-tag{padding:3px 10px;border-radius:999px;}
+  .sheet-turno .turno-tag.mediodia{background:var(--md-bg);}
+  .sheet-turno .turno-tag.noche{background:var(--nc-bg);}
   .turno-switch{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
   .turno-switch button{
     display:flex;align-items:center;justify-content:center;gap:7px;min-height:48px;border-radius:12px;
@@ -439,13 +443,14 @@
       <div>
         <h3 id="modalTitle">Anotar</h3>
         <div class="sheet-hint" id="sheetHint"></div>
+        <div class="sheet-turno" id="sheetTurnoTag"></div>
       </div>
     </div>
     <span id="modalTurnoLabel" style="display:none;"></span>
     <div id="categoryLabel" style="display:none;"></div>
 
-    <div class="field-label">Turno</div>
-    <div class="turno-switch" id="sheetTurnoRow">
+    <div class="field-label" style="display:none;">Turno</div>
+    <div class="turno-switch" id="sheetTurnoRow" style="display:none;">
       <button type="button" class="mediodia" data-sheet-turno="mediodia"><span data-icon="sun"></span>Mediodía</button>
       <button type="button" class="noche" data-sheet-turno="noche"><span data-icon="moon"></span>Noche</button>
     </div>
@@ -1205,6 +1210,9 @@
       b.classList.toggle('active', b.getAttribute('data-sheet-turno') === modalTurno);
     });
     document.getElementById('modalTurnoLabel').textContent = TURNO_LABEL[modalTurno] || '';
+    // El turno lo decide el bloque desde el que se anota (o el del
+    // movimiento al editar): solo se muestra, no se elige.
+    document.getElementById('sheetTurnoTag').innerHTML = modalTurno ? turnoTagHTML(modalTurno) : '';
     var g = document.getElementById('modalGuardar');
     g.className = 'btn-turno ' + (modalTurno || '');
     g.textContent = editingId ? 'Guardar cambios' : 'Guardar en ' + (TURNO_LABEL[modalTurno] || '');
@@ -1308,7 +1316,7 @@
         field('Nº de factura','factura','text', f.factura||'') +
         field('Fecha','fecha','date', f.fecha||todayISO()) +
       '</div>';
-      html += '<div class="form-grid"><div class="field span-2"><label>Info</label><input type="text" data-field="info" value="'+(f.info?escapeHtml(quitarTagInfoGasto(f.info, f.subtipo)):'')+'" placeholder="Detalle, observación, lo que haga falta anotar"></div></div>';
+      html += '<div class="form-grid"><div class="field span-2"><label>Info</label><input type="text" data-field="info" value="'+(f.info?escapeHtml(quitarTagInfoGasto(f.info, f.subtipo)):'')+'" placeholder="Detalle, observación, lo que haga falta anotar"></div>' + responsableField(f.responsable||'') + '</div>';
       html += importeBlock(f.importe, field('IVA (€)','iva','number', (f.iva!=null?f.iva:''), '0,00', 'iva'));
     } else if(tipo === 'ingreso' || tipo === 'egreso'){
       if(tipo === 'ingreso' && currentSubtipo === 'cambio'){
@@ -1825,7 +1833,7 @@
 
     var mostrarTexto = valorEfectivo === 'Otros';
     return '<div class="field span-2">' +
-      '<label>Responsable</label>' +
+      '<label>Empleado que lo carga</label>' +
       chipSelectHTML('responsable', 'responsableSelect', RESPONSABLES_CONOCIDOS, valorEfectivo) +
       '<input type="text" data-field="responsableDetalle" id="responsableDetalleInput" class="resp-detalle" placeholder="Nombre" ' +
         'value="'+escapeHtml(detalleEfectivo)+'" style="'+(mostrarTexto?'':'display:none;')+'">' +
@@ -1873,6 +1881,8 @@
     if(responsableFinal === 'Otros'){
       responsableFinal = (data.responsableDetalle || '').trim();
     }
+    // Siempre hay que decir qué empleado carga el movimiento.
+    if(!responsableFinal){ toast(data.responsable === 'Otros' ? 'Escribe el nombre del empleado' : 'Elige qué empleado lo carga'); return; }
 
     // Tarjeta / No pagado / Transferencia dejan su etiqueta marcada en Info,
     // sumada a lo que se haya escrito ahí (no lo reemplaza).
