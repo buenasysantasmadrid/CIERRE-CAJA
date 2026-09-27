@@ -18,8 +18,8 @@
     --red-soft:#FBE5E1;
     --amber:#9A6414;
     --amber-soft:#FBEFD9;
-    --md-bg:#D3D6DA;
-    --md-ink:#9A6414;
+    --md-bg:#B5D69A;
+    --md-ink:#2E5A1F;
     --nc-bg:#D3D6DA;
     --nc-ink:#2F5F8F;
     --emp-bg:#E0F2FE;
@@ -1912,9 +1912,9 @@
     // Siempre hay que decir qué empleado carga el movimiento.
     if(!responsableFinal){ toast(data.responsable === 'Otros' ? 'Escribe el nombre del empleado' : 'Elige qué empleado lo carga'); return; }
 
-    // Proveedor sin IVA: se permite, pero antes se pregunta. Si dice que sí
+    // Proveedor sin IVA (vacío o 0): se permite, pero antes se pregunta. Si dice que sí
     // tiene IVA, no se guarda y se lo lleva al campo para que lo ponga.
-    if(currentTipo === 'gasto' && String(data.iva == null ? '' : data.iva).trim() === '' && !ivaVacioConfirmado){
+    if(currentTipo === 'gasto' && !num(data.iva) && !ivaVacioConfirmado){
       preguntar('¿Esta factura no tiene IVA?', 'No tiene IVA, guardar', 'Sí tiene, lo pongo', function(){
         ivaVacioConfirmado = true;
         document.getElementById('modalGuardar').click();
