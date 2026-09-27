@@ -1080,7 +1080,7 @@
   ];
   function bloqueTurnoHTML(t){
     return '<section class="turno-bloque" id="bloque_'+t+'">' +
-      '<div class="turno-card '+t+'" id="turnoCard_'+t+'"></div>' +
+      '<div class="turno-card '+t+'" id="turnoCard_'+t+'"><p class="muted" style="margin:0;">Cargando la caja…</p></div>' +
       '<div class="section-label">Anotar en '+TURNO_LABEL[t]+'</div>' +
       '<div class="fichas fichas-mini">' +
         FICHAS_ANOTAR.map(function(f){
@@ -2633,7 +2633,25 @@
       logSheetStatus('No se pudo traer la lista de días con datos: ' + err.message, true);
     });
 
-    var timeout = new Promise(function(resolve){ setTimeout(resolve, 6000); });
+    var timeout = new Promise(function(resolve){ setTimeout(resolve, 15000); });
+    return Promise.race([pedido, timeout]);
+  }
+
+  // Pregunta al Sheet si un día puntual ya tiene caja. Nunca rechaza y
+  // tiene un límite de espera, igual que cargarFechasConDatosDesdeSheet.
+  function confirmarDiaEnSheet(fecha){
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)) return Promise.resolve();
+    var getUrl = url + (url.indexOf('?') > -1 ? '&' : '?') + 'fecha=' + encodeURIComponent(fecha);
+    var pedido = fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
+      if(data && data.ok && data.encontrado){
+        fechasConDatos[fecha] = true;
+        logSheetStatus('La lista de días no llegó a tiempo, pero el Sheet confirma que el ' + fecha + ' ya tiene caja.');
+      }
+    }).catch(function(err){
+      logSheetStatus('No se pudo confirmar en el Sheet si el ' + fecha + ' tiene caja: ' + err.message, true);
+    });
+    var timeout = new Promise(function(resolve){ setTimeout(resolve, 15000); });
     return Promise.race([pedido, timeout]);
   }
 
@@ -3110,6 +3128,12 @@
     // navegador). Si no se espera esto, un celular/computadora nueva nunca
     // ve lo que ya se cerró desde otro lado y pregunta de nuevo.
     cargarFechasConDatosDesdeSheet().then(function(){
+      // Si la lista de días no llegó a tiempo (el Sheet a veces tarda), se
+      // pregunta directamente por hoy antes de tratarlo como un día nuevo:
+      // así otro ordenador no "pierde" la caja de hoy que ya está abierta.
+      if(getDiasStore()[state.fecha] || fechasConDatos[state.fecha]) return;
+      return confirmarDiaEnSheet(state.fecha);
+    }).then(function(){
       var store = getDiasStore();
       var esNuevoHoy = !store[state.fecha] && !fechasConDatos[state.fecha];
       var seAbrio = true;
