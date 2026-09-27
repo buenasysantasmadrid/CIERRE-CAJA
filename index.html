@@ -21,7 +21,7 @@
     --md-bg:#B5D69A;
     --md-ink:#2E5A1F;
     --nc-bg:#D3D6DA;
-    --nc-ink:#2F5F8F;
+    --nc-ink:#5A82AD;
     --emp-bg:#E0F2FE;
     --emp-ink:#0284C7;
     --radius:16px;
@@ -105,12 +105,13 @@
   .fecha-row{display:flex;align-items:center;gap:12px;position:relative;margin:4px 0 6px;}
   .fecha-row .fecha-grande{margin:0;flex:0 1 auto;}
   .fecha-row .pill-btn{flex-shrink:0;width:46px;min-height:46px;}
-  .dia-total-num{font-family:var(--serif);font-size:2.2rem;line-height:1.1;font-variant-numeric:tabular-nums;margin:2px 0 4px;}
+  .dia-total-num{font-family:var(--serif);font-size:2.4rem;line-height:1.1;font-variant-numeric:tabular-nums;margin:2px 0 4px;}
   .dia-total-num.none{color:var(--ink-soft);}
   .dia-diff{font-size:.88rem;color:var(--ink-soft);}
   .dia-diff b{font-weight:700;}
   .pos{color:var(--green);}
   .neg{color:var(--red);}
+  .dif-color{color:#D98A80;}
   .none{color:var(--ink-soft);}
   main{max-width:720px;margin:0 auto;padding:12px 16px 40px;}
 
@@ -122,12 +123,13 @@
   .turno-card.noche{background:var(--nc-bg);color:var(--nc-ink);}
   .tc-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
   .tc-row{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:12px;}
-  .tc-total{font-family:var(--serif);font-size:1.75rem;line-height:1.15;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .tc-total{font-family:var(--serif);font-size:2rem;line-height:1.15;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;}
   .tc-total.none{color:var(--ink-soft);}
   .tc-dif-mini{text-align:right;}
   .tc-name{display:flex;align-items:center;gap:6px;font-weight:700;font-size:.95rem;}
   .tc-estado{font-size:.7rem;font-weight:700;padding:3px 8px;border-radius:999px;background:rgba(255,255,255,.65);white-space:nowrap;}
   .tc-lbl{font-size:.75rem;color:var(--ink-soft);}
+  .tc-lbl-total{font-size:.95rem;font-weight:700;color:var(--ink);letter-spacing:.02em;}
   .tc-diff{font-family:var(--serif);font-size:1.15rem;line-height:1.2;margin-bottom:0;font-variant-numeric:tabular-nums;white-space:nowrap;}
   .tc-btn{border-radius:12px;padding:11px 16px;font-size:.9rem;min-height:46px;width:100%;}
   .turno-card.mediodia .tc-btn.filled{background:var(--md-ink);color:#fff;}
@@ -421,7 +423,7 @@
     <button type="button" class="pill-btn icon-only" id="fechaCierreBtn" aria-label="Calendario"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none;"><path d="M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-12a2 2 0 0 1-2-2v-12z"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M4 11h16"/></svg></button>
     <div class="calendario-popup" id="calendarioPopup"></div>
   </div>
-  <div class="tc-lbl">Total del día sin empanadas</div>
+  <div class="tc-lbl tc-lbl-total">Total</div>
   <div class="dia-total-num none" id="diaTotal">—</div>
   <div class="dia-diff" id="diaResultBox">Diferencia · <b id="diaResultDiff" class="none">—</b> <span id="diaResultLbl"></span></div>
   <input type="hidden" id="negocioNombre" value="Mi Negocio">
@@ -629,7 +631,8 @@
     return (n >= 0 ? '+' : '−') + fmt(Math.abs(n));
   }
   function claseSigno(n){
-    return (isFinite(n) && n <= -0.005) ? 'neg' : 'pos';
+    // La diferencia siempre va en rojo suave, sea positiva o negativa.
+    return 'dif-color';
   }
   // Tipos que se anotan desde la pantalla principal (fichas "Anotar").
   var ANOTAR_TIPOS = {
@@ -1108,12 +1111,12 @@
         '<div class="tc-head"><span class="tc-name">'+icon(TURNO_ICON[t])+'Cierre '+TURNO_LABEL[t]+'</span>' +
           '<span class="tc-estado">'+(cerrado ? 'Cerrado' : 'Pendiente')+'</span></div>' +
         '<div class="tc-row">' +
-          '<div><div class="tc-lbl">Total sin empanadas</div>' +
+          '<div><div class="tc-lbl tc-lbl-total">Total</div>' +
             '<div class="tc-total'+(hayTotal ? '' : ' none')+'">'+(hayTotal ? fmt(c.facturadoNeto) : '—')+'</div></div>' +
           '<div class="tc-dif-mini"><div class="tc-lbl">Diferencia</div>' +
             '<div class="tc-diff '+(cerrado ? claseSigno(c.diferencia) : 'none')+'">'+(cerrado ? fmtSigno(c.diferencia) : '—')+'</div></div>' +
         '</div>' +
-        '<button type="button" class="tc-btn '+(cerrado ? 'outline' : 'filled')+'" data-abrir-cierre="'+t+'">'+(cerrado ? 'Ver cierre' : 'Completar cierre')+'</button>';
+        '<button type="button" class="tc-btn outline" data-abrir-cierre="'+t+'">'+(cerrado ? 'Ver cierre' : 'Completar cierre')+'</button>';
     });
   }
 
