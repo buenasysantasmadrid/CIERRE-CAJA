@@ -1002,7 +1002,8 @@
   function nombreMovimiento(m){
     if(m.tipo === 'gasto'){
       var nombre = m.proveedor || '(sin proveedor)';
-      if(PROVEEDORES_CON_DETALLE_LIBRE.indexOf(m.proveedor) > -1 && m.proveedorDetalle) nombre += ' — ' + m.proveedorDetalle;
+      // Varios / Super: se muestra directamente el nombre que se escribió.
+      if(PROVEEDORES_CON_DETALLE_LIBRE.indexOf(m.proveedor) > -1 && m.proveedorDetalle) nombre = m.proveedorDetalle;
       return nombre;
     }
     if(m.tipo === 'ingreso') return SUBTIPO_LABEL[m.subtipo] || 'Ingreso';
@@ -1014,7 +1015,6 @@
   function detalleMovimiento(m){
     var partes = [];
     if(m.tipo === 'gasto'){
-      if(m.factura) partes.push('Fact. ' + m.factura);
       var info = quitarTagInfoGasto(m.info, m.subtipo);
       if(info) partes.push(info);
     } else if(m.tipo === 'empanadas'){
