@@ -319,7 +319,7 @@
   .cierre-bar-inner{max-width:640px;margin:0 auto;}
   .bar-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
   .bar-info{min-width:0;}
-  .bar-lbl{font-weight:700;font-size:.9rem;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
+  .bar-lbl{font-weight:700;font-size:1rem;}
   .bar-row{display:flex;gap:10px;font-size:.74rem;color:var(--ink-soft);flex-wrap:wrap;}
   .bar-row b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;}
   .bar-top .diff{font-family:var(--serif);font-size:1.5rem;line-height:1.1;font-variant-numeric:tabular-nums;white-space:nowrap;}
@@ -880,14 +880,13 @@
 
       '<div class="cierre-bar" id="resultBox_'+t+'"><div class="cierre-bar-inner">' +
         '<div class="bar-top">' +
-          '<div class="bar-info">' +
-            '<div class="bar-lbl">Diferencia <button type="button" class="link-btn" data-toggle-desglose="'+t+'">¿Cómo se calcula?</button></div>' +
-            '<div class="bar-row"><span>Esperado <b id="cierreEsperado_'+t+'">—</b></span><span>Contado <b id="cierreContado_'+t+'">—</b></span></div>' +
-            '<div class="bar-hint" id="resultLbl_'+t+'"></div>' +
-          '</div>' +
+          '<span class="bar-lbl">Diferencia</span>' +
           '<span class="diff none" id="resultDiff_'+t+'">—</span>' +
         '</div>' +
-        '<div class="desglose" id="desglose_'+t+'"></div>' +
+        // Estos datos se siguen calculando (los usa recalc) pero ya no se
+        // muestran en la barra: solo quedan la diferencia y el botón.
+        '<div style="display:none;"><b id="cierreEsperado_'+t+'"></b><b id="cierreContado_'+t+'"></b>' +
+          '<div id="resultLbl_'+t+'"></div><div class="desglose" id="desglose_'+t+'"></div></div>' +
         '<button type="button" class="btn-big" data-guardar-cierre="'+t+'">Guardar cierre de '+label+'</button>' +
       '</div></div>' +
     '</section>';
@@ -2758,9 +2757,6 @@
     });
     var pantalla = document.getElementById('cierreScreen_'+t);
     pantalla.querySelector('[data-cerrar-cierre]').addEventListener('click', function(){ cerrarCierre(t); });
-    pantalla.querySelector('[data-toggle-desglose]').addEventListener('click', function(){
-      document.getElementById('desglose_'+t).classList.toggle('open');
-    });
     // "Guardar cierre": todo se va guardando solo mientras se escribe; esto
     // asegura el último cálculo, lo guarda y vuelve a la pantalla principal.
     pantalla.querySelector('[data-guardar-cierre]').addEventListener('click', function(){
