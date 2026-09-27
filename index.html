@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#E9F3DC">
+<meta name="theme-color" content="#DCEFC8">
 <title>Cierre de Caja</title>
 <style>
   :root{
-    --bg:#E9F3DC;
+    --bg:#DCEFC8;
     --panel:#F7F6F3;
     --ink:#1F2430;
     --ink-soft:#6B6F7A;
@@ -716,7 +716,11 @@
 
   function fmt(n){
     n = isFinite(n) ? n : 0;
-    return n.toLocaleString('es-ES', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' €';
+    // Formato español a mano (1.345,00 €): toLocaleString no pone el punto
+    // de miles en los números de 4 cifras.
+    var partes = Math.abs(n).toFixed(2).split('.');
+    var entero = partes[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return (n < 0 && Math.abs(n) >= 0.005 ? '-' : '') + entero + ',' + partes[1] + ' €';
   }
 
   function num(v){
