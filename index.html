@@ -18,7 +18,7 @@
     --red-soft:#FBE5E1;
     --amber:#9A6414;
     --amber-soft:#FBEFD9;
-    --md-bg:#FBEFD9;
+    --md-bg:#FFF1BF;
     --md-ink:#9A6414;
     --nc-bg:#E6EEF6;
     --nc-ink:#2F5F8F;
@@ -390,6 +390,9 @@
   .turno-big button.mediodia{background:var(--md-bg);color:var(--md-ink);border:1.5px solid var(--md-ink);}
   .turno-big button.noche{background:var(--nc-bg);color:var(--nc-ink);border:1.5px solid var(--nc-ink);}
 
+  .pregunta-acciones{display:flex;flex-direction:column;gap:10px;}
+  .pregunta-acciones button{min-height:54px;border-radius:14px;font-size:1rem;}
+  #preguntaNo{background:#fff;border:1.5px solid var(--line);}
   .toast{
     position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);
     background:var(--ink);color:#fff;padding:12px 18px;border-radius:12px;font-size:.88rem;max-width:calc(100vw - 32px);
@@ -511,6 +514,17 @@
       <div class="ok-note"><span data-icon="check"></span>Se anota en Proveedores como Efectivo antiguo</div>
       <div class="field-label">¿De qué turno de hoy sale?</div>
       <div class="turno-big" id="pagoAlbaranTurnoRow"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Pregunta Sí/No -->
+<div class="modal-overlay center-overlay" id="preguntaOverlay">
+  <div class="modal" role="dialog" aria-modal="true">
+    <h3 id="preguntaTexto" style="margin-right:0;"></h3>
+    <div class="pregunta-acciones">
+      <button type="button" id="preguntaNo"></button>
+      <button type="button" id="preguntaSi" class="btn-turno"></button>
     </div>
   </div>
 </div>
@@ -1120,6 +1134,19 @@
     }
   });
 
+  // ---------- pregunta Sí/No (ventana propia, más clara que confirm) ----------
+  var ivaVacioConfirmado = false;
+  function preguntar(texto, siTxt, noTxt, onSi, onNo){
+    var ov = document.getElementById('preguntaOverlay');
+    document.getElementById('preguntaTexto').textContent = texto;
+    var si = document.getElementById('preguntaSi');
+    var no = document.getElementById('preguntaNo');
+    si.textContent = siTxt; no.textContent = noTxt;
+    si.onclick = function(){ ov.classList.remove('open'); if(onSi) onSi(); };
+    no.onclick = function(){ ov.classList.remove('open'); if(onNo) onNo(); };
+    ov.classList.add('open');
+  }
+
   // ---------- hoja para anotar (modal / form) ----------
   // "Efectivo antiguo" no está acá: no se elige a mano, se pone solo al
   // marcar como pagado en efectivo un albarán viejo desde la pantalla de
@@ -1189,6 +1216,7 @@
     scanImageBase64 = null; scanMediaType = null;
     cambioState = { modo:null, denom:null, subModo:null, cantidad:null };
     empanadaPago = null;
+    ivaVacioConfirmado = false;
   }
 
   // Cabecera de la hoja: icono, nombre y frase de ayuda del tipo.
@@ -1883,6 +1911,20 @@
     }
     // Siempre hay que decir qué empleado carga el movimiento.
     if(!responsableFinal){ toast(data.responsable === 'Otros' ? 'Escribe el nombre del empleado' : 'Elige qué empleado lo carga'); return; }
+
+    // Proveedor sin IVA: se permite, pero antes se pregunta. Si dice que sí
+    // tiene IVA, no se guarda y se lo lleva al campo para que lo ponga.
+    if(currentTipo === 'gasto' && String(data.iva == null ? '' : data.iva).trim() === '' && !ivaVacioConfirmado){
+      preguntar('¿Esta factura no tiene IVA?', 'No tiene IVA, guardar', 'Sí tiene, lo pongo', function(){
+        ivaVacioConfirmado = true;
+        document.getElementById('modalGuardar').click();
+      }, function(){
+        var ivaEl = document.querySelector('#formFields [data-field="iva"]');
+        if(ivaEl) ivaEl.focus();
+      });
+      return;
+    }
+    ivaVacioConfirmado = false;
 
     // Tarjeta / No pagado / Transferencia dejan su etiqueta marcada en Info,
     // sumada a lo que se haya escrito ahí (no lo reemplaza).
