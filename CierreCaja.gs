@@ -1582,6 +1582,7 @@ function onOpen(e) {
     .addSeparator()
     .addItem('Albaranes: restaurar datos viejos 2026 (una sola vez)', 'restaurarAlbaranesViejos2026DesdeMenu')
     .addItem('Albaranes: reenviar un mes desde Cierre de Caja…', 'reenviarMesAAlbaranesDesdeMenu')
+    .addItem('Albaranes: pasar al formato con forma y día de pago', 'albaranesPasarAFormatoNuevoDesdeMenu')
     .addSeparator()
     .addItem('Contabilidad: pasar a 3 TPV (sin WEB, con GLOVO)', 'adaptarContabilidadTresTpvDesdeMenu')
     .addItem('Cierre de Caja: pasar la plantilla y los días a 3 TPV', 'pasarCierresATresTpvDesdeMenu')

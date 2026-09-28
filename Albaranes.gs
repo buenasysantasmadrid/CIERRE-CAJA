@@ -9,12 +9,16 @@
 // encabezados que empieza con "FECHA" en la columna A, 42 filas de datos y
 // una fila de total (ej. enero: encabezados fila 3, datos 4–45, total 46).
 // Las columnas se ubican leyendo los encabezados de cada bloque (no por
-// posición), porque no todas las pestañas son iguales:
+// posición), porque no todas las pestañas son iguales. Formato actual
+// (desde el 28/09/2026, ver albaranesPasarAFormatoNuevo más abajo):
+//   FECHA · Nº FACTURA · IVA · IMPORTE · OBERVACIONES · FORMA DE PAGO · DIA DE PAGO · VARIOS   (la mayoría)
+//   FECHA · PROVEEDOR · Nº FACTURA · IVA · IMPORTE · OBERVACIONES · FORMA DE PAGO · DIA DE PAGO · VARIOS   (VARIOS y SUPER)
+//   FECHA · NOMBRE · IMPORTE   (EXTRAS)
+// Formato de antes (se sigue entendiendo, por si queda algún bloque así):
 //   FECHA · FACTURA Nº · IMPORTE · IVA · OBERVACIONES   (la mayoría)
 //   FECHA · INFO · FACTURA Nº · IMPORTE · IVA · OBERVACIONES   (VINO)
 //   FECHA · SUPER · IMPORTE · IVA · OBERVACIONES   (SUPER)
 //   FECHA · PROVEEDOR · OBERVACIONES · IMPORTE · IVA   (VARIOS)
-//   FECHA · NOMBRE · IMPORTE   (EXTRAS)
 //
 // La columna Z (oculta) guarda el ID del movimiento de la app, para poder
 // actualizarlo o borrarlo sin duplicar: la app manda el día entero en cada
@@ -30,7 +34,7 @@
 // ============================================================================
 
 var ALBARANES_COL_ID_ = 26; // Z
-var ALBARANES_ANCHO_ = 7;   // A–G: la parte visible de cada bloque
+var ALBARANES_ANCHO_ = 9;   // A–I: la parte visible de cada bloque
 var ALBARANES_FILAS_DATOS_ = 42;
 var ALBARANES_HOJA_IDS_ = 'IDs app';
 // Pestañas del archivo de Albaranes que no son de un proveedor con la forma
@@ -59,13 +63,15 @@ function filasEncabezadoAlbaranes_(hoja) {
   return filas;
 }
 
-// Qué columna (0-based dentro de A–G) lleva cada dato en este bloque.
+// Qué columna (0-based dentro de A–I) lleva cada dato en este bloque.
 function mapaColumnasAlbaranes_(encabezados) {
   var mapa = {};
   encabezados.forEach(function (h, i) {
     var k = normalizarClave_(h).replace(/[^A-Z]/g, '');
     if (k === 'FECHA') mapa.fecha = i;
-    else if (k.indexOf('FACTURA') === 0 || k === 'ALBARAN') mapa.factura = i;
+    else if (k === 'FORMADEPAGO') mapa.formaPago = i;
+    else if (k === 'DIADEPAGO') mapa.diaPago = i;
+    else if (k.indexOf('FACTURA') > -1 || k === 'ALBARAN') mapa.factura = i; // FACTURA Nº / Nº FACTURA
     else if (k === 'IMPORTE' || k === 'TOTAL') mapa.importe = i;
     else if (k === 'IVA') mapa.iva = i;
     else if (k.indexOf('OB') === 0) mapa.obs = i; // OBERVACIONES / OBSERVACIONES
@@ -120,15 +126,58 @@ function fechaComoDate_(fechaISO) {
   return new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10), 12);
 }
 
-// Arma la fila (A–G) de un gasto según las columnas de ese bloque.
-function filaAlbaran_(m, fechaISO, mapa) {
-  var fila = ['', '', '', '', '', '', ''];
+function filaVaciaAlbaranes_() {
+  var fila = [];
+  for (var i = 0; i < ALBARANES_ANCHO_; i++) fila.push('');
+  return fila;
+}
+
+var FORMA_PAGO_ALBARAN_ = {
+  efectivo: 'EFECTIVO', efectivo_antiguo: 'EFECTIVO', tarjeta: 'TARJETA',
+  transferencia: 'TRANSFERENCIA', no_pagado: 'NO PAGADO', no_efectivo: 'NO EFECTIVO'
+};
+
+// Forma de pago, día de pago y observaciones (Info sin las etiquetas de
+// pago) de un gasto. Una factura que estaba "No pagado" y se pagó después
+// tiene en Info "PAGADO <MODALIDAD> <fecha> · ..." (ver
+// cambiarFormaPagoAlbaran_): el día de pago es esa fecha. Si se pagó en el
+// momento, es la fecha de la caja en la que se cargó; si no está pagada,
+// queda vacío.
+function pagoDeGasto_(m, fechaCajaISO) {
+  var info = String(m.info || '');
+  var pagado = /^PAGADO(?:\s+([A-Z]+))?(?:\s+(\d{4}-\d{2}-\d{2}))?/.exec(info);
+  var forma = FORMA_PAGO_ALBARAN_[m.subtipo] || '';
+  var dia = '';
+  if (pagado) {
+    forma = pagado[1] || forma;
+    dia = pagado[2] || '';
+  } else if (m.subtipo !== 'no_pagado') {
+    dia = fechaCajaISO || '';
+  }
+  return { forma: forma, dia: dia, obs: quitarTagInfo_(info) };
+}
+
+// Arma la fila (A–I) de un gasto según las columnas de ese bloque.
+// `fechaISO` es la fecha de la factura; `fechaCajaISO`, la de la caja en la
+// que se cargó.
+function filaAlbaran_(m, fechaISO, mapa, fechaCajaISO) {
+  var fila = filaVaciaAlbaranes_();
   var formaPago = m.subtipo === 'efectivo' ? 'EFECTIVO' : '';
   var info = String(m.info || '');
   // Las formas de pago que no son efectivo ya vienen marcadas en Info
   // (TARJETA, NO PAGADO, TRANSFERENCIA, PAGADO ...); el efectivo no.
   var textoObs = [info, formaPago].filter(String).join(' · ');
   var detalle = m.proveedorDetalle || '';
+
+  // Formato nuevo: la forma y el día de pago van en sus columnas, y en
+  // observaciones queda solo lo que se escribió.
+  if (mapa.formaPago != null) {
+    var pago = pagoDeGasto_(m, fechaCajaISO);
+    fila[mapa.formaPago] = pago.forma;
+    if (mapa.diaPago != null && pago.dia) fila[mapa.diaPago] = fechaComoDate_(pago.dia);
+    info = pago.obs;
+    textoObs = pago.obs;
+  }
 
   if (mapa.fecha != null) fila[mapa.fecha] = fechaComoDate_(fechaISO);
   if (mapa.importe != null) fila[mapa.importe] = Number(m.importe) || 0;
@@ -139,7 +188,7 @@ function filaAlbaran_(m, fechaISO, mapa) {
 
   if (mapa.info != null) {
     fila[mapa.info] = info;
-    textoObs = formaPago;
+    textoObs = mapa.formaPago != null ? '' : formaPago;
   }
 
   if (mapa.obs != null) {
@@ -213,12 +262,15 @@ function guardarBloqueOrdenado_(hoja, filaEncabezado, filas) {
 
   var salida = [], salidaIds = [];
   for (var k = 0; k < ALBARANES_FILAS_DATOS_; k++) {
-    salida.push(k < filas.length ? filas[k].fila : ['', '', '', '', '', '', '']);
+    var f = k < filas.length ? filas[k].fila.slice(0, ALBARANES_ANCHO_) : [];
+    while (f.length < ALBARANES_ANCHO_) f.push('');
+    salida.push(f);
     salidaIds.push([k < filas.length ? filas[k].id : '']);
   }
   rango.setValues(salida);
   rangoIds.setValues(salidaIds);
   if (mapa.fecha != null) hoja.getRange(primera, mapa.fecha + 1, ALBARANES_FILAS_DATOS_, 1).setNumberFormat('dd/MM/yyyy');
+  if (mapa.diaPago != null) hoja.getRange(primera, mapa.diaPago + 1, ALBARANES_FILAS_DATOS_, 1).setNumberFormat('dd/MM/yyyy');
   if (!hoja.isColumnHiddenByUser(ALBARANES_COL_ID_)) hoja.hideColumns(ALBARANES_COL_ID_);
 }
 
@@ -330,7 +382,7 @@ function sincronizarAlbaranesDelDiaEnAnio_(anio, fechaISO, gastos, soloSiExiste)
       error = 'La pestaña "' + cambios.pestana + '" no tiene el bloque del mes ' + (mesIndex + 1) + '.';
     } else {
       var mapa = mapaColumnasAlbaranes_(hoja.getRange(filaEnc, 1, 1, ALBARANES_ANCHO_).getValues()[0]);
-      var nuevas = cambios.nuevas.map(function (m) { return { id: m.id, fila: filaAlbaran_(m, fechaFacturaGasto_(m, fechaISO), mapa) }; });
+      var nuevas = cambios.nuevas.map(function (m) { return { id: m.id, fila: filaAlbaran_(m, fechaFacturaGasto_(m, fechaISO), mapa, fechaISO) }; });
       try {
         reescribirBloqueAlbaranes_(hoja, filaEnc, cambios.borrar, nuevas);
       } catch (err) {
@@ -490,4 +542,214 @@ function reenviarMesAAlbaranes(periodo) {
     });
   });
   return resumen.length ? resumen : ['No hay días de ' + periodo + ' en las planillas de Cierre de Caja.'];
+}
+
+// ============================================================================
+// Una vez: pasar Albaranes al formato con FORMA DE PAGO y DIA DE PAGO (menú).
+// ============================================================================
+// En cada pestaña de proveedor (menos EXTRAS), en los 12 meses, reordena
+// las columnas al formato nuevo moviendo los datos que ya había (nada se
+// pierde: en VINO lo de INFO pasa a OBERVACIONES; SUPER queda como VARIOS,
+// con el nombre del súper en PROVEEDOR). Arregla la fila de total de cada
+// mes (IVA e IMPORTE), la pestaña TOTALES (que sumaba la columna C, donde
+// antes estaba el IMPORTE) y crea las pestañas de proveedores nuevos. Al
+// final vuelve a escribir lo que cargó la app, para que se llenen FORMA DE
+// PAGO y DIA DE PAGO. Un bloque ya pasado no se vuelve a tocar.
+var ALBARANES_ENC_NORMAL_ = ['FECHA', 'Nº FACTURA', 'IVA', 'IMPORTE', 'OBERVACIONES', 'FORMA DE PAGO', 'DIA DE PAGO', 'VARIOS'];
+var ALBARANES_ENC_CON_PROVEEDOR_ = ['FECHA', 'PROVEEDOR', 'Nº FACTURA', 'IVA', 'IMPORTE', 'OBERVACIONES', 'FORMA DE PAGO', 'DIA DE PAGO', 'VARIOS'];
+var ALBARANES_PESTANAS_CON_PROVEEDOR_ = ['VARIOS', 'SUPER'];
+var ALBARANES_PESTANAS_SIN_CAMBIO_ = ['EXTRAS'];
+var ALBARANES_PROVEEDORES_NUEVOS_ = ['LOS FUENTEÑOS', 'WINEUP'];
+
+function letraColumna_(n) { // 1 -> A
+  var s = '';
+  while (n > 0) { var r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+
+function encabezadosAlbaranesPara_(nombrePestana) {
+  return ALBARANES_PESTANAS_CON_PROVEEDOR_.indexOf(normalizarClave_(nombrePestana)) > -1
+    ? ALBARANES_ENC_CON_PROVEEDOR_ : ALBARANES_ENC_NORMAL_;
+}
+
+// Pasa un bloque de mes al formato nuevo. Devuelve false si ya estaba.
+function pasarBloqueAlbaranesAFormatoNuevo_(hoja, filaEnc) {
+  var viejoEnc = hoja.getRange(filaEnc, 1, 1, ALBARANES_ANCHO_).getValues()[0];
+  var viejo = mapaColumnasAlbaranes_(viejoEnc);
+  if (viejo.formaPago != null) return false;
+  var enc = encabezadosAlbaranesPara_(hoja.getName());
+  var nuevo = mapaColumnasAlbaranes_(enc);
+
+  var primera = filaEnc + 1;
+  var rango = hoja.getRange(primera, 1, ALBARANES_FILAS_DATOS_, ALBARANES_ANCHO_);
+  if (rango.getFormulas().some(function (f) { return f.some(String); })) {
+    throw new Error('el bloque de la fila ' + filaEnc + ' tiene fórmulas');
+  }
+  var datos = rango.getValues().map(function (v) {
+    var vacia = v.every(function (x) { return x === '' || x == null; });
+    if (vacia) return filaVaciaAlbaranes_();
+    function de(k) { return viejo[k] != null ? v[viejo[k]] : ''; }
+    var fila = filaVaciaAlbaranes_();
+    fila[nuevo.fecha] = de('fecha');
+    fila[nuevo.factura] = de('factura');
+    fila[nuevo.iva] = de('iva');
+    fila[nuevo.importe] = de('importe');
+    fila[nuevo.obs] = [de('info'), de('obs')].filter(function (x) { return x !== '' && x != null; }).join(' · ');
+    if (nuevo.detalle != null) fila[nuevo.detalle] = de('detalle');
+    else if (de('detalle') !== '') fila[nuevo.obs] = [de('detalle'), fila[nuevo.obs]].filter(String).join(' · ');
+    return fila;
+  });
+
+  var encFila = enc.slice();
+  while (encFila.length < ALBARANES_ANCHO_) encFila.push('');
+  hoja.getRange(filaEnc, 1, 1, ALBARANES_ANCHO_).setValues([encFila]);
+  rango.setValues(datos);
+  rango.setNumberFormat('General');
+  [nuevo.fecha, nuevo.diaPago].forEach(function (c) {
+    hoja.getRange(primera, c + 1, ALBARANES_FILAS_DATOS_, 1).setNumberFormat('dd/MM/yyyy');
+  });
+  [nuevo.iva, nuevo.importe].forEach(function (c) {
+    hoja.getRange(primera, c + 1, ALBARANES_FILAS_DATOS_ + 1, 1).setNumberFormat('#,##0.00');
+  });
+
+  // Fila de total del mes: suma de IVA y de IMPORTE en sus columnas nuevas.
+  var filaTotal = primera + ALBARANES_FILAS_DATOS_;
+  var total = hoja.getRange(filaTotal, 2, 1, ALBARANES_ANCHO_ - 1);
+  total.clearContent();
+  [nuevo.iva, nuevo.importe].forEach(function (c) {
+    var L = letraColumna_(c + 1);
+    hoja.getRange(filaTotal, c + 1).setFormula('=SUM(' + L + primera + ':' + L + (filaTotal - 1) + ')');
+  });
+  return true;
+}
+
+// Crea la pestaña de un proveedor nuevo copiando una ya pasada al formato
+// nuevo, vacía (sin datos ni IDs).
+function crearPestanaProveedorAlbaranes_(ss, nombre, modelo) {
+  if (pestanaAlbaranesParaProveedor_(ss, nombre)) return false;
+  var hoja = modelo.copyTo(ss);
+  hoja.setName(nombre);
+  ss.setActiveSheet(hoja);
+  ss.moveActiveSheet(modelo.getIndex() + 1);
+  hoja.getRange('A1').setValue(nombre);
+  filasEncabezadoAlbaranes_(hoja).forEach(function (filaEnc) {
+    hoja.getRange(filaEnc + 1, 1, ALBARANES_FILAS_DATOS_, ALBARANES_ANCHO_).clearContent();
+    hoja.getRange(filaEnc + 1, ALBARANES_COL_ID_, ALBARANES_FILAS_DATOS_, 1).clearContent();
+  });
+  return true;
+}
+
+// TOTALES: cada fila toma, de una pestaña, el total del IMPORTE de cada mes
+// (fila 46, 91, 136... de esa pestaña). La pestaña se lee de la fórmula de
+// la columna C (='ATLANTA'!C46); la columna del IMPORTE, de sus encabezados.
+function arreglarTotalesAlbaranes_(ss, nuevas) {
+  var hoja = ss.getSheetByName('TOTALES');
+  if (!hoja) return ['No hay pestaña TOTALES.'];
+  var resumen = [];
+  var ultima = Math.max(hoja.getLastRow(), 3);
+  var formulasC = hoja.getRange(1, 3, ultima, 1).getFormulas();
+  var valoresB = hoja.getRange(1, 2, ultima, 1).getValues();
+
+  function escribirFila(r, nombre) {
+    var pestana = ss.getSheetByName(nombre);
+    if (!pestana) return false;
+    var filaEnc = filasEncabezadoAlbaranes_(pestana)[0];
+    if (!filaEnc) return false;
+    var mapa = mapaColumnasAlbaranes_(pestana.getRange(filaEnc, 1, 1, ALBARANES_ANCHO_).getValues()[0]);
+    if (mapa.importe == null) return false;
+    var L = letraColumna_(mapa.importe + 1);
+    var ref = "'" + nombre.replace(/'/g, "''") + "'";
+    var filaTotal = filaEnc + 1 + ALBARANES_FILAS_DATOS_;
+    var paso = 45; // distancia entre bloques de mes
+    var fila = [];
+    for (var mes = 0; mes < 12; mes++) fila.push('=' + ref + '!' + L + (filaTotal + paso * mes));
+    hoja.getRange(r, 2).setValue(nombre);
+    hoja.getRange(r, 3, 1, 12).setFormulas([fila]);
+    return true;
+  }
+
+  var yaEstan = {};
+  for (var r = 2; r <= ultima; r++) {
+    var m = /^='?(.+?)'?!\$?[A-Z]+\$?46$/.exec(formulasC[r - 1][0] || '');
+    if (!m) continue;
+    var nombre = m[1].replace(/''/g, "'");
+    yaEstan[normalizarClave_(nombre)] = true;
+    if (escribirFila(r, nombre)) resumen.push('TOTALES fila ' + r + ': ' + nombre);
+  }
+  // Proveedores nuevos: en la primera fila libre antes de la fila TOTAL.
+  nuevas.forEach(function (nombre) {
+    if (yaEstan[normalizarClave_(nombre)]) return;
+    for (var r2 = 3; r2 <= ultima; r2++) {
+      var b = String(valoresB[r2 - 1][0] || '');
+      if (normalizarClave_(b) === 'TOTAL') break;
+      if (!b && !formulasC[r2 - 1][0]) {
+        if (escribirFila(r2, nombre)) {
+          resumen.push('TOTALES fila ' + r2 + ': ' + nombre + ' (nueva)');
+          valoresB[r2 - 1][0] = nombre;
+          formulasC[r2 - 1][0] = '=x';
+        }
+        return;
+      }
+    }
+    resumen.push('TOTALES: no hubo fila libre para ' + nombre + ' — agregala a mano.');
+  });
+  return resumen;
+}
+
+function albaranesPasarAFormatoNuevo() {
+  var resumen = [];
+  planillasDelTipo_('ALBARANES').forEach(function (p) {
+    var ss = SpreadsheetApp.openById(p.id);
+    var modelo = null;
+    ss.getSheets().forEach(function (hoja) {
+      var nombre = hoja.getName();
+      if (ALBARANES_PESTANAS_EXCLUIDAS_.indexOf(nombre) > -1) return;
+      if (ALBARANES_PESTANAS_SIN_CAMBIO_.indexOf(normalizarClave_(nombre)) > -1) return;
+      var encabezados = filasEncabezadoAlbaranes_(hoja);
+      if (!encabezados.length) return;
+      var pasados = 0, errores = [];
+      encabezados.forEach(function (filaEnc) {
+        try { if (pasarBloqueAlbaranesAFormatoNuevo_(hoja, filaEnc)) pasados++; }
+        catch (err) { errores.push(String(err.message || err)); }
+      });
+      if (pasados) resumen.push(p.nombre + ' / ' + nombre + ': ' + pasados + ' meses pasados al formato nuevo');
+      if (errores.length) resumen.push(p.nombre + ' / ' + nombre + ': NO se pasó — ' + errores.join('; '));
+      if (!modelo && ALBARANES_PESTANAS_CON_PROVEEDOR_.indexOf(normalizarClave_(nombre)) === -1 && !errores.length) modelo = hoja;
+    });
+
+    var creadas = [];
+    if (modelo) {
+      ALBARANES_PROVEEDORES_NUEVOS_.forEach(function (nombre) {
+        if (crearPestanaProveedorAlbaranes_(ss, nombre, modelo)) creadas.push(nombre);
+      });
+    }
+    if (creadas.length) resumen.push(p.nombre + ': pestañas nuevas ' + creadas.join(', '));
+    resumen = resumen.concat(arreglarTotalesAlbaranes_(ss, creadas).map(function (x) { return p.nombre + ' / ' + x; }));
+
+    // Lo que cargó la app, de nuevo (llena FORMA DE PAGO y DIA DE PAGO).
+    var hojaIds = ss.getSheetByName(ALBARANES_HOJA_IDS_);
+    if (hojaIds) {
+      var meses = {};
+      hojaIds.getDataRange().getValues().slice(1).forEach(function (fila) {
+        var f = textoFechaIds_(fila[1]);
+        if (/^\d{4}-\d{2}/.test(f)) meses[f.substring(0, 7)] = true;
+      });
+      Object.keys(meses).sort().forEach(function (periodo) {
+        resumen = resumen.concat(reenviarMesAAlbaranes(periodo).filter(function (x) { return x.indexOf('ERROR') > -1; }));
+      });
+      resumen.push(p.nombre + ': reescrito lo cargado por la app en ' + Object.keys(meses).sort().join(', '));
+    }
+  });
+  return resumen.length ? resumen : ['No había nada para pasar.'];
+}
+
+function albaranesPasarAFormatoNuevoDesdeMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var ok = ui.alert(
+    'Albaranes: formato con forma y día de pago',
+    'Esto reordena las columnas de todas las pestañas de proveedor de Albaranes (FECHA · Nº FACTURA · IVA · IMPORTE · OBERVACIONES · FORMA DE PAGO · DIA DE PAGO · VARIOS; en VARIOS y SUPER, con PROVEEDOR después de FECHA), moviendo los datos que ya hay, arregla TOTALES y crea LOS FUENTEÑOS y WINEUP. Mejor hacerlo cuando nadie esté cargando en la app. ¿Continuar?',
+    ui.ButtonSet.YES_NO
+  );
+  if (ok !== ui.Button.YES) return;
+  ui.alert('Listo', albaranesPasarAFormatoNuevo().join('\n'), ui.ButtonSet.OK);
 }
