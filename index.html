@@ -2230,17 +2230,18 @@
     var f = pagoAlbaranActual;
     if(!f) return;
     cerrarPagoAlbaran();
+    var fechaPago = state.fecha; // la caja en la que se paga (hoy, la que está en pantalla)
     var url = loadSheetUrl();
     if(!hasValidSheetUrl(url)){ toast('No hay conexión configurada con el Sheet'); return; }
     fetch(url, {
       method: 'POST',
       headers: {'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({ accionCambiarFormaPago: true, idMovimiento: f.idMovimiento, idTurno: f.idTurno, fecha: f.fecha, nuevaFormaPago: forma, fechaPago: state.fecha }),
+      body: JSON.stringify({ accionCambiarFormaPago: true, idMovimiento: f.idMovimiento, idTurno: f.idTurno, fecha: f.fecha, nuevaFormaPago: forma, fechaPago: fechaPago }),
       keepalive: true
     }).then(function(resp){ return resp.json(); }).then(function(res){
       if(res && res.ok){
         toast('Albarán marcado como pagado (' + (forma==='tarjeta'?'Tarjeta':'Transferencia') + ')');
-        actualizarSubtipoAlbaranLocal(f, forma);
+        actualizarSubtipoAlbaranLocal(f, forma, fechaPago);
       } else {
         toast('No se pudo actualizar el albarán: ' + ((res&&res.error)||'error desconocido'));
       }
@@ -2258,6 +2259,7 @@
     var f = pagoAlbaranActual;
     if(!f) return;
     cerrarPagoAlbaran();
+    var fechaPago = state.fecha; // la caja en la que se paga (hoy, la que está en pantalla)
 
     var proveedorFinal = f.proveedorTexto || '';
     var proveedorDetalle = '';
@@ -2294,13 +2296,13 @@
     fetch(url, {
       method: 'POST',
       headers: {'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({ accionCambiarFormaPago: true, idMovimiento: f.idMovimiento, idTurno: f.idTurno, fecha: f.fecha, nuevaFormaPago: 'efectivo_antiguo', fechaPago: state.fecha }),
+      body: JSON.stringify({ accionCambiarFormaPago: true, idMovimiento: f.idMovimiento, idTurno: f.idTurno, fecha: f.fecha, nuevaFormaPago: 'efectivo_antiguo', fechaPago: fechaPago }),
       keepalive: true
     }).then(function(resp){ return resp.json(); }).then(function(res){
       if(!(res && res.ok)){
         toast('El movimiento de hoy se guardó, pero no se pudo actualizar el albarán viejo — revisalo a mano.');
       }
-      actualizarSubtipoAlbaranLocal(f, 'efectivo_antiguo');
+      actualizarSubtipoAlbaranLocal(f, 'efectivo_antiguo', fechaPago);
       buscarAlbaranes();
     }).catch(function(err){
       toast('El movimiento de hoy se guardó, pero no se pudo actualizar el albarán viejo (sin conexión) — revisalo a mano.');
@@ -2311,13 +2313,36 @@
   // Si el día del albarán viejo está guardado en este dispositivo (o es el
   // día abierto ahora mismo), le actualiza el subtipo ahí también, para que
   // quede consistente sin depender de volver a traerlo del Sheet.
-  function actualizarSubtipoAlbaranLocal(f, subtipoNuevo){
+  // Deja la copia de este dispositivo igual que como la dejó el Apps Script
+  // (cambiarFormaPagoAlbaran_ en CierreCaja.gs): la forma de pago nueva y el
+  // Info con "PAGADO <MODALIDAD> <fecha de pago> · <lo que tenía>". Si solo
+  // se cambiara la forma de pago, al volver a sincronizar ese día desde este
+  // dispositivo se pisaría en el Sheet el "PAGADO …".
+  var FORMA_PAGO_MODALIDAD = { tarjeta:'TARJETA', transferencia:'TRANSFERENCIA', efectivo_antiguo:'EFECTIVO' };
+  function infoPagadoAlbaran(infoActual, subtipoNuevo, fechaPago){
+    // Igual que quitarTagInfo_ del Apps Script.
+    var info = String(infoActual || '').replace(/^PAGADO(\s+\S+){0,2}\s*(?:·\s*)?/, '');
+    ['TARJETA', 'NO PAGADO', 'TRANSFERENCIA'].some(function(tag){
+      if(info === tag){ info = ''; return true; }
+      if(info.indexOf(tag + ' · ') === 0){ info = info.slice((tag + ' · ').length); return true; }
+      return false;
+    });
+    var modalidad = FORMA_PAGO_MODALIDAD[subtipoNuevo] || '';
+    return 'PAGADO' + (modalidad ? ' ' + modalidad : '') + (fechaPago ? ' ' + fechaPago : '') + (info ? ' · ' + info : '');
+  }
+
+  function actualizarSubtipoAlbaranLocal(f, subtipoNuevo, fechaPago){
+    function aplicar(m){
+      m.subtipo = subtipoNuevo;
+      m.info = infoPagadoAlbaran(m.info, subtipoNuevo, fechaPago);
+    }
     if(f.fecha === state.fecha){
       TURNOS.forEach(function(t){
         var m = state[t].movimientos.find(function(x){ return x.id === f.idMovimiento; });
-        if(m) m.subtipo = subtipoNuevo;
+        if(m) aplicar(m);
       });
       guardarDiaActual();
+      renderMovimientos();
       return;
     }
     var store = getDiasStore();
@@ -2327,7 +2352,7 @@
       var turnoDia = dia[t];
       if(!turnoDia || !turnoDia.movimientos) return;
       var m = turnoDia.movimientos.find(function(x){ return x.id === f.idMovimiento; });
-      if(m) m.subtipo = subtipoNuevo;
+      if(m) aplicar(m);
     });
     saveDiasStore(store);
   }
@@ -2548,12 +2573,28 @@
       return;
     }
 
-    if(!yaExiste && !confirm('Todavía no hay ningún cierre abierto para el ' + nuevaFecha + '. ¿Querés abrirlo?')){
-      this.value = state.fecha; // se queda en el día que ya estaba
+    if(!yaExiste){
+      var input = this;
+      preguntarAbrirCaja(nuevaFecha, function(){ cambiarDia(nuevaFecha); }, function(){
+        input.value = state.fecha; // se queda en el día que ya estaba
+      });
       return;
     }
     cambiarDia(nuevaFecha);
   });
+
+  // Pregunta antes de crear la caja de un día que todavía no existe (la
+  // misma ventana que al abrir la app sin la caja de hoy).
+  function preguntarAbrirCaja(fecha, onSi, onNo){
+    var p = fecha.split('-');
+    var esHoy = fecha === todayISO();
+    var q = state.fecha.split('-');
+    preguntar(
+      esHoy ? 'NO ESTÁ CREADA LA CAJA DEL DÍA DE HOY, ¿LA QUIERES ABRIR?' : 'NO ESTÁ CREADA LA CAJA DEL ' + p[2] + '/' + p[1] + ', ¿LA QUIERES ABRIR?',
+      esHoy ? 'Sí, abrir la caja de hoy' : 'Sí, abrir la caja del ' + p[2] + '/' + p[1],
+      'No, seguir en la del ' + q[2] + '/' + q[1],
+      onSi, onNo);
+  }
 
   // Si quedó un envío al Sheet esperando (se manda 2,5 s después del último
   // cambio), se manda ya: ese envío toma el día que esté en pantalla en ese
@@ -2643,11 +2684,19 @@
     document.body.classList.toggle('con-aviso', noEsHoy);
   }
 
-  // Botón del cartel: vuelve directo a la caja de hoy (si todavía no está
-  // abierta, la abre — igual que al cambiar de día con la pestaña abierta).
+  // Botón del cartel: vuelve a la caja de hoy. Si todavía no está creada,
+  // primero pregunta si abrirla (igual que al entrar a la app).
   document.getElementById('btnVolverHoy').addEventListener('click', function(){
     var hoy = todayISO();
-    if(state.fecha !== hoy) cambiarDia(hoy);
+    if(state.fecha === hoy) return;
+    if(getDiasStore()[hoy] || fechasConDatos[hoy]){
+      cambiarDia(hoy);
+      return;
+    }
+    preguntarAbrirCaja(hoy, function(){
+      cambiarDia(hoy);
+      iniciarSondeoSheet();
+    }, null);
   });
 
   // ---------- calendario propio (el nativo no se puede pintar ni siempre se puede navegar bien) ----------
