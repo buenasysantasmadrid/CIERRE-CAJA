@@ -1229,6 +1229,10 @@
     cambioState = { modo:null, denom:null, subModo:null, cantidad:null };
     empanadaPago = null;
     ivaVacioConfirmado = false;
+    if(volverAHoyAlCerrar){
+      volverAHoyAlCerrar = false;
+      volverACajaDeHoy();
+    }
   }
 
   // Cabecera de la hoja: icono, nombre y frase de ayuda del tipo.
@@ -2364,6 +2368,7 @@
       };
       if(!dia.mediodia.id) dia.mediodia.id = uid();
       if(!dia.noche.id) dia.noche.id = uid();
+      enviarCambiosPendientesYa();
       state = dia;
       document.getElementById('fechaCierre').value = state.fecha;
       aplicarEstadoATurnos();
@@ -2380,6 +2385,9 @@
     if(!turnoEncontrado){ toast('No se encontró el movimiento en este día'); return; }
     var mov = state[turnoEncontrado].movimientos.find(function(m){ return m.id === idMovimiento; });
     if(!mov){ toast('No se encontró el movimiento'); return; }
+    // Al terminar con este movimiento (guardar, eliminar o cerrar) se
+    // vuelve a la caja de hoy (ver closeModal).
+    volverAHoyAlCerrar = true;
     openModal(mov, null, turnoEncontrado);
   }
 
@@ -2547,7 +2555,29 @@
     cambiarDia(nuevaFecha);
   });
 
+  // Si quedó un envío al Sheet esperando (se manda 2,5 s después del último
+  // cambio), se manda ya: ese envío toma el día que esté en pantalla en ese
+  // momento, así que si se cambia de día antes, los cambios del día que se
+  // deja no llegarían al Sheet.
+  function enviarCambiosPendientesYa(){
+    if(autoSyncTimer){
+      clearTimeout(autoSyncTimer);
+      autoSyncTimer = null;
+      syncDraftToSheet();
+    }
+  }
+
+  // Vuelve a la caja de hoy si está abierta; si no, a la última abierta más
+  // cercana a hoy. Se usa al terminar de editar un albarán de otro día.
+  var volverAHoyAlCerrar = false;
+  function volverACajaDeHoy(){
+    var hoy = todayISO();
+    var destino = (getDiasStore()[hoy] || fechasConDatos[hoy]) ? hoy : obtenerUltimaFechaAbierta(null);
+    if(destino && destino !== state.fecha) cambiarDia(destino);
+  }
+
   function cambiarDia(nuevaFecha){
+    enviarCambiosPendientesYa();
     guardarDiaActual(); // se guarda lo que había en el día que se estaba viendo
     var store = getDiasStore();
     var esNuevo = !store[nuevaFecha];
@@ -3198,34 +3228,39 @@
     }).then(function(){
       var store = getDiasStore();
       var esNuevoHoy = !store[state.fecha] && !fechasConDatos[state.fecha];
-      var seAbrio = true;
-      var seMuestraOtraCaja = false;
 
-      if(esNuevoHoy){
-        seAbrio = confirm('Todavía no hay ningún cierre abierto para hoy (' + state.fecha + '). ¿Querés abrirlo?');
+      // La caja de hoy ya existe (en este dispositivo o en el Sheet): se abre.
+      if(!esNuevoHoy){
+        loadDraft(); // carga lo local que haya y, si no está acá, lo trae del Sheet
+        mostrarPantallaInicial();
+        iniciarSondeoSheet();
+        return;
       }
 
-      if(seAbrio){
-        loadDraft(); // carga lo local que haya y, si es nuevo, intenta traer del Sheet
+      // Hoy todavía no tiene caja: se muestra la última caja abierta (con el
+      // cartel rojo de "no es la caja de hoy") y se pregunta si abrir la de
+      // hoy. Si nunca se abrió ninguna caja, queda en blanco sin crear nada
+      // hasta que se cargue algo.
+      var hoy = state.fecha;
+      var ultimaFecha = obtenerUltimaFechaAbierta(hoy);
+      if(ultimaFecha){
+        state.fecha = ultimaFecha;
+        loadDraft();
+        logSheetStatus('Hoy (' + hoy + ') no tiene caja todavía; se muestra la última abierta (' + ultimaFecha + ').');
       } else {
-        // El usuario dijo que NO a abrir hoy: no se crea nada para hoy, se
-        // vuelve a mostrar la última caja que sí quedó abierta (si hay
-        // alguna). Solo si nunca se abrió ninguna caja antes queda en blanco.
-        var ultimaFecha = obtenerUltimaFechaAbierta(state.fecha);
-        if(ultimaFecha){
-          state.fecha = ultimaFecha;
-          loadDraft();
-          seMuestraOtraCaja = true;
-          logSheetStatus('El usuario decidió no abrir el día nuevo; se muestra en su lugar la última caja abierta (' + ultimaFecha + ').');
-        } else {
-          state = crearDiaVacio(state.fecha, state.negocio);
-          logSheetStatus('El usuario decidió no abrir el día ' + state.fecha + ' todavía; no se sincroniza nada hasta que cargue algo.');
-        }
+        state = crearDiaVacio(hoy, state.negocio);
       }
-
       mostrarPantallaInicial();
+      if(ultimaFecha) iniciarSondeoSheet();
 
-      if(seAbrio || seMuestraOtraCaja) iniciarSondeoSheet();
+      var p = (ultimaFecha || '').split('-');
+      preguntar('NO ESTÁ CREADA LA CAJA DEL DÍA DE HOY, ¿LA QUIERES ABRIR?',
+        'Sí, abrir la caja de hoy',
+        ultimaFecha ? 'No, seguir en la del ' + p[2] + '/' + p[1] : 'Ahora no',
+        function(){
+          cambiarDia(hoy);
+          iniciarSondeoSheet();
+        }, null);
     });
   }
 
