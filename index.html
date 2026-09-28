@@ -139,7 +139,9 @@
   .tc-head-der{display:flex;align-items:center;gap:6px;margin-left:auto;}
   /* Botón chico de ayuda (siempre del mismo color: es solo un control). */
   .tc-fondo{font-size:.78rem;font-weight:600;padding:5px 11px;border-radius:999px;background:#fff;border:1px solid rgba(0,0,0,.14);color:var(--ink);white-space:nowrap;min-height:0;}
-  .fondo-box{background:#fff;border:1px solid var(--line);border-radius:14px;padding:4px 14px 14px;}
+  .fondo-box{background:#fff;border:1px solid var(--line);border-radius:14px;padding:4px 14px 14px;position:relative;}
+  .fondo-cerrar{position:absolute;top:6px;right:6px;width:36px;height:36px;min-height:0;padding:0;border-radius:50%;background:#fff;border:1px solid var(--line);display:inline-flex;align-items:center;justify-content:center;}
+  .fondo-cerrar svg{width:18px;height:18px;}
   .fondo-res{margin-top:12px;padding:12px 14px;border-radius:12px;font-size:.88rem;line-height:1.45;}
   .fondo-res.ok{background:var(--green-soft);color:var(--green);font-weight:700;}
   .fondo-res.mal{background:var(--red-soft);color:var(--red);}
@@ -921,6 +923,7 @@
   // Noche del último día trabajado, o el de Mediodía si Noche no contó).
   function fondoConteoHTML(){
     return '<div class="fondo-box" id="fondoConteoBox" style="display:none;">' +
+      '<button type="button" class="fondo-cerrar" data-fondo-cerrar aria-label="Cerrar el conteo">'+icon('x')+'</button>' +
       '<div>' +
         '<div class="sub-label">Contar el fondo fijo · Billetes</div><div id="fondoBilletes"></div>' +
         '<div class="sub-label">Monedas</div>' +
@@ -987,6 +990,7 @@
       box.style.display = box.style.display === 'none' ? '' : 'none';
     });
     box.addEventListener('click', function(e){
+      if(e.target.closest('[data-fondo-cerrar]')){ box.style.display = 'none'; return; }
       var btn = e.target.closest('[data-step]');
       if(!btn) return;
       var inp = btn.parentNode.querySelector('input');
