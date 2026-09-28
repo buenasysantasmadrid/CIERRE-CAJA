@@ -2032,8 +2032,16 @@
       return;
     }
     var proveedor = document.getElementById('albaranesProveedor').value;
-    statusEl.textContent = 'Buscando...';
-    body.innerHTML = ''; empty.style.display = 'none';
+    // Se muestra al instante la última lista que se vio con este filtro
+    // (guardada en este dispositivo) y se actualiza cuando responde el Sheet.
+    var guardadas = leerAlbaranesGuardados(proveedor);
+    if(guardadas){
+      renderAlbaranesTabla(guardadas);
+      statusEl.textContent = textoCantidadAlbaranes(guardadas.length) + ' · actualizando…';
+    } else {
+      statusEl.textContent = 'Buscando...';
+      body.innerHTML = ''; empty.style.display = 'none';
+    }
 
     var miBusquedaId = ++albaranesBusquedaId;
     var getUrl = url + (url.indexOf('?')>-1?'&':'?') + 'listarFacturas=1' +
@@ -2060,13 +2068,41 @@
         return;
       }
       var facturas = data.facturas || [];
-      statusEl.textContent = facturas.length + (facturas.length === 1 ? ' movimiento encontrado' : ' movimientos encontrados') + (data.error ? ' (' + data.error + ')' : '');
+      statusEl.textContent = textoCantidadAlbaranes(facturas.length) + (data.error ? ' (' + data.error + ')' : '');
       renderAlbaranesTabla(facturas);
+      guardarAlbaranes(proveedor, facturas);
     }).catch(function(err){
       if(miBusquedaId !== albaranesBusquedaId) return;
+      if(guardadas){
+        // Sin conexión: se deja a la vista la última lista guardada.
+        statusEl.textContent = textoCantidadAlbaranes(guardadas.length) + ' · no se pudo actualizar (' + err.message + ')';
+        return;
+      }
       statusEl.textContent = 'Error al buscar: ' + err.message;
       renderAlbaranesTabla([]);
     });
+  }
+
+  function textoCantidadAlbaranes(n){
+    return n + (n === 1 ? ' movimiento encontrado' : ' movimientos encontrados');
+  }
+
+  // Última lista de albaranes vista en este dispositivo, por filtro de
+  // proveedor. Es solo para mostrar algo al instante: la lista buena es
+  // siempre la que devuelve el Sheet.
+  var LS_ALBARANES = 'cierreCaja_albaranes_v1';
+  function leerAlbaranesGuardados(proveedor){
+    try{
+      var todo = JSON.parse(localStorage.getItem(LS_ALBARANES) || '{}');
+      return Array.isArray(todo[proveedor || '']) ? todo[proveedor || ''] : null;
+    }catch(e){ return null; }
+  }
+  function guardarAlbaranes(proveedor, facturas){
+    try{
+      var todo = JSON.parse(localStorage.getItem(LS_ALBARANES) || '{}');
+      todo[proveedor || ''] = facturas;
+      localStorage.setItem(LS_ALBARANES, JSON.stringify(todo));
+    }catch(e){}
   }
 
   function renderAlbaranesTabla(facturas){
@@ -3124,6 +3160,20 @@
     logSheetStatus('URL configurada: ' + loadSheetUrl());
     pintarIconosEstaticos();
 
+    // Si este dispositivo ya tiene guardada la caja de hoy, se muestra al
+    // instante: no hace falta esperar al Sheet (que tarda varios segundos)
+    // para saber si hay que "abrir" el día. La lista de días se trae igual
+    // por detrás (para el calendario y el fondo fijo) y enseguida se
+    // consulta si otro dispositivo cambió algo de hoy.
+    if(getDiasStore()[state.fecha]){
+      loadDraft();
+      mostrarPantallaInicial();
+      iniciarSondeoSheet();
+      revisarActualizacionesDesdeSheet();
+      cargarFechasConDatosDesdeSheet().then(refrescarFondoFijoMediodia);
+      return;
+    }
+
     // Antes de preguntar si hay que "abrir" el día, hay que saber si ya se
     // trabajó desde OTRO dispositivo (esa info vive en el Sheet, no en este
     // navegador). Si no se espera esto, un celular/computadora nueva nunca
@@ -3162,14 +3212,30 @@
         }
       }
 
-      document.getElementById('fechaCierre').value = state.fecha || todayISO();
-
-      document.getElementById('turnoSections').innerHTML = TURNOS.map(turnoSectionHTML).join('');
-      TURNOS.forEach(wireTurnoEvents);
-      aplicarEstadoATurnos();
+      mostrarPantallaInicial();
 
       if(seAbrio || seMuestraOtraCaja) iniciarSondeoSheet();
     });
+  }
+
+  function mostrarPantallaInicial(){
+    document.getElementById('fechaCierre').value = state.fecha || todayISO();
+    document.getElementById('turnoSections').innerHTML = TURNOS.map(turnoSectionHTML).join('');
+    TURNOS.forEach(wireTurnoEvents);
+    aplicarEstadoATurnos();
+  }
+
+  // Cuando la caja se mostró al instante, el fondo fijo de Mediodía se
+  // calculó solo con lo que tiene este dispositivo. Al llegar la lista del
+  // Sheet (que puede incluir un cierre hecho desde otro dispositivo) se
+  // vuelve a calcular y, si cambió, se actualiza.
+  function refrescarFondoFijoMediodia(){
+    var nuevo = fondoFijoSugerido(state.fecha);
+    if(nuevo === state.mediodia.fondoFijo) return;
+    state.mediodia.fondoFijo = nuevo;
+    var input = document.getElementById('fondoFijo_mediodia');
+    if(input) input.value = nuevo || 0;
+    recalc('mediodia');
   }
 
   document.addEventListener('visibilitychange', function(){

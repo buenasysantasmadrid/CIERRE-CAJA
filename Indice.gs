@@ -89,8 +89,16 @@ function periodoMensualMenos_(periodo, n) {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
 }
 
+// Abrir una planilla cuesta casi un segundo. Antes el Índice se abría de
+// nuevo en cada búsqueda (unas 8 veces por consulta de la app); ahora se
+// abre una sola vez por ejecución y se reutiliza, igual que los valores de
+// la pestaña "Archivos".
+var indiceSsCache_ = null;
+var archivosValoresCache_ = null;
+
 function hojaIndice_(nombre) {
-  var indice = SpreadsheetApp.openById(INDICE_SHEET_ID_);
+  if (!indiceSsCache_) indiceSsCache_ = SpreadsheetApp.openById(INDICE_SHEET_ID_);
+  var indice = indiceSsCache_;
   var hoja = indice.getSheetByName(nombre);
   if (!hoja) throw new Error('La planilla Índice no tiene la pestaña "' + nombre + '". Revisá INDICE_SHEET_ID_ y la estructura de esa planilla.');
   return hoja;
@@ -125,22 +133,56 @@ function coincidePeriodo_(valorCelda, periodo) {
   return normalizarTexto_(valorCelda) === periodo;
 }
 
+function valoresArchivos_() {
+  if (!archivosValoresCache_) archivosValoresCache_ = hojaIndice_('Archivos').getDataRange().getValues();
+  return archivosValoresCache_;
+}
+
+// Los IDs de las planillas casi nunca cambian, así que además se guardan
+// una hora en la memoria rápida de Google (CacheService): la mayoría de las
+// consultas ni siquiera necesitan abrir el Índice. Solo se guardan los IDs
+// encontrados (un mes que todavía no existe se vuelve a buscar siempre).
+// Si alguna vez se cambia a mano un ID en "Archivos", tarda como mucho una
+// hora en notarse (o se puede correr limpiarCacheIndice desde el editor).
+var CACHE_INDICE_SEGUNDOS_ = 3600;
+
 function buscarEnIndice_(tipo, periodo) {
-  var hoja = hojaIndice_('Archivos');
-  var valores = hoja.getDataRange().getValues();
+  var cache = CacheService.getScriptCache();
+  var clave = 'indice_' + tipo + '_' + periodo;
+  var guardado = cache.get(clave);
+  if (guardado) return guardado;
+
+  var valores = valoresArchivos_();
   for (var i = 1; i < valores.length; i++) {
     if (normalizarTexto_(valores[i][0]) === tipo && coincidePeriodo_(valores[i][1], periodo)) {
-      return valores[i][2] || null; // ID Planilla
+      var id = valores[i][2] || null; // ID Planilla
+      if (id) {
+        try { cache.put(clave, String(id), CACHE_INDICE_SEGUNDOS_); } catch (e) {}
+      }
+      return id;
     }
   }
   return null;
+}
+
+// Correr a mano desde el editor si se cambió un ID en "Archivos" y no se
+// quiere esperar la hora de la memoria rápida.
+function limpiarCacheIndice() {
+  var cache = CacheService.getScriptCache();
+  var claves = [];
+  ['CIERRE_CAJA', 'CONTABILIDAD', 'ALBARANES'].forEach(function (tipo) {
+    planillasDelTipo_(tipo).forEach(function (p) { claves.push('indice_' + tipo + '_' + p.periodo); });
+  });
+  cache.removeAll(claves);
+  invalidarCacheListados_();
+  Logger.log('Memoria rápida del Índice limpiada (' + claves.length + ' claves).');
 }
 
 // Todas las planillas de `tipo` que figuran en "Archivos":
 // [{id, nombre, periodo}]. `periodo` queda como "YYYY-MM" o "YYYY" aunque
 // Sheets haya convertido la celda en fecha (en ese caso, como "YYYY-MM").
 function planillasDelTipo_(tipo) {
-  var valores = hojaIndice_('Archivos').getDataRange().getValues();
+  var valores = valoresArchivos_();
   var resultado = [];
   for (var i = 1; i < valores.length; i++) {
     if (normalizarTexto_(valores[i][0]) !== tipo) continue;
@@ -156,6 +198,7 @@ function planillasDelTipo_(tipo) {
 function registrarEnIndice_(tipo, periodo, id, nombre) {
   var hoja = hojaIndice_('Archivos');
   hoja.appendRow([tipo, periodo, id, nombre, new Date()]);
+  archivosValoresCache_ = null; // que la próxima búsqueda vea la fila nueva
 }
 
 function configTipo_(tipo) {

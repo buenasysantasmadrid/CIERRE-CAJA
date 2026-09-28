@@ -8,6 +8,10 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // Cualquier guardado cambia los días o los albaranes: que la próxima
+    // consulta de listados los vuelva a armar.
+    invalidarCacheListados_();
+
     if (data.accionCambiarFormaPago) {
       return ContentService
         .createTextOutput(JSON.stringify(cambiarFormaPagoAlbaran_(data)))
@@ -468,7 +472,7 @@ function doGet(e) {
   var listarDias = e && e.parameter && e.parameter.listarDias;
   if (listarDias) {
     return ContentService
-      .createTextOutput(JSON.stringify(listarDiasConDatos_()))
+      .createTextOutput(respuestaConCache_('dias', listarDiasConDatos_))
       .setMimeType(ContentService.MimeType.JSON);
   }
   var listarFacturas = e && e.parameter && e.parameter.listarFacturas;
@@ -476,7 +480,9 @@ function doGet(e) {
     var proveedorFiltro = (e.parameter && e.parameter.proveedor) || '';
     var detalleFiltro = (e.parameter && e.parameter.detalle) || '';
     return ContentService
-      .createTextOutput(JSON.stringify(listarFacturasProveedores_(proveedorFiltro, detalleFiltro)))
+      .createTextOutput(respuestaConCache_('facturas_' + proveedorFiltro + '_' + detalleFiltro, function () {
+        return listarFacturasProveedores_(proveedorFiltro, detalleFiltro);
+      }))
       .setMimeType(ContentService.MimeType.JSON);
   }
   var fecha = e && e.parameter && e.parameter.fecha;
@@ -494,6 +500,47 @@ function doGet(e) {
   return ContentService
     .createTextOutput(JSON.stringify({ ok: true, msg: 'API de Cierre de Caja activa. Usá POST para enviar datos, GET ?fecha=YYYY-MM-DD para leer un día ya guardado, o GET ?listarFacturas=1 (con ?proveedor=<nombre> opcional) para ver todas las facturas y albaranes de proveedores.' }))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ---------- memoria rápida de los listados (días y albaranes) ----------
+// Armar la lista de días o la de albaranes obliga a abrir varias planillas
+// mensuales (varios segundos). Se guarda la respuesta 10 minutos en la
+// memoria rápida de Google y se tira en cuanto algo cambia: cualquier
+// guardado desde la app (doPost), una edición a mano (onEdit) o las
+// herramientas del menú (borrar / mover días). Para tirar todo de una vez
+// sin tener que conocer cada clave, las claves llevan un número de versión:
+// invalidar = cambiar la versión.
+var CACHE_LISTADOS_SEGUNDOS_ = 600;
+
+function versionCacheListados_() {
+  var cache = CacheService.getScriptCache();
+  var v = cache.get('listados_version');
+  if (!v) {
+    v = String(Date.now());
+    cache.put('listados_version', v, 21600);
+  }
+  return v;
+}
+
+function invalidarCacheListados_() {
+  try { CacheService.getScriptCache().put('listados_version', String(Date.now()), 21600); } catch (e) {}
+}
+
+// Devuelve el JSON de fn(), usando la copia guardada si hay una. Solo se
+// guardan las respuestas correctas (ok: true) y que entren en la memoria
+// rápida (máximo 100 KB por valor).
+function respuestaConCache_(nombre, fn) {
+  var cache = CacheService.getScriptCache();
+  var clave = 'listado_' + versionCacheListados_() + '_' + nombre;
+  if (clave.length > 250) clave = clave.slice(0, 250);
+  var guardado = cache.get(clave);
+  if (guardado) return guardado;
+  var resultado = fn();
+  var texto = JSON.stringify(resultado);
+  if (resultado && resultado.ok) {
+    try { cache.put(clave, texto, CACHE_LISTADOS_SEGUNDOS_); } catch (e) {}
+  }
+  return texto;
 }
 
 function coincideProveedor_(textoProv, proveedor, detalleNorm) {
@@ -703,8 +750,10 @@ function onEdit(e) {
     var hoja = e.range.getSheet();
     var nombreHoja = hoja.getName();
     if (nombreHoja === 'Registro') {
+      invalidarCacheListados_();
       manejarEdicionRegistro_(e, hoja);
     } else if (/^\d{2}-\d{2}-\d{4}$/.test(nombreHoja)) {
+      invalidarCacheListados_();
       manejarEdicionHojaDelDia_(e, hoja, nombreHoja);
     }
   } catch (err) {
@@ -1348,6 +1397,7 @@ function onOpen(e) {
 // "Movimientos" y la pestaña del día. Sin esto la app no los encuentra,
 // porque busca cada día en la planilla de su mes.
 function moverDiasAlMesCorrecto() {
+  invalidarCacheListados_();
   var resumen = [];
   planillasDelTipo_('CIERRE_CAJA').forEach(function (p) {
     if (!/^\d{4}-\d{2}$/.test(p.periodo)) return;
@@ -1479,6 +1529,7 @@ function borrarDiaCompleto() {
 // — NO las crea si no existen: para borrar no tiene sentido crear un
 // archivo nuevo solo para no encontrar nada que tocar en él.
 function borrarDiaEnTodosLados_(fecha) {
+  invalidarCacheListados_();
   var resumen = { fecha: fecha, registro: 0, movimientos: 0, pestanaDia: null, contabilidad: null };
 
   function fechaDeFila_(fila, idxFecha) {
