@@ -132,9 +132,8 @@
   .tc-lbl-total{font-size:.95rem;font-weight:700;color:var(--ink);letter-spacing:.02em;}
   .tc-diff{font-family:var(--serif);font-size:1.15rem;line-height:1.2;margin-bottom:0;font-variant-numeric:tabular-nums;white-space:nowrap;}
   .tc-btn{border-radius:12px;padding:11px 16px;font-size:.9rem;min-height:46px;width:100%;}
-  .tc-tpv{display:flex;gap:6px;margin:0 0 10px;}
-  .tc-tpv span{flex:1;min-width:0;background:rgba(255,255,255,.65);border-radius:10px;padding:5px 8px;font-size:.72rem;color:var(--ink-soft);display:flex;flex-direction:column;}
-  .tc-tpv b{font-size:.9rem;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .tpv-fila{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px;}
+  .tpv-fila input{min-width:0;}
   .fondo-box{margin-top:14px;}
   .fondo-toggle{width:100%;background:#fff;border:1px solid var(--line);border-radius:12px;min-height:46px;font-weight:600;}
   .fondo-res{margin-top:12px;padding:12px 14px;border-radius:12px;font-size:.88rem;line-height:1.45;}
@@ -879,11 +878,12 @@
               : campo('fondoFijo', 'Fondo fijo')
             ) +
             campo('totalFacturado', 'Total facturado'+dia) +
+          '</div>' +
+          '<div class="tpv-fila">' +
             campo('tpv1', 'TPV 1'+dia) +
             campo('tpv2', 'TPV 2'+dia) +
             campo('tpv3', 'TPV 3'+dia) +
           '</div>' +
-          (t==='mediodia' ? fondoConteoHTML() : '') +
         '</div>' +
 
         '<div class="paso">' +
@@ -911,7 +911,8 @@
     '</section>';
   }
 
-  // Conteo del fondo fijo al abrir (solo Mediodía): se cuenta por billete y
+  // Conteo del fondo fijo al abrir (en la pantalla principal, en el bloque
+  // de Mediodía): se cuenta por billete y
   // moneda y se compara con el efectivo contado en el último cierre (el de
   // Noche del último día trabajado, o el de Mediodía si Noche no contó).
   function fondoConteoHTML(){
@@ -1284,6 +1285,7 @@
   function bloqueTurnoHTML(t){
     return '<section class="turno-bloque" id="bloque_'+t+'">' +
       '<div class="turno-card '+t+'" id="turnoCard_'+t+'"><p class="muted" style="margin:0;">Cargando la caja…</p></div>' +
+      (t==='mediodia' ? fondoConteoHTML() : '') +
       '<div class="section-label">Anotar en '+TURNO_LABEL[t]+'</div>' +
       '<div class="fichas fichas-mini">' +
         FICHAS_ANOTAR.map(function(f){
@@ -1313,11 +1315,6 @@
       cont.innerHTML =
         '<div class="tc-head"><span class="tc-name">'+icon(TURNO_ICON[t])+'Cierre '+TURNO_LABEL[t]+'</span>' +
           '<span class="tc-estado">'+(cerrado ? 'Cerrado' : 'Pendiente')+'</span></div>' +
-        '<div class="tc-tpv">' +
-          ['tpv1','tpv2','tpv3'].map(function(k, i){
-            return '<span>TPV '+(i+1)+'<b>'+fmt((state[t] && state[t][k]) || 0)+'</b></span>';
-          }).join('') +
-        '</div>' +
         '<div class="tc-row">' +
           '<div><div class="tc-lbl tc-lbl-total">Total</div>' +
             '<div class="tc-total'+(hayTotal ? '' : ' none')+'">'+(hayTotal ? fmt(c.facturadoNeto) : '—')+'</div></div>' +
