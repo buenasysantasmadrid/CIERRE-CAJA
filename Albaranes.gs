@@ -91,7 +91,7 @@ function getOrCrearHojaIdsAlbaranes_(ss) {
   var hoja = ss.getSheetByName(ALBARANES_HOJA_IDS_);
   if (!hoja) {
     hoja = ss.insertSheet(ALBARANES_HOJA_IDS_);
-    hoja.appendRow(['ID Movimiento', 'Fecha', 'Pestaña']);
+    hoja.appendRow(['ID Movimiento', 'Fecha', 'Pestaña', 'Fecha factura']);
     hoja.setFrozenRows(1);
     hoja.hideSheet();
   }
@@ -222,82 +222,145 @@ function guardarBloqueOrdenado_(hoja, filaEncabezado, filas) {
   if (!hoja.isColumnHiddenByUser(ALBARANES_COL_ID_)) hoja.hideColumns(ALBARANES_COL_ID_);
 }
 
-// Deja el archivo de Albaranes igual a lo que tiene la app para `fechaISO`:
-// agrega los gastos nuevos, actualiza los que cambiaron, y borra los que ya
-// no están (o que cambiaron de proveedor). `gastos` vacío = borrar todo lo
-// de ese día. Si `soloSiExiste`, no crea la planilla del año si no está en
-// el Índice (para borrar no tiene sentido crearla).
+// Fecha de la factura de un gasto (la que se elige en el formulario, que
+// puede no ser la de la caja). Si no tiene una válida, la de la caja.
+function fechaFacturaGasto_(m, fechaCajaISO) {
+  var f = String((m && m.fecha) || '');
+  return /^\d{4}-\d{2}-\d{2}$/.test(f) ? f : fechaCajaISO;
+}
+
+function textoFechaIds_(v) {
+  return v instanceof Date
+    ? Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+    : String(v || '');
+}
+
+// Deja el archivo de Albaranes igual a lo que tiene la app para la caja de
+// `fechaISO`: agrega los gastos nuevos, actualiza los que cambiaron, y borra
+// los que ya no están (o que cambiaron de proveedor o de fecha). Cada gasto
+// se escribe con la fecha de SU factura (en el bloque de ese mes y en la
+// planilla de ese año), aunque se haya cargado en la caja de otro día.
+// `gastos` vacío = borrar todo lo de esa caja. Si `soloSiExiste`, no crea
+// planillas que no estén en el Índice.
 function sincronizarAlbaranesDelDia_(fechaISO, gastos, soloSiExiste) {
-  var anio = periodoAnual_(fechaISO);
+  var anioCaja = periodoAnual_(fechaISO);
+  var porAnio = {};
+  porAnio[anioCaja] = [];
+  // Lo cargado en una caja de principios de año puede haber quedado (en un
+  // guardado anterior) en la planilla del año anterior, si la factura era
+  // de ese año. Más adelante en el año no se mira, para no abrir otra
+  // planilla en cada guardado.
+  if (parseInt(String(fechaISO).split('-')[1], 10) <= 3) porAnio[String(Number(anioCaja) - 1)] = [];
+  gastos.forEach(function (m) {
+    var anio = periodoAnual_(fechaFacturaGasto_(m, fechaISO));
+    (porAnio[anio] = porAnio[anio] || []).push(m);
+  });
+
+  var escritos = 0, errores = [], nadas = [];
+  Object.keys(porAnio).sort().forEach(function (anio) {
+    var delAnio = porAnio[anio];
+    var r = sincronizarAlbaranesDelDiaEnAnio_(anio, fechaISO, delAnio, soloSiExiste || !delAnio.length);
+    if (r.nada) { if (delAnio.length) nadas.push(r.nada); return; }
+    escritos += r.escritos || 0;
+    if (r.error) errores.push(r.error);
+  });
+
+  var salida = { ok: errores.length === 0, escritos: escritos };
+  if (errores.length) salida.error = errores.join(' ');
+  if (!escritos && !errores.length && nadas.length) salida.nada = nadas.join(' ');
+  return salida;
+}
+
+// Lo mismo, dentro de la planilla de Albaranes de un año.
+function sincronizarAlbaranesDelDiaEnAnio_(anio, fechaISO, gastos, soloSiExiste) {
   var idPlanilla = soloSiExiste
     ? buscarEnIndice_('ALBARANES', anio)
     : obtenerOCrearPlanilla_('ALBARANES', anio);
   if (!idPlanilla) return { ok: true, nada: 'No hay planilla de Albaranes ' + anio + ' en el Índice.' };
 
   var ss = SpreadsheetApp.openById(idPlanilla);
-  var mesIndex = parseInt(String(fechaISO).split('-')[1], 10) - 1;
   var hojaIds = getOrCrearHojaIdsAlbaranes_(ss);
   var valoresIds = hojaIds.getDataRange().getValues();
 
-  // Lo que ya estaba escrito de este día: id -> pestaña.
+  // "IDs app": ID Movimiento · Fecha (de la caja) · Pestaña · Fecha factura.
+  // Las filas de antes no tienen fecha de factura: eran la de la caja.
+  function registroIds(fila) {
+    var fechaCaja = textoFechaIds_(fila[1]);
+    return { fechaCaja: fechaCaja, pestana: String(fila[2] || ''), fechaFactura: textoFechaIds_(fila[3]) || fechaCaja };
+  }
+  function clave(r) { return r.pestana + '|' + r.fechaFactura.split('-')[1]; }
+
+  // Lo que ya estaba escrito de esta caja: id -> {pestana, fechaFactura}.
   var previos = {};
   for (var i = 1; i < valoresIds.length; i++) {
-    var fechaFila = valoresIds[i][1] instanceof Date
-      ? Utilities.formatDate(valoresIds[i][1], Session.getScriptTimeZone(), 'yyyy-MM-dd')
-      : String(valoresIds[i][1] || '');
-    if (fechaFila === fechaISO) previos[String(valoresIds[i][0])] = String(valoresIds[i][2]);
+    var r = registroIds(valoresIds[i]);
+    if (r.fechaCaja === fechaISO) previos[String(valoresIds[i][0])] = r;
   }
 
-  // Cambios agrupados por pestaña: { nombre: { borrar: {id:true}, nuevas: [] } }
-  var porPestana = {};
-  function cambiosDe(nombre) {
-    if (!porPestana[nombre]) porPestana[nombre] = { borrar: {}, nuevas: [] };
-    return porPestana[nombre];
+  // Cambios agrupados por pestaña y mes: { 'NOMBRE|MM': { pestana, mes, borrar: {id:true}, nuevas: [] } }
+  var porBloque = {};
+  function cambiosDe(r) {
+    var k = clave(r);
+    if (!porBloque[k]) porBloque[k] = { pestana: r.pestana, fechaFactura: r.fechaFactura, borrar: {}, nuevas: [] };
+    return porBloque[k];
   }
 
   var avisos = [];
-  var actuales = {}; // id -> pestaña
+  var actuales = {}; // id -> {fechaCaja, pestana, fechaFactura}
   gastos.forEach(function (m) {
     var hoja = pestanaAlbaranesParaProveedor_(ss, m.proveedor);
     if (!hoja) { avisos.push('No hay pestaña para el proveedor "' + m.proveedor + '".'); return; }
-    actuales[m.id] = hoja.getName();
-    cambiosDe(hoja.getName()).nuevas.push(m);
+    var r = { fechaCaja: fechaISO, pestana: hoja.getName(), fechaFactura: fechaFacturaGasto_(m, fechaISO) };
+    actuales[m.id] = r;
+    cambiosDe(r).nuevas.push(m);
   });
   Object.keys(previos).forEach(function (id) {
-    if (actuales[id] !== previos[id]) cambiosDe(previos[id]).borrar[id] = true;
+    if (!actuales[id] || clave(actuales[id]) !== clave(previos[id])) cambiosDe(previos[id]).borrar[id] = true;
   });
 
-  Object.keys(porPestana).forEach(function (nombre) {
-    var hoja = ss.getSheetByName(nombre);
+  Object.keys(porBloque).forEach(function (k) {
+    var cambios = porBloque[k];
+    var hoja = ss.getSheetByName(cambios.pestana);
     if (!hoja) return;
+    var mesIndex = parseInt(cambios.fechaFactura.split('-')[1], 10) - 1;
     var encabezados = filasEncabezadoAlbaranes_(hoja);
     var filaEnc = encabezados[mesIndex];
-    if (!filaEnc) { avisos.push('La pestaña "' + nombre + '" no tiene el bloque del mes ' + (mesIndex + 1) + '.'); return; }
-    var mapa = mapaColumnasAlbaranes_(hoja.getRange(filaEnc, 1, 1, ALBARANES_ANCHO_).getValues()[0]);
-    var cambios = porPestana[nombre];
-    var nuevas = cambios.nuevas.map(function (m) { return { id: m.id, fila: filaAlbaran_(m, fechaISO, mapa) }; });
-    try {
-      reescribirBloqueAlbaranes_(hoja, filaEnc, cambios.borrar, nuevas);
-    } catch (err) {
-      avisos.push(String(err.message || err));
-      // No se pudo escribir esta pestaña: "IDs app" tiene que seguir
-      // reflejando lo que de verdad quedó en ella (lo de antes).
-      cambios.nuevas.forEach(function (m) { if (previos[m.id] !== nombre) delete actuales[m.id]; });
-      Object.keys(cambios.borrar).forEach(function (id) { if (!actuales[id]) actuales[id] = nombre; });
+    var error = null;
+    if (!filaEnc) {
+      error = 'La pestaña "' + cambios.pestana + '" no tiene el bloque del mes ' + (mesIndex + 1) + '.';
+    } else {
+      var mapa = mapaColumnasAlbaranes_(hoja.getRange(filaEnc, 1, 1, ALBARANES_ANCHO_).getValues()[0]);
+      var nuevas = cambios.nuevas.map(function (m) { return { id: m.id, fila: filaAlbaran_(m, fechaFacturaGasto_(m, fechaISO), mapa) }; });
+      try {
+        reescribirBloqueAlbaranes_(hoja, filaEnc, cambios.borrar, nuevas);
+      } catch (err) {
+        error = String(err.message || err);
+      }
+    }
+    if (error) {
+      avisos.push(error);
+      // No se pudo escribir este bloque: "IDs app" tiene que seguir
+      // reflejando lo que de verdad quedó en él (lo de antes).
+      cambios.nuevas.forEach(function (m) {
+        if (!previos[m.id] || clave(previos[m.id]) !== k) delete actuales[m.id];
+        else actuales[m.id] = previos[m.id];
+      });
+      Object.keys(cambios.borrar).forEach(function (id) { if (!actuales[id]) actuales[id] = previos[id]; });
     }
   });
 
-  // Reescribe "IDs app": saca las filas de este día y pone las actuales.
-  var resto = [valoresIds[0]];
+  // Reescribe "IDs app": saca las filas de esta caja y pone las actuales.
+  var resto = [['ID Movimiento', 'Fecha', 'Pestaña', 'Fecha factura']];
   for (var j = 1; j < valoresIds.length; j++) {
-    var ff = valoresIds[j][1] instanceof Date
-      ? Utilities.formatDate(valoresIds[j][1], Session.getScriptTimeZone(), 'yyyy-MM-dd')
-      : String(valoresIds[j][1] || '');
-    if (ff !== fechaISO) resto.push([valoresIds[j][0], ff, valoresIds[j][2]]);
+    var rj = registroIds(valoresIds[j]);
+    if (rj.fechaCaja !== fechaISO) resto.push([valoresIds[j][0], rj.fechaCaja, rj.pestana, rj.fechaFactura]);
   }
-  Object.keys(actuales).forEach(function (id) { resto.push([id, fechaISO, actuales[id]]); });
+  Object.keys(actuales).forEach(function (id) {
+    var ra = actuales[id];
+    resto.push([id, ra.fechaCaja, ra.pestana, ra.fechaFactura]);
+  });
   hojaIds.clearContents();
-  hojaIds.getRange(1, 1, resto.length, 3).setNumberFormat('@').setValues(resto);
+  hojaIds.getRange(1, 1, resto.length, 4).setNumberFormat('@').setValues(resto);
 
   var salida = { ok: avisos.length === 0, escritos: Object.keys(actuales).length };
   if (avisos.length) salida.error = avisos.join(' ');

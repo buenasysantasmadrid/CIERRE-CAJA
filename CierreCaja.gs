@@ -83,11 +83,31 @@ function getOrCrearMovimientos_(ss) {
     mov = ss.insertSheet('Movimientos');
     mov.appendRow([
       'ID', 'ID Movimiento', 'Fecha', 'Turno', 'Tipo', 'Subtipo', 'Proveedor / Motivo', 'Responsable',
-      'Nº Factura', 'Info', 'IVA (€)', 'Importe', 'Última actualización'
+      'Nº Factura', 'Info', 'IVA (€)', 'Importe', 'Última actualización', 'Fecha factura'
     ]);
     mov.setFrozenRows(1);
   }
   return mov;
+}
+
+// Columna (0-based) de "Fecha factura" en "Movimientos": la fecha de la
+// factura de cada gasto, que puede no ser la de la caja en la que se cargó.
+// Las pestañas de antes no la tienen: se agrega al final.
+function columnaFechaFactura_(mov) {
+  var ultima = mov.getLastColumn();
+  var header = mov.getRange(1, 1, 1, ultima).getValues()[0];
+  var idx = header.indexOf('Fecha factura');
+  if (idx > -1) return idx;
+  mov.getRange(1, ultima + 1).setValue('Fecha factura');
+  return ultima;
+}
+
+// Fila de "Movimientos" con la fecha de factura en su columna.
+function filaMovimiento_(valores, idxFechaFactura, fechaFactura) {
+  var fila = valores.slice();
+  while (fila.length <= idxFechaFactura) fila.push('');
+  fila[idxFechaFactura] = fechaFactura || '';
+  return fila;
 }
 
 // ============================================================================
@@ -127,6 +147,7 @@ function reconstruirMovimientosDesdeRegistro(idPlanillaCierreCaja) {
     viejo.setName(nombreBackup);
   }
   var mov = getOrCrearMovimientos_(ss);
+  var idxFechaFactura = columnaFechaFactura_(mov);
 
   var valores = registro.getDataRange().getValues();
   var header = valores[0];
@@ -159,12 +180,12 @@ function reconstruirMovimientosDesdeRegistro(idPlanillaCierreCaja) {
     (turnoData.movimientos || []).forEach(function (m) {
       var proveedorMotivo = m.proveedor || m.motivo || '';
       if (PROVEEDORES_CON_DETALLE_LIBRE_.indexOf(m.proveedor) > -1 && m.proveedorDetalle) proveedorMotivo += ' — ' + m.proveedorDetalle;
-      filas.push([
+      filas.push(filaMovimiento_([
         idTurno, m.id || '', fechaStr, turnoLabel,
         TIPO_LABEL_MAP_[m.tipo] || m.tipo || '', SUBTIPO_LABEL_MAP_[m.subtipo] || '',
         proveedorMotivo, m.responsable || '', m.factura || '', (m.info || ''),
         (m.iva != null ? m.iva : ''), m.importe, actualizado
-      ]);
+      ], idxFechaFactura, m.tipo === 'gasto' ? (m.fecha || '') : ''));
     });
   }
 
@@ -208,14 +229,15 @@ function escribirRegistroYMovimientos_(registro, mov, data, t, turnoLabel) {
   }
 
   if (id) borrarFilasPorId_(mov, id);
+  var idxFechaFactura = columnaFechaFactura_(mov);
   (t.movimientos || []).forEach(function (m) {
     var proveedorMotivo = m.proveedor || m.motivo || '';
     if (PROVEEDORES_CON_DETALLE_LIBRE_.indexOf(m.proveedor) > -1 && m.proveedorDetalle) proveedorMotivo += ' — ' + m.proveedorDetalle;
-    mov.appendRow([
+    mov.appendRow(filaMovimiento_([
       id, m.id || '', data.fecha, turnoLabel, m.tipo, m.subtipo,
       proveedorMotivo, m.responsable || '',
       m.factura || '', (m.info || ''), (m.iva != null ? m.iva : ''), m.importe, new Date()
-    ]);
+    ], idxFechaFactura, m.fechaFactura));
   });
 }
 
@@ -578,6 +600,7 @@ function listarFacturasProveedoresEnPlanilla_(ss, proveedor, detalleNorm) {
     var idxInfo = header.indexOf('Info');
     var idxIva = header.indexOf('IVA (€)');
     var idxImporte = header.indexOf('Importe');
+    var idxFechaFactura = header.indexOf('Fecha factura');
 
     if (idxIdMov === -1) {
       return { facturas: [], error: 'La pestaña "Movimientos" es de una versión anterior y no tiene la columna "ID Movimiento". Volvé a sincronizar un cambio desde la app para que se agregue.' };
@@ -602,10 +625,14 @@ function listarFacturasProveedoresEnPlanilla_(ss, proveedor, detalleNorm) {
       if (!coincideProveedor_(textoProv, proveedor, detalleNorm)) continue;
 
       var fechaRaw = fila[idxFecha];
+      var fechaCaja = (fechaRaw instanceof Date) ? Utilities.formatDate(fechaRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(fechaRaw || '');
+      var fechaFacturaRaw = idxFechaFactura > -1 ? fila[idxFechaFactura] : '';
+      var fechaFactura = (fechaFacturaRaw instanceof Date) ? Utilities.formatDate(fechaFacturaRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(fechaFacturaRaw || '');
       resultado.push({
         idMovimiento: fila[idxIdMov],
         idTurno: fila[idxIdTurno],
-        fecha: (fechaRaw instanceof Date) ? Utilities.formatDate(fechaRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(fechaRaw || ''),
+        fecha: fechaCaja, // la caja en la que se cargó (para abrirlo o pagarlo)
+        fechaFactura: fechaFactura || fechaCaja,
         turno: fila[idxTurno],
         subtipo: fila[idxSubtipo],
         proveedorTexto: textoProv,
@@ -616,7 +643,7 @@ function listarFacturasProveedoresEnPlanilla_(ss, proveedor, detalleNorm) {
       });
     }
 
-    resultado.sort(function (a, b) { return a.fecha < b.fecha ? 1 : (a.fecha > b.fecha ? -1 : 0); });
+    resultado.sort(function (a, b) { return a.fechaFactura < b.fechaFactura ? 1 : (a.fechaFactura > b.fechaFactura ? -1 : 0); });
 
     return { facturas: resultado };
 }
@@ -638,7 +665,7 @@ function listarFacturasProveedores_(proveedor, detalle) {
       resultado = resultado.concat(r.facturas);
     });
 
-    resultado.sort(function (a, b) { return a.fecha < b.fecha ? 1 : (a.fecha > b.fecha ? -1 : 0); });
+    resultado.sort(function (a, b) { return a.fechaFactura < b.fechaFactura ? 1 : (a.fechaFactura > b.fechaFactura ? -1 : 0); });
 
     var salida = { ok: true, facturas: resultado };
     if (error) salida.error = error;

@@ -267,7 +267,6 @@
   .scan-spinner{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--green);border-radius:50%;animation:scanspin .7s linear infinite;flex-shrink:0;}
   @keyframes scanspin{to{transform:rotate(360deg);}}
   .scan-error{font-size:.82rem;color:var(--red);background:var(--red-soft);padding:8px 10px;border-radius:10px;margin-bottom:8px;}
-  .scan-warn{font-size:.82rem;font-weight:700;color:#8A5A00;background:#FDF0CF;border:1px solid #F2D78C;padding:8px 10px;border-radius:10px;margin-bottom:8px;}
   .scan-ok{font-size:.85rem;font-weight:600;color:var(--green);margin-bottom:8px;display:flex;gap:6px;align-items:center;}
   .resp-detalle{margin-top:8px;}
 
@@ -1358,7 +1357,7 @@
       html += '<div class="form-grid cols-3">' +
         proveedorField(f.proveedor||'', f.proveedorDetalle||'') +
         field('Nº de factura','factura','text', f.factura||'') +
-        field('Fecha','fecha','date', f.fecha||todayISO()) +
+        field('Fecha factura','fecha','date', f.fecha||state.fecha) +
       '</div>';
       html += '<div class="form-grid"><div class="field span-2"><label>Info</label><input type="text" data-field="info" value="'+(f.info?escapeHtml(quitarTagInfoGasto(f.info, f.subtipo)):'')+'" placeholder="Detalle, observación, lo que haga falta anotar"></div>' + responsableField(f.responsable||'') + '</div>';
       html += importeBlock(f.importe, field('IVA (€)','iva','number', (f.iva!=null?f.iva:''), '0,00', 'iva'));
@@ -1614,7 +1613,6 @@
               '<div class="scan-status" id="scanStatusLine" style="display:none;"><span class="scan-spinner"></span><span id="scanStatusText">Leyendo la factura…</span></div>' +
               '<div class="scan-error" id="scanErrorLine" style="display:none;"></div>' +
               '<div class="scan-ok" id="scanOkLine" style="display:none;">'+icon('check')+' Datos cargados, revísalos antes de guardar</div>' +
-              '<div class="scan-warn" id="scanFechaDiferenteLine" style="display:none;">FECHA DIFERENTE, PONEMOS FECHA DE HOY</div>' +
               '<div class="scan-actions">' +
                 '<button type="button" class="btn-primary" id="scanBtnExtract">Extraer datos</button>' +
                 '<button type="button" id="scanBtnResetImg">Otra foto</button>' +
@@ -1672,7 +1670,6 @@
           thumb.src = resizedDataUrl;
           document.getElementById('scanPreviewRow').style.display = 'flex';
           document.getElementById('scanErrorLine').style.display = 'none';
-          document.getElementById('scanFechaDiferenteLine').style.display = 'none';
           document.getElementById('scanOkLine').style.display = 'none';
           document.getElementById('scanBtnExtract').disabled = false;
         }
@@ -1698,7 +1695,6 @@
     document.getElementById('scanStatusLine').style.display = 'flex';
     document.getElementById('scanStatusText').textContent = 'Leyendo la factura…';
     document.getElementById('scanErrorLine').style.display = 'none';
-    document.getElementById('scanFechaDiferenteLine').style.display = 'none';
     document.getElementById('scanOkLine').style.display = 'none';
 
     fetch(SCAN_EDGE_FUNCTION_URL, {
@@ -1762,15 +1758,25 @@
     var facturaEl = document.querySelector('#formFields [data-field="factura"]');
     if(facturaEl && data.numero_factura) facturaEl.value = data.numero_factura;
 
-    // La fecha del movimiento siempre es la de hoy, aunque la factura
-    // escaneada traiga otra fecha — en ese caso solo se avisa con un
-    // cartel, no se usa la fecha de la factura.
+    // Fecha de la factura: el gasto se ve igual en la caja abierta, pero
+    // en Albaranes queda con esta fecha. Si la factura trae otra fecha que
+    // la de la caja, se pregunta cuál poner.
     var fechaISO = normalizarFechaFactura(data.fecha);
-    var hoyISO = todayISO();
+    var fechaCaja = state.fecha;
     var fechaEl = document.querySelector('#formFields [data-field="fecha"]');
-    if(fechaEl) fechaEl.value = hoyISO;
-    var warnLine = document.getElementById('scanFechaDiferenteLine');
-    if(warnLine) warnLine.style.display = (fechaISO && fechaISO !== hoyISO) ? 'block' : 'none';
+    if(fechaEl){
+      fechaEl.value = fechaCaja;
+      if(fechaISO && fechaISO !== fechaCaja){
+        var pf = fechaISO.split('-'), pc = fechaCaja.split('-');
+        var textoCaja = fechaCaja === todayISO() ? 'fecha de hoy' : 'fecha de la caja';
+        preguntar(
+          'LA FACTURA ES DEL ' + pf[2] + '/' + pf[1] + '/' + pf[0] + '. ¿PONEMOS LA FECHA DE LA FACTURA O LA ' + textoCaja.toUpperCase() + '?',
+          'Fecha de la factura (' + pf[2] + '/' + pf[1] + ')',
+          (textoCaja === 'fecha de hoy' ? 'Fecha de hoy' : 'Fecha de la caja') + ' (' + pc[2] + '/' + pc[1] + ')',
+          function(){ fechaEl.value = fechaISO; },
+          function(){ fechaEl.value = fechaCaja; });
+      }
+    }
 
     if(data.importe_total != null && data.importe_total !== ''){
       var importeEl = document.querySelector('#formFields [data-field="importe"]');
@@ -1955,7 +1961,7 @@
       tipo: tipoFinal,
       subtipo: subtipoFinal,
       importe: importe,
-      fecha: data.fecha || todayISO(),
+      fecha: data.fecha || state.fecha,
       proveedor: proveedorFinal,
       proveedorDetalle: proveedorDetalle,
       factura: data.factura || '',
@@ -2134,8 +2140,9 @@
       var mPagado = /^PAGADO\s*([^·]*)/.exec(f.info||'');
       var pagadoTexto = mPagado ? (mPagado[1]||'').trim() : '';
       var turnoKey = /noche/i.test(String(f.turno||'')) ? 'noche' : (/medio/i.test(String(f.turno||'')) ? 'mediodia' : null);
-      var partesFecha = String(f.fecha||'').split('-');
-      var fechaCorta = partesFecha.length === 3 ? partesFecha[2]+'/'+partesFecha[1] : String(f.fecha||'');
+      var fechaFactura = f.fechaFactura || f.fecha || '';
+      var partesFecha = String(fechaFactura).split('-');
+      var fechaCorta = partesFecha.length === 3 ? partesFecha[2]+'/'+partesFecha[1] : String(fechaFactura);
       var tr = document.createElement('button');
       tr.type = 'button';
       tr.className = 'alb-row' + (noPagado ? ' alb-nopagado' : '');
@@ -2165,8 +2172,9 @@
 
   function abrirPagoAlbaran(f){
     pagoAlbaranActual = f;
-    var partesFecha = String(f.fecha||'').split('-');
-    var fechaTxt = partesFecha.length === 3 ? partesFecha[2]+'/'+partesFecha[1]+'/'+partesFecha[0] : String(f.fecha||'');
+    var fechaFactura = f.fechaFactura || f.fecha || '';
+    var partesFecha = String(fechaFactura).split('-');
+    var fechaTxt = partesFecha.length === 3 ? partesFecha[2]+'/'+partesFecha[1]+'/'+partesFecha[0] : String(fechaFactura);
     document.getElementById('pagoAlbaranResumen').innerHTML =
       '<div class="resumen-line"><span>Proveedor</span><b>'+escapeHtml(f.proveedorTexto||'(sin proveedor)')+'</b></div>' +
       '<div class="resumen-line"><span>Factura</span><b>'+escapeHtml(f.factura||'(s/n)')+'</b></div>' +
@@ -2279,7 +2287,7 @@
       proveedor: proveedorFinal,
       proveedorDetalle: proveedorDetalle,
       factura: f.factura || '',
-      info: 'Pago de factura ' + (f.factura||'(s/n)') + ' del ' + (f.fecha||''),
+      info: 'Pago de factura ' + (f.factura||'(s/n)') + ' del ' + (f.fechaFactura||f.fecha||''),
       iva: (f.iva != null && f.iva !== '') ? f.iva : null,
       motivo: '',
       responsable: ''
@@ -2946,7 +2954,10 @@
           subtipo: SUBTIPO_LABEL[m.subtipo]||'',
           proveedor: m.proveedor||'', proveedorDetalle: m.proveedorDetalle||'', motivo: m.motivo||'',
           responsable: m.responsable||'', factura: m.factura||'', info: m.info||'',
-          iva: m.iva, importe: m.importe
+          iva: m.iva, importe: m.importe,
+          // Fecha de la factura (puede no ser la de la caja): con esta se
+          // guarda en Albaranes.
+          fechaFactura: m.tipo === 'gasto' ? (m.fecha||'') : ''
         };
       }),
       // Copia SIN transformar de los movimientos (mismas claves internas
