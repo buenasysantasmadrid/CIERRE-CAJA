@@ -275,6 +275,17 @@ function borrarCopiasSueltasPlantilla_(ss) {
   });
 }
 
+// Dónde va cada cosa en la pestaña de un día. La plantilla "1" con TPV 3
+// (desde el 28/09/2026) tiene dos columnas más (L:M) para TPV 3, así que
+// EFECTIVO ANTIGUO pasó de M:R a O:T. Las pestañas hechas con la plantilla
+// de antes siguen funcionando: ahí TPV 3 va en H7:I8 / H64:I66.
+function celdasHojaDia_(hoja) {
+  var conTpv3 = normalizarClave_(hoja.getRange('O3').getValue()) === 'EFECTIVO ANTIGUO';
+  return conTpv3
+    ? { conTpv3: true, colsEfectivoAntiguo: ['O', 'P', 'Q', 'R', 'S', 'T'], tpv3Md: 'M5', tpv3Nc: 'M61', tpv3NochePropio: 'M62' }
+    : { conTpv3: false, colsEfectivoAntiguo: ['M', 'N', 'O', 'P', 'Q', 'R'], tpv3Md: 'I8', tpv3Nc: 'I65', tpv3NochePropio: 'I66' };
+}
+
 function escribirHojaDelDiaExacta_(ss, data) {
   var nombre = nombreHojaDia_(data.fecha);
   var hoja = ss.getSheetByName(nombre);
@@ -318,22 +329,27 @@ function escribirHojaDelDiaExacta_(ss, data) {
   var movsNc = nc.movimientos || [];
 
   hoja.getRange('B2').setValue(textoFechaLarga_(data.fecha));
+  var celdas = celdasHojaDia_(hoja);
 
   // ---- MEDIODÍA (posiciones de la plantilla "1" nueva) ----
   hoja.getRange('C45').setValue(md.totalFacturado || 0); // "TOTAL CIERRE SISTEMA"
   hoja.getRange('I5').setValue(md.tpv1 || 0);
   hoja.getRange('K5').setValue(md.tpv2 || 0);
-  // TPV 3 debajo de TPV 1 (H7:I8, lugar libre en la plantilla "1"), y en
-  // I6 la suma de los 3 (la usa "SUMA INGRESOS").
-  hoja.getRange('H6:I8').setValues([
-    ['TPV 1/2/3 DIA', (md.tpv1 || 0) + (md.tpv2 || 0) + (md.tpv3 || 0)],
-    ['TPV 3', ''],
-    ['TOTAL', md.tpv3 || 0]
-  ]);
+  hoja.getRange(celdas.tpv3Md).setValue(md.tpv3 || 0);
+  if (!celdas.conTpv3) {
+    // Pestaña con la plantilla de antes (sin lugar para TPV 3): va en
+    // H7:I8, que ahí está libre, y en I6 la suma de los 3 (la usa "SUMA
+    // INGRESOS").
+    hoja.getRange('H6:I7').setValues([
+      ['TPV 1/2/3 DIA', (md.tpv1 || 0) + (md.tpv2 || 0) + (md.tpv3 || 0)],
+      ['TPV 3', '']
+    ]);
+    hoja.getRange('H8').setValue('TOTAL');
+  }
   hoja.getRange('C43').setValue(md.fondoFijo || 0);
 
   escribirFilasFijas_(hoja, 6, 16, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtipo_(movsMd, 'Efectivo').map(filaGasto_));
-  escribirFilasFijas_(hoja, 5, 6, ['M', 'N', 'O', 'P', 'Q', 'R'], filtrarPorSubtipo_(movsMd, 'Efectivo antiguo').map(filaGasto_));
+  escribirFilasFijas_(hoja, 5, 6, celdas.colsEfectivoAntiguo, filtrarPorSubtipo_(movsMd, 'Efectivo antiguo').map(filaGasto_));
   escribirFilasFijas_(hoja, 26, 15, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtiposNoEfectivo_(movsMd).map(filaGasto_));
   escribirFilasFijas_(hoja, 29, 5, ['H', 'I', 'J'], filtrarPorTipo_(movsMd, 'Egreso').map(filaMotivoImporte_));
   escribirFilasFijas_(hoja, 37, 4, ['H', 'I', 'J'], filtrarPorTipo_(movsMd, 'Ingreso').map(filaMotivoImporte_));
@@ -357,19 +373,19 @@ function escribirHojaDelDiaExacta_(ss, data) {
   var tpv2NochePropio = Math.max(0, (nc.tpv2 || 0) - (md.tpv2 || 0));
   hoja.getRange('I62').setValue(tpv1NochePropio);
   hoja.getRange('K62').setValue(tpv2NochePropio);
+  // TPV 3 de Noche: el total del día completo y la parte de Noche, igual
+  // que TPV 1 y 2.
   var tpv3NochePropio = Math.max(0, (nc.tpv3 || 0) - (md.tpv3 || 0));
-  // TPV 3 de Noche en H64:I66 (lugar libre en la plantilla "1"): el total
-  // del día completo y la parte de Noche, igual que TPV 1 y 2.
-  hoja.getRange('H64:I66').setValues([
-    ['TPV 3', ''],
-    ['TOTAL', nc.tpv3 || 0],
-    ['TPV 3 NOCHE', tpv3NochePropio]
-  ]);
+  hoja.getRange(celdas.tpv3Nc).setValue(nc.tpv3 || 0);
+  hoja.getRange(celdas.tpv3NochePropio).setValue(tpv3NochePropio);
+  if (!celdas.conTpv3) {
+    hoja.getRange('H64:H66').setValues([['TPV 3'], ['TOTAL'], ['TPV 3 NOCHE']]);
+  }
   hoja.getRange('I63').setValue(tpv1NochePropio + tpv2NochePropio + tpv3NochePropio);
   hoja.getRange('I67').setValue((nc.tpv1 || 0) + (nc.tpv2 || 0) + (nc.tpv3 || 0)); // TOT TARJETA
 
   escribirFilasFijas_(hoja, 63, 10, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtipo_(movsNc, 'Efectivo').map(filaGasto_));
-  escribirFilasFijas_(hoja, 63, 6, ['M', 'N', 'O', 'P', 'Q', 'R'], filtrarPorSubtipo_(movsNc, 'Efectivo antiguo').map(filaGasto_));
+  escribirFilasFijas_(hoja, 63, 6, celdas.colsEfectivoAntiguo, filtrarPorSubtipo_(movsNc, 'Efectivo antiguo').map(filaGasto_));
   escribirFilasFijas_(hoja, 75, 8, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtiposNoEfectivo_(movsNc).map(filaGasto_));
   escribirFilasFijas_(hoja, 88, 5, ['H', 'I', 'J'], filtrarPorTipo_(movsNc, 'Egreso').map(filaMotivoImporte_));
   escribirFilasFijas_(hoja, 97, 5, ['H', 'I', 'J'], filtrarPorTipo_(movsNc, 'Ingreso').map(filaMotivoImporte_));
@@ -943,9 +959,12 @@ function manejarEdicionHojaDelDia_(e, hoja, nombreHoja) {
     return colNum >= col && colNum <= colFin && filaHasta >= fila && filaDesde <= filaFin;
   }
 
-  var tocaMd = tocaCelda_('C', 45) || tocaCelda_('I', 5) || tocaCelda_('K', 5) || tocaCelda_('I', 8) || tocaCelda_('C', 43) ||
+  var celdas = celdasHojaDia_(hoja);
+  function tocaA1_(a1) { return tocaCelda_(a1.replace(/\d+/, ''), Number(a1.replace(/\D+/, ''))); }
+
+  var tocaMd = tocaCelda_('C', 45) || tocaCelda_('I', 5) || tocaCelda_('K', 5) || tocaA1_(celdas.tpv3Md) || tocaCelda_('C', 43) ||
     tocaRango_('J', 13, 17) || tocaRango_('I', 18, 23) || tocaRango_('J', 18, 23);
-  var tocaNc = tocaCelda_('C', 87) || tocaCelda_('I', 61) || tocaCelda_('K', 61) || tocaCelda_('I', 65) || tocaCelda_('C', 86) ||
+  var tocaNc = tocaCelda_('C', 87) || tocaCelda_('I', 61) || tocaCelda_('K', 61) || tocaA1_(celdas.tpv3Nc) || tocaCelda_('C', 86) ||
     tocaRango_('J', 71, 75) || tocaRango_('I', 76, 81) || tocaRango_('J', 76, 81);
 
   if (!tocaMd && !tocaNc) return; // se editó otra celda de esta pestaña (movimientos, etc.)
@@ -955,11 +974,11 @@ function manejarEdicionHojaDelDia_(e, hoja, nombreHoja) {
 
   var huboCambio = false;
   if (tocaMd && diaExistente.mediodia && diaExistente.mediodia.id) {
-    aplicarEdicionTurnoDesdeHoja_(hoja, diaExistente.mediodia, 'C45', 'I5', 'K5', 'I8', 'C43', 13, 18);
+    aplicarEdicionTurnoDesdeHoja_(hoja, diaExistente.mediodia, 'C45', 'I5', 'K5', celdas.tpv3Md, 'C43', 13, 18);
     huboCambio = true;
   }
   if (tocaNc && diaExistente.noche && diaExistente.noche.id) {
-    aplicarEdicionTurnoDesdeHoja_(hoja, diaExistente.noche, 'C87', 'I61', 'K61', 'I65', 'C86', 71, 76);
+    aplicarEdicionTurnoDesdeHoja_(hoja, diaExistente.noche, 'C87', 'I61', 'K61', celdas.tpv3Nc, 'C86', 71, 76);
     huboCambio = true;
   }
   if (!huboCambio) return;
@@ -1561,6 +1580,7 @@ function onOpen(e) {
     .addItem('Albaranes: reenviar un mes desde Cierre de Caja…', 'reenviarMesAAlbaranesDesdeMenu')
     .addSeparator()
     .addItem('Contabilidad: pasar a 3 TPV (sin WEB, con GLOVO)', 'adaptarContabilidadTresTpvDesdeMenu')
+    .addItem('Cierre de Caja: pasar la plantilla y los días a 3 TPV', 'pasarCierresATresTpvDesdeMenu')
     .addToUi();
 }
 
@@ -1783,3 +1803,82 @@ function borrarDiaEnTodosLados_(fecha) {
   return resumen;
 }
 
+// ============================================================================
+// Una vez: pasar Cierre de Caja a la plantilla "1" con TPV 3 (menú).
+// ============================================================================
+// 1) Busca, entre las planillas de Cierre de Caja del Índice (y la planilla
+//    plantilla de "Tipos"), una cuya pestaña "1" ya tenga TPV 3, y copia esa
+//    "1" a las que todavía tienen la de antes — así los meses nuevos y los
+//    días nuevos salen con TPV 3.
+// 2) Vuelve a armar, con esa plantilla, las pestañas de los días que
+//    todavía tienen el formato viejo, con los datos guardados de la app
+//    (Registro). Lo que se haya escrito a mano en esas pestañas fuera de lo
+//    que carga la app se pierde.
+function pasarCierresATresTpv() {
+  var resumen = [];
+  var archivos = planillasDelTipo_('CIERRE_CAJA').map(function (p) { return { id: p.id, nombre: p.nombre, esPlantilla: false }; });
+  var plantillaId = '';
+  try { plantillaId = normalizarTexto_(configTipo_('CIERRE_CAJA').plantillaId); } catch (errCfg) {}
+  if (plantillaId) archivos.push({ id: plantillaId, nombre: 'Plantilla de Cierre de Caja', esPlantilla: true });
+
+  archivos.forEach(function (a) { a.ss = SpreadsheetApp.openById(a.id); });
+  var origen = null;
+  archivos.forEach(function (a) {
+    var uno = a.ss.getSheetByName('1');
+    if (!origen && uno && celdasHojaDia_(uno).conTpv3) origen = uno;
+  });
+  if (!origen) throw new Error('Ninguna planilla de Cierre de Caja tiene todavía la pestaña "1" con TPV 3 (EFECTIVO ANTIGUO en la columna O).');
+  // En la plantilla, los títulos de TPV 3 decían "TPV 2".
+  origen.getRange('L4').setValue('TPV 3');
+  origen.getRange('L60').setValue('TPV 3');
+
+  archivos.forEach(function (a) {
+    var ss = a.ss;
+    var uno = ss.getSheetByName('1');
+    if (!uno || !celdasHojaDia_(uno).conTpv3) {
+      var posicion = uno ? uno.getIndex() : 1;
+      var copia = origen.copyTo(ss);
+      if (uno) ss.deleteSheet(uno);
+      copia.setName('1');
+      ss.setActiveSheet(copia);
+      ss.moveActiveSheet(posicion);
+      resumen.push(a.nombre + ': plantilla "1" actualizada');
+    }
+    if (a.esPlantilla) return;
+
+    var rehechos = [], sinDatos = [];
+    ss.getSheets().forEach(function (hoja) {
+      var nombre = hoja.getName();
+      if (!/^\d{2}-\d{2}-\d{4}$/.test(nombre) || celdasHojaDia_(hoja).conTpv3) return;
+      var fecha = fechaDesdeNombreHoja_(nombre);
+      var dia = obtenerDiaJSON_(ss, fecha);
+      if (!dia || !dia.encontrado) { sinDatos.push(nombre); return; }
+      var posicionDia = hoja.getIndex();
+      ss.deleteSheet(hoja);
+      escribirHojaDelDiaExacta_(ss, {
+        fecha: fecha,
+        negocio: dia.negocio,
+        mediodia: turnoParaHojaExacta_(dia.mediodia),
+        noche: turnoParaHojaExacta_(dia.noche)
+      });
+      var nueva = ss.getSheetByName(nombre);
+      if (nueva) { ss.setActiveSheet(nueva); ss.moveActiveSheet(posicionDia); }
+      rehechos.push(nombre);
+    });
+    if (rehechos.length) resumen.push(a.nombre + ': ' + rehechos.length + ' días rehechos con TPV 3');
+    if (sinDatos.length) resumen.push(a.nombre + ': sin datos de la app, no se tocaron: ' + sinDatos.join(', '));
+  });
+  archivos.forEach(function (a) { borrarCopiasSueltasPlantilla_(a.ss); });
+  return resumen.length ? resumen : ['Todo ya estaba con TPV 3.'];
+}
+
+function pasarCierresATresTpvDesdeMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var ok = ui.alert(
+    'Cierre de Caja: pasar a 3 TPV',
+    'Esto copia la pestaña "1" con TPV 3 a todas las planillas de Cierre de Caja (y a la plantilla), y vuelve a armar las pestañas de los días que tienen el formato viejo con los datos de la app. Lo que se haya escrito a mano en esas pestañas (fuera de lo que carga la app) se pierde. ¿Continuar?',
+    ui.ButtonSet.YES_NO
+  );
+  if (ok !== ui.Button.YES) return;
+  ui.alert('Listo', pasarCierresATresTpv().join('\n'), ui.ButtonSet.OK);
+}
