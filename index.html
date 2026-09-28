@@ -664,6 +664,7 @@
       totalFacturado: 0,
       tpv1: 0,
       tpv2: 0,
+      tpv3: 0,
       actualizadoEn: null
     };
   }
@@ -682,7 +683,7 @@
       var s = dia && dia[t];
       if(!s) return false;
       var c = s._calc || {};
-      return !!((s.movimientos && s.movimientos.length) || s.totalFacturado || s.tpv1 || s.tpv2 || c.totalContado);
+      return !!((s.movimientos && s.movimientos.length) || s.totalFacturado || s.tpv1 || s.tpv2 || s.tpv3 || c.totalContado);
     });
   }
 
@@ -868,6 +869,7 @@
             campo('totalFacturado', 'Total facturado'+dia) +
             campo('tpv1', 'TPV 1'+dia) +
             campo('tpv2', 'TPV 2'+dia) +
+            campo('tpv3', 'TPV 3'+dia) +
           '</div>' +
         '</div>' +
 
@@ -2468,6 +2470,7 @@
     var totalFacturado = num(document.getElementById('totalFacturado_'+t).value);
     var tpv1 = num(document.getElementById('tpv1_'+t).value);
     var tpv2 = num(document.getElementById('tpv2_'+t).value);
+    var tpv3 = num(document.getElementById('tpv3_'+t).value);
 
     // En Noche, lo que se ingresa es la lectura acumulada de TODO el día,
     // así que la parte "propia" de Noche es ese total menos lo que ya se
@@ -2475,17 +2478,20 @@
     var totalFacturadoPropio = totalFacturado;
     var tpv1Propio = tpv1;
     var tpv2Propio = tpv2;
+    var tpv3Propio = tpv3;
     if(t === 'noche'){
       var mdFacturado = (state.mediodia && state.mediodia.totalFacturado) || 0;
       var mdTpv1 = (state.mediodia && state.mediodia.tpv1) || 0;
       var mdTpv2 = (state.mediodia && state.mediodia.tpv2) || 0;
+      var mdTpv3 = (state.mediodia && state.mediodia.tpv3) || 0;
       totalFacturadoPropio = Math.max(0, totalFacturado - mdFacturado);
       tpv1Propio = Math.max(0, tpv1 - mdTpv1);
       tpv2Propio = Math.max(0, tpv2 - mdTpv2);
+      tpv3Propio = Math.max(0, tpv3 - mdTpv3);
     }
 
     var facturadoNeto = totalFacturadoPropio - empanadas;
-    var ventasEfectivo = facturadoNeto - (tpv1Propio + tpv2Propio);
+    var ventasEfectivo = facturadoNeto - (tpv1Propio + tpv2Propio + tpv3Propio);
 
     var esperado = fondoFijo + ventasEfectivo + ingresoEfectivo - gastoEfectivo - egreso;
     var diferencia = totalContado - esperado;
@@ -2508,17 +2514,18 @@
       '<div class="desglose-line"><span>− Gastos en efectivo</span><span>'+fmt(gastoEfectivo)+'</span></div>' +
       '<div class="desglose-line"><span>− Retiros</span><span>'+fmt(egreso)+'</span></div>' +
       '<div class="desglose-line total"><span>= Esperado</span><span>'+fmt(esperado)+'</span></div>' +
-      '<div class="desglose-line" style="color:var(--ink-soft);font-size:.78rem;"><span>Ventas en efectivo = (facturado '+fmt(totalFacturadoPropio)+' − empanadas '+fmt(empanadas)+') − TPV '+fmt(tpv1Propio + tpv2Propio)+'</span></div>';
+      '<div class="desglose-line" style="color:var(--ink-soft);font-size:.78rem;"><span>Ventas en efectivo = (facturado '+fmt(totalFacturadoPropio)+' − empanadas '+fmt(empanadas)+') − TPV '+fmt(tpv1Propio + tpv2Propio + tpv3Propio)+'</span></div>';
 
     state[t].fondoFijo = fondoFijo;
     state[t].totalFacturado = totalFacturado;
     state[t].tpv1 = tpv1;
     state[t].tpv2 = tpv2;
+    state[t].tpv3 = tpv3;
     state[t]._calc = {totalBilletes:totalBilletes, totalMonedas:totalMonedas, totalContado:totalContado,
       gastoEfectivo:gastoEfectivo, gastoNoEfectivo:gastoNoEfectivo, ingresoEfectivo:ingresoEfectivo,
       egreso:egreso, empanadas:empanadas, facturadoNeto:facturadoNeto, ventasEfectivo:ventasEfectivo,
       esperado:esperado, diferencia:diferencia,
-      totalFacturadoPropio:totalFacturadoPropio, tpv1Propio:tpv1Propio, tpv2Propio:tpv2Propio};
+      totalFacturadoPropio:totalFacturadoPropio, tpv1Propio:tpv1Propio, tpv2Propio:tpv2Propio, tpv3Propio:tpv3Propio};
 
     recalcDia();
   }
@@ -2642,6 +2649,7 @@
       document.getElementById('totalFacturado_'+t).value = state[t].totalFacturado || 0;
       document.getElementById('tpv1_'+t).value = state[t].tpv1 || 0;
       document.getElementById('tpv2_'+t).value = state[t].tpv2 || 0;
+      document.getElementById('tpv3_'+t).value = state[t].tpv3 || 0;
       buildDenomTables(t);
       renderMovimientos(t);
       recalc(t);
@@ -2872,12 +2880,12 @@
   });
 
   function wireTurnoEvents(t){
-    ['fondoFijo','totalFacturado','tpv1','tpv2'].forEach(function(base){
+    ['fondoFijo','totalFacturado','tpv1','tpv2','tpv3'].forEach(function(base){
       document.getElementById(base+'_'+t).addEventListener('input', function(){
         recalc(t);
         // Noche calcula su propia parte restando lo ya cargado en Mediodía,
         // así que si se edita Mediodía hay que refrescar también Noche.
-        if(t === 'mediodia' && (base === 'totalFacturado' || base === 'tpv1' || base === 'tpv2')){
+        if(t === 'mediodia' && (base === 'totalFacturado' || base === 'tpv1' || base === 'tpv2' || base === 'tpv3')){
           recalc('noche');
         }
         saveDraft();
@@ -2939,7 +2947,7 @@
     return {
       id: s.id,
       estado: 'Sincronizado',
-      fondoFijo: s.fondoFijo, totalFacturado: s.totalFacturado, tpv1: s.tpv1, tpv2: s.tpv2,
+      fondoFijo: s.fondoFijo, totalFacturado: s.totalFacturado, tpv1: s.tpv1, tpv2: s.tpv2, tpv3: s.tpv3 || 0,
       denom: s.denom,
       movimientos: (s.movimientos||[]).map(function(m){
         return {
@@ -3122,7 +3130,7 @@
 
           var yaHayDatosLocales = TURNOS.some(function(t){
             var s = state[t];
-            return (s.movimientos && s.movimientos.length) || s.totalFacturado || s.tpv1 || s.tpv2;
+            return (s.movimientos && s.movimientos.length) || s.totalFacturado || s.tpv1 || s.tpv2 || s.tpv3;
           });
           if(yaHayDatosLocales){
             logSheetStatus('Se encontraron datos de ' + fecha + ' en el Sheet, pero este dispositivo ya tenía algo cargado — no se pisa.');

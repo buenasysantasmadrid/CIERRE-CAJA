@@ -70,7 +70,7 @@ function getOrCrearRegistro_(ss) {
       'ID', 'Estado', 'Fecha', 'Turno', 'Negocio', 'Fondo fijo', 'Total facturado', 'Empanadas',
       'Facturado neto', 'TPV 1', 'TPV 2', 'Ventas en efectivo', 'Ingresos efectivo',
       'Gastos efectivo', 'Retiros', 'Efectivo esperado', 'Efectivo contado', 'Diferencia',
-      'Gastos no efectivo (info)', 'Cant. movimientos', 'Última actualización', 'Datos JSON (uso interno)'
+      'Gastos no efectivo (info)', 'Cant. movimientos', 'Última actualización', 'Datos JSON (uso interno)', 'TPV 3'
     ]);
     registro.setFrozenRows(1);
   }
@@ -90,16 +90,21 @@ function getOrCrearMovimientos_(ss) {
   return mov;
 }
 
+// Columna (0-based) con ese encabezado en la fila 1; si la pestaña es de
+// antes y no la tiene, se agrega al final.
+function asegurarColumna_(hoja, nombre) {
+  var ultima = hoja.getLastColumn();
+  var header = hoja.getRange(1, 1, 1, ultima).getValues()[0];
+  var idx = header.indexOf(nombre);
+  if (idx > -1) return idx;
+  hoja.getRange(1, ultima + 1).setValue(nombre);
+  return ultima;
+}
+
 // Columna (0-based) de "Fecha factura" en "Movimientos": la fecha de la
 // factura de cada gasto, que puede no ser la de la caja en la que se cargó.
-// Las pestañas de antes no la tienen: se agrega al final.
 function columnaFechaFactura_(mov) {
-  var ultima = mov.getLastColumn();
-  var header = mov.getRange(1, 1, 1, ultima).getValues()[0];
-  var idx = header.indexOf('Fecha factura');
-  if (idx > -1) return idx;
-  mov.getRange(1, ultima + 1).setValue('Fecha factura');
-  return ultima;
+  return asegurarColumna_(mov, 'Fecha factura');
 }
 
 // Fila de "Movimientos" con la fecha de factura en su columna.
@@ -208,6 +213,7 @@ function escribirRegistroYMovimientos_(registro, mov, data, t, turnoLabel) {
     totalFacturado: t.totalFacturado,
     tpv1: t.tpv1,
     tpv2: t.tpv2,
+    tpv3: t.tpv3 || 0,
     denom: t.denom,
     movimientos: t.movimientosRaw || t.movimientos,
     calc: t.calc
@@ -220,6 +226,11 @@ function escribirRegistroYMovimientos_(registro, mov, data, t, turnoLabel) {
     c.gastoEfectivo, c.egreso, c.esperado, c.totalContado, c.diferencia,
     c.gastoNoEfectivo, (t.movimientos || []).length, new Date(), datosJSON
   ];
+  // "TPV 3" va al final (se agregó después): en las pestañas de antes se
+  // crea la columna sola.
+  var idxTpv3 = asegurarColumna_(registro, 'TPV 3');
+  while (filaRegistro.length <= idxTpv3) filaRegistro.push('');
+  filaRegistro[idxTpv3] = t.tpv3 || 0;
 
   var filaExistente = id ? buscarFilaPorId_(registro, id) : -1;
   if (filaExistente > -1) {
@@ -312,6 +323,13 @@ function escribirHojaDelDiaExacta_(ss, data) {
   hoja.getRange('C45').setValue(md.totalFacturado || 0); // "TOTAL CIERRE SISTEMA"
   hoja.getRange('I5').setValue(md.tpv1 || 0);
   hoja.getRange('K5').setValue(md.tpv2 || 0);
+  // TPV 3 debajo de TPV 1 (H7:I8, lugar libre en la plantilla "1"), y en
+  // I6 la suma de los 3 (la usa "SUMA INGRESOS").
+  hoja.getRange('H6:I8').setValues([
+    ['TPV 1/2/3 DIA', (md.tpv1 || 0) + (md.tpv2 || 0) + (md.tpv3 || 0)],
+    ['TPV 3', ''],
+    ['TOTAL', md.tpv3 || 0]
+  ]);
   hoja.getRange('C43').setValue(md.fondoFijo || 0);
 
   escribirFilasFijas_(hoja, 6, 16, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtipo_(movsMd, 'Efectivo').map(filaGasto_));
@@ -339,7 +357,16 @@ function escribirHojaDelDiaExacta_(ss, data) {
   var tpv2NochePropio = Math.max(0, (nc.tpv2 || 0) - (md.tpv2 || 0));
   hoja.getRange('I62').setValue(tpv1NochePropio);
   hoja.getRange('K62').setValue(tpv2NochePropio);
-  hoja.getRange('I63').setValue(tpv1NochePropio + tpv2NochePropio);
+  var tpv3NochePropio = Math.max(0, (nc.tpv3 || 0) - (md.tpv3 || 0));
+  // TPV 3 de Noche en H64:I66 (lugar libre en la plantilla "1"): el total
+  // del día completo y la parte de Noche, igual que TPV 1 y 2.
+  hoja.getRange('H64:I66').setValues([
+    ['TPV 3', ''],
+    ['TOTAL', nc.tpv3 || 0],
+    ['TPV 3 NOCHE', tpv3NochePropio]
+  ]);
+  hoja.getRange('I63').setValue(tpv1NochePropio + tpv2NochePropio + tpv3NochePropio);
+  hoja.getRange('I67').setValue((nc.tpv1 || 0) + (nc.tpv2 || 0) + (nc.tpv3 || 0)); // TOT TARJETA
 
   escribirFilasFijas_(hoja, 63, 10, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtipo_(movsNc, 'Efectivo').map(filaGasto_));
   escribirFilasFijas_(hoja, 63, 6, ['M', 'N', 'O', 'P', 'Q', 'R'], filtrarPorSubtipo_(movsNc, 'Efectivo antiguo').map(filaGasto_));
@@ -440,7 +467,7 @@ function puntajeTurno_(t) {
   var movs = (t.movimientos || []).length;
   var c = t.calc || {};
   var tieneActividad = (c.totalContado || 0) !== 0 || (t.fondoFijo || 0) !== 0 ||
-    (t.totalFacturado || 0) !== 0 || (t.tpv1 || 0) !== 0 || (t.tpv2 || 0) !== 0;
+    (t.totalFacturado || 0) !== 0 || (t.tpv1 || 0) !== 0 || (t.tpv2 || 0) !== 0 || (t.tpv3 || 0) !== 0;
   return movs * 1000 + (tieneActividad ? 1 : 0);
 }
 
@@ -828,13 +855,14 @@ function manejarEdicionRegistro_(e, hoja) {
   var idxTotalFacturado = header.indexOf('Total facturado');
   var idxTpv1 = header.indexOf('TPV 1');
   var idxTpv2 = header.indexOf('TPV 2');
+  var idxTpv3 = header.indexOf('TPV 3');
   var idxJSON = -1;
   for (var h = 0; h < header.length; h++) {
     if (String(header[h] || '').indexOf('Datos JSON') === 0) { idxJSON = h; break; }
   }
   if (idxJSON === -1) return; // pestaña vieja, sin dónde guardar el resultado
 
-  var colsEditables = [idxFondoFijo, idxTotalFacturado, idxTpv1, idxTpv2]
+  var colsEditables = [idxFondoFijo, idxTotalFacturado, idxTpv1, idxTpv2, idxTpv3]
     .filter(function (i) { return i > -1; })
     .map(function (i) { return i + 1; });
   var colInicio = e.range.getColumn();
@@ -870,6 +898,7 @@ function manejarEdicionRegistro_(e, hoja) {
   turnoEditado.totalFacturado = Number(filaValores[idxTotalFacturado]) || 0;
   turnoEditado.tpv1 = Number(filaValores[idxTpv1]) || 0;
   turnoEditado.tpv2 = Number(filaValores[idxTpv2]) || 0;
+  if (idxTpv3 > -1) turnoEditado.tpv3 = Number(filaValores[idxTpv3]) || 0;
 
   var turnoKey = (String(filaValores[idxTurno]).toLowerCase() === 'noche') ? 'noche' : 'mediodia';
   var diaExistente = obtenerDiaJSON_(hoja.getParent(), fechaStr) || {};
@@ -914,9 +943,9 @@ function manejarEdicionHojaDelDia_(e, hoja, nombreHoja) {
     return colNum >= col && colNum <= colFin && filaHasta >= fila && filaDesde <= filaFin;
   }
 
-  var tocaMd = tocaCelda_('C', 45) || tocaCelda_('I', 5) || tocaCelda_('K', 5) || tocaCelda_('C', 43) ||
+  var tocaMd = tocaCelda_('C', 45) || tocaCelda_('I', 5) || tocaCelda_('K', 5) || tocaCelda_('I', 8) || tocaCelda_('C', 43) ||
     tocaRango_('J', 13, 17) || tocaRango_('I', 18, 23) || tocaRango_('J', 18, 23);
-  var tocaNc = tocaCelda_('C', 87) || tocaCelda_('I', 61) || tocaCelda_('K', 61) || tocaCelda_('C', 86) ||
+  var tocaNc = tocaCelda_('C', 87) || tocaCelda_('I', 61) || tocaCelda_('K', 61) || tocaCelda_('I', 65) || tocaCelda_('C', 86) ||
     tocaRango_('J', 71, 75) || tocaRango_('I', 76, 81) || tocaRango_('J', 76, 81);
 
   if (!tocaMd && !tocaNc) return; // se editó otra celda de esta pestaña (movimientos, etc.)
@@ -926,11 +955,11 @@ function manejarEdicionHojaDelDia_(e, hoja, nombreHoja) {
 
   var huboCambio = false;
   if (tocaMd && diaExistente.mediodia && diaExistente.mediodia.id) {
-    aplicarEdicionTurnoDesdeHoja_(hoja, diaExistente.mediodia, 'C45', 'I5', 'K5', 'C43', 13, 18);
+    aplicarEdicionTurnoDesdeHoja_(hoja, diaExistente.mediodia, 'C45', 'I5', 'K5', 'I8', 'C43', 13, 18);
     huboCambio = true;
   }
   if (tocaNc && diaExistente.noche && diaExistente.noche.id) {
-    aplicarEdicionTurnoDesdeHoja_(hoja, diaExistente.noche, 'C87', 'I61', 'K61', 'C86', 71, 76);
+    aplicarEdicionTurnoDesdeHoja_(hoja, diaExistente.noche, 'C87', 'I61', 'K61', 'I65', 'C86', 71, 76);
     huboCambio = true;
   }
   if (!huboCambio) return;
@@ -939,15 +968,16 @@ function manejarEdicionHojaDelDia_(e, hoja, nombreHoja) {
   guardarDiaCompleto_(hoja.getParent(), fechaStr, diaExistente.negocio, diaExistente);
 }
 
-// Lee de la pestaña bonita el Total facturado / TPV 1 / TPV 2 / Fondo fijo
+// Lee de la pestaña bonita el Total facturado / TPV 1 / 2 / 3 / Fondo fijo
 // y el conteo completo de billetes y monedas de un turno, y los vuelca
 // sobre el objeto `turno` (que ya viene con el resto de sus datos —
 // movimientos, id, etc.— intactos, para no perder nada de lo que la app
 // cargó).
-function aplicarEdicionTurnoDesdeHoja_(hoja, turno, celdaFacturado, celdaTpv1, celdaTpv2, celdaFondoFijo, filaBilletesDesde, filaMonedasDesde) {
+function aplicarEdicionTurnoDesdeHoja_(hoja, turno, celdaFacturado, celdaTpv1, celdaTpv2, celdaTpv3, celdaFondoFijo, filaBilletesDesde, filaMonedasDesde) {
   turno.totalFacturado = Number(hoja.getRange(celdaFacturado).getValue()) || 0;
   turno.tpv1 = Number(hoja.getRange(celdaTpv1).getValue()) || 0;
   turno.tpv2 = Number(hoja.getRange(celdaTpv2).getValue()) || 0;
+  turno.tpv3 = Number(hoja.getRange(celdaTpv3).getValue()) || 0;
   turno.fondoFijo = Number(hoja.getRange(celdaFondoFijo).getValue()) || 0;
 
   var denom = { billetes: {}, monedasBlister: {}, monedasSueltas: {} };
@@ -1005,14 +1035,16 @@ function recalcularDia_(dia) {
     var totalFacturadoPropio = turno.totalFacturado || 0;
     var tpv1Propio = turno.tpv1 || 0;
     var tpv2Propio = turno.tpv2 || 0;
+    var tpv3Propio = turno.tpv3 || 0;
     if (esNoche && md) {
       totalFacturadoPropio = Math.max(0, (turno.totalFacturado || 0) - (md.totalFacturado || 0));
       tpv1Propio = Math.max(0, (turno.tpv1 || 0) - (md.tpv1 || 0));
       tpv2Propio = Math.max(0, (turno.tpv2 || 0) - (md.tpv2 || 0));
+      tpv3Propio = Math.max(0, (turno.tpv3 || 0) - (md.tpv3 || 0));
     }
 
     var facturadoNeto = totalFacturadoPropio - empanadas;
-    var ventasEfectivo = facturadoNeto - (tpv1Propio + tpv2Propio);
+    var ventasEfectivo = facturadoNeto - (tpv1Propio + tpv2Propio + tpv3Propio);
     var totalContado = totalContadoDesdeDenom_(turno.denom);
     var esperado = (turno.fondoFijo || 0) + ventasEfectivo + ingresoEfectivo - gastoEfectivo - egreso;
     var diferencia = totalContado - esperado;
@@ -1022,7 +1054,7 @@ function recalcularDia_(dia) {
       ingresoEfectivo: ingresoEfectivo, gastoEfectivo: gastoEfectivo, egreso: egreso,
       esperado: esperado, totalContado: totalContado, diferencia: diferencia,
       gastoNoEfectivo: gastoNoEfectivo,
-      totalFacturadoPropio: totalFacturadoPropio, tpv1Propio: tpv1Propio, tpv2Propio: tpv2Propio
+      totalFacturadoPropio: totalFacturadoPropio, tpv1Propio: tpv1Propio, tpv2Propio: tpv2Propio, tpv3Propio: tpv3Propio
     };
   });
 
@@ -1043,6 +1075,7 @@ function guardarDiaCompleto_(ss, fecha, negocio, dia) {
   var idxTotalFacturado = header.indexOf('Total facturado');
   var idxTpv1 = header.indexOf('TPV 1');
   var idxTpv2 = header.indexOf('TPV 2');
+  var idxTpv3 = header.indexOf('TPV 3');
   var idxEsperado = header.indexOf('Efectivo esperado');
   var idxContado = header.indexOf('Efectivo contado');
   var idxDiferencia = header.indexOf('Diferencia');
@@ -1059,6 +1092,7 @@ function guardarDiaCompleto_(ss, fecha, negocio, dia) {
     if (idxTotalFacturado > -1) registro.getRange(filaN, idxTotalFacturado + 1).setValue(turno.totalFacturado || 0);
     if (idxTpv1 > -1) registro.getRange(filaN, idxTpv1 + 1).setValue(turno.tpv1 || 0);
     if (idxTpv2 > -1) registro.getRange(filaN, idxTpv2 + 1).setValue(turno.tpv2 || 0);
+    if (idxTpv3 > -1) registro.getRange(filaN, idxTpv3 + 1).setValue(turno.tpv3 || 0);
     if (idxEsperado > -1) registro.getRange(filaN, idxEsperado + 1).setValue(c.esperado || 0);
     if (idxContado > -1) registro.getRange(filaN, idxContado + 1).setValue(c.totalContado || 0);
     if (idxDiferencia > -1) registro.getRange(filaN, idxDiferencia + 1).setValue(c.diferencia || 0);
@@ -1274,6 +1308,7 @@ function listarDiasConDatos_() {
       var idxFacturado = header.indexOf('Total facturado');
       var idxTpv1 = header.indexOf('TPV 1');
       var idxTpv2 = header.indexOf('TPV 2');
+      var idxTpv3 = header.indexOf('TPV 3');
       function num(fila, idx) { return idx > -1 ? (Number(fila[idx]) || 0) : 0; }
 
       for (var i = 1; i < valores.length; i++) {
@@ -1287,7 +1322,7 @@ function listarDiasConDatos_() {
         var fila = valores[i];
         var contado = num(fila, idxContado);
         var activo = num(fila, idxCantMov) > 0 || contado !== 0 || num(fila, idxFacturado) !== 0 ||
-          num(fila, idxTpv1) !== 0 || num(fila, idxTpv2) !== 0;
+          num(fila, idxTpv1) !== 0 || num(fila, idxTpv2) !== 0 || num(fila, idxTpv3) !== 0;
         var c = cierres[fechaStr] || (cierres[fechaStr] = { mediodia: 0, noche: 0, actividad: false });
         var turno = String(idxTurno > -1 ? fila[idxTurno] : '').toLowerCase() === 'noche' ? 'noche' : 'mediodia';
         if (activo) {
@@ -1311,22 +1346,99 @@ function listarDiasConDatos_() {
 // mismo día sincronizado varias veces siempre pisa la misma fila (nunca
 // duplica), sin importar qué haya quedado antes ahí.
 //
-// Columnas que esta función escribe — el resto (C/F/G/I/L fórmulas propias
-// de la hoja, P-U, V, Y-AG a mano o vinculadas a otro Sheet) no se toca:
+// Columnas de cada día (fila 2 = encabezados). El resto (F GLOVO a mano,
+// P-U, V, X-AG a mano o vinculadas a otro Sheet) no se toca:
 //   A  días trabajados de ese día (0 / 0,5 / 1 — ver turnoTieneActividad_)
-//   B  fecha
+//   B  DIA — fecha
+//   C  TOTAL SIST — total facturado del día (Mediodía + Noche)
 //   D  MEDIO DIA — total facturado de Mediodía
 //   E  NOCHE — la parte propia de Noche (total del día completo - Mediodía)
-//   H  EMPANADAS — Mediodía + Noche
-//   J  TPV 1 — acumulado del día completo (el que ya carga Noche)
-//   K  TPV 2 — ídem
+//   F  GLOVO — a mano
+//   G  EMPANADAS — Mediodía + Noche
+//   H  TOTAL — fórmula GLOVO + EMPANADAS
+//   I  TPV 1 — acumulado del día completo (el que ya carga Noche)
+//   J  TPV 2 — ídem
+//   K  TPV 3 — ídem
+//   L  TARJETAS — fórmula TPV 1 + TPV 2 + TPV 3
 //   M  EFEVO — efectivo contado al cerrar el último turno trabajado (es lo
 //      que queda como fondo fijo para el día siguiente)
 //   N  DIFERENCIA — Mediodía + Noche
 //   O  RETIRA — egresos de Mediodía + Noche
 // A34 queda con la fórmula =SUM(A3:A33), así el total de días trabajados
 // del mes se actualiza solo cada vez que se escribe una fila nueva.
+//
+// Hasta septiembre de 2026 las columnas eran otras (F UBER EAT, G WEB,
+// H EMPANADAS, I TOTAL, J TPV 1, K TPV 2, L TARJETAS): cada pestaña con el
+// formato viejo se pasa sola al nuevo (adaptarPestanaContabilidadTresTpv_)
+// la primera vez que se escribe en ella.
 var MESES_MAYUS_ = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+// Columnas que escribe la app (se vacían al copiar un mes o vaciar un día).
+var COLS_CONTABILIDAD_APP_ = ['A', 'B', 'C', 'D', 'E', 'G', 'I', 'J', 'K', 'M', 'N', 'O'];
+
+// Pasa una pestaña de mes del formato viejo (con WEB y 2 TPV) al nuevo (sin
+// WEB, GLOVO en vez de UBER EAT, 3 TPV). Los datos de cada día se mueven a
+// su columna nueva; lo que hubiera en WEB se pierde (se avisa en el
+// resultado). Si la pestaña ya tiene el formato nuevo, no hace nada.
+function adaptarPestanaContabilidadTresTpv_(hoja) {
+  var enc = hoja.getRange('A2:U2').getValues()[0];
+  function h(col) { return normalizarClave_(enc[columnaLetraANumero_(col) - 1]); }
+  if (h('G') !== 'WEB' || h('K') !== 'TPV 2') return null;
+
+  var viejos = hoja.getRange('F3:L33').getValues(); // UBER, WEB, EMPANADAS, TOTAL, TPV 1, TPV 2, TARJETAS
+  var diasConWeb = [];
+  var nuevos = viejos.map(function (v, i) {
+    var r = i + 3;
+    if (v[1] !== '' && v[1] != null && Number(v[1]) !== 0) diasConWeb.push((i + 1) + ': ' + v[1]);
+    return [v[0], v[2], '=F' + r + '+G' + r, v[4], v[5], '', '=I' + r + '+J' + r + '+K' + r];
+  });
+  hoja.getRange('F3:L33').setValues(nuevos);
+  hoja.getRange('F2:L2').setValues([['GLOVO', 'EMPANADAS', 'TOTAL', 'TPV 1', 'TPV 2', 'TPV 3', 'TARJETAS']]);
+
+  // Promedios y totales de abajo que dependían de las columnas movidas.
+  hoja.getRange('G35').setFormula('=G34/$A$34');
+  hoja.getRange('H35').setFormula('=H34/$A$34');
+  hoja.getRange('K35').setFormula('=K34/$A$34');
+  if (normalizarClave_(hoja.getRange('G36').getValue()) === 'TOTAL EXTRAS') hoja.getRange('H36').setFormula('=F34+G34');
+
+  // Comparación con los TPV del banco (P/Q): TPV 1 y TPV 2 ahora están en I y J.
+  if (h('P') === 'TPV 1' && h('Q') === 'TPV 2') {
+    var comparacion = [];
+    for (var r = 3; r <= 33; r++) {
+      comparacion.push(['=I' + r + '-P' + r, '=J' + r + '-Q' + r, '=IFERROR(R' + r + '/I' + r + ', "")', '=IFERROR(S' + r + '/J' + r + ', "")']);
+    }
+    hoja.getRange('R3:U33').setValues(comparacion);
+  }
+
+  return { pestana: hoja.getName(), diasConWeb: diasConWeb };
+}
+
+// Desde el menú: pasa al formato nuevo todas las pestañas de mes (y MASTER)
+// de todas las planillas de Contabilidad del Índice.
+function adaptarContabilidadTresTpv() {
+  var resumen = [];
+  planillasDelTipo_('CONTABILIDAD').forEach(function (p) {
+    var ss = SpreadsheetApp.openById(p.id);
+    MESES_MAYUS_.concat(['MASTER']).forEach(function (nombre) {
+      var hoja = ss.getSheetByName(nombre);
+      if (!hoja) return;
+      var r = adaptarPestanaContabilidadTresTpv_(hoja);
+      if (!r) return;
+      resumen.push(p.nombre + ' / ' + nombre + ': adaptada' + (r.diasConWeb.length ? ' — tenía WEB (se borró) en los días ' + r.diasConWeb.join(', ') : ''));
+    });
+  });
+  return resumen.length ? resumen : ['No había ninguna pestaña con el formato viejo.'];
+}
+
+function adaptarContabilidadTresTpvDesdeMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var ok = ui.alert(
+    'Contabilidad: pasar a 3 TPV',
+    'Esto cambia las columnas de todas las pestañas de mes de Contabilidad: saca WEB, UBER EAT pasa a llamarse GLOVO, agrega TPV 3 y TARJETAS suma los 3 TPV. Los datos de cada día se mueven solos a su columna nueva. ¿Continuar?',
+    ui.ButtonSet.YES_NO
+  );
+  if (ok !== ui.Button.YES) return;
+  ui.alert('Listo', adaptarContabilidadTresTpv().join('\n'), ui.ButtonSet.OK);
+}
 
 // El fondo fijo solo NO cuenta como actividad: la app lo pone sola al abrir
 // un día (viene de la caja anterior), así que un día abierto sin cargar
@@ -1335,7 +1447,7 @@ function turnoTieneActividad_(t) {
   var c = t.calc || {};
   var movs = t.movimientosRaw || t.movimientos || [];
   return movs.length > 0 || (c.totalContado || 0) !== 0 ||
-    (t.totalFacturado || 0) !== 0 || (t.tpv1 || 0) !== 0 || (t.tpv2 || 0) !== 0;
+    (t.totalFacturado || 0) !== 0 || (t.tpv1 || 0) !== 0 || (t.tpv2 || 0) !== 0 || (t.tpv3 || 0) !== 0;
 }
 
 // Trae la pestaña del mes en la planilla de Contabilidad DEL AÑO que
@@ -1360,7 +1472,8 @@ function getOrCrearPestanaContabilidad_(ss, mesIndex /* 0-11 */) {
   ss.setActiveSheet(hoja);
   ss.moveActiveSheet(idxOrigen + 1);
 
-  ['A', 'B', 'D', 'E', 'H', 'J', 'K', 'M', 'N', 'O'].forEach(function (col) {
+  adaptarPestanaContabilidadTresTpv_(hoja);
+  COLS_CONTABILIDAD_APP_.concat(['F']).forEach(function (col) {
     hoja.getRange(col + '3:' + col + '33').clearContent();
   });
   hoja.getRange('A34').setFormula('=SUM(A3:A33)');
@@ -1384,12 +1497,13 @@ function escribirContabilidad_(data) {
 
     var ssContabilidad = planillaContabilidad_(data.fecha);
     var hoja = getOrCrearPestanaContabilidad_(ssContabilidad, mes - 1);
+    adaptarPestanaContabilidadTresTpv_(hoja);
     var fila = 3 + (diaDelMes - 1);
 
     // Día sin nada cargado (o que se vació desde la app): la fila queda en
     // blanco en vez de con ceros y diferencia negativa.
     if (!mdActivo && !ncActivo) {
-      ['A', 'B', 'D', 'E', 'H', 'J', 'K', 'M', 'N', 'O'].forEach(function (col) {
+      COLS_CONTABILIDAD_APP_.forEach(function (col) {
         hoja.getRange(col + fila).clearContent();
       });
       return { ok: true, pestana: hoja.getName(), fila: fila, vacio: true };
@@ -1401,6 +1515,7 @@ function escribirContabilidad_(data) {
     var empanadasDia = (cMd.empanadas || 0) + (cNc.empanadas || 0);
     var tpv1Dia = ncActivo ? (nc.tpv1 || 0) : (md.tpv1 || 0);
     var tpv2Dia = ncActivo ? (nc.tpv2 || 0) : (md.tpv2 || 0);
+    var tpv3Dia = ncActivo ? (nc.tpv3 || 0) : (md.tpv3 || 0);
     var efevoDia = ncActivo ? (cNc.totalContado || 0) : (cMd.totalContado || 0);
     var diferenciaDia = (cMd.diferencia || 0) + (cNc.diferencia || 0);
     var retiraDia = (cMd.egreso || 0) + (cNc.egreso || 0);
@@ -1412,14 +1527,12 @@ function escribirContabilidad_(data) {
     // corriendo la fecha visible un día para atrás. Al mediodía queda lejos
     // de cualquier límite de huso horario real.
     hoja.getRange('B' + fila).setValue(new Date(anio, mes - 1, diaDelMes, 12));
-    hoja.getRange('D' + fila).setValue(mediodiaTotal);
-    hoja.getRange('E' + fila).setValue(nochePropio);
-    hoja.getRange('H' + fila).setValue(empanadasDia);
-    hoja.getRange('J' + fila).setValue(tpv1Dia);
-    hoja.getRange('K' + fila).setValue(tpv2Dia);
-    hoja.getRange('M' + fila).setValue(efevoDia);
-    hoja.getRange('N' + fila).setValue(diferenciaDia);
-    hoja.getRange('O' + fila).setValue(retiraDia);
+    hoja.getRange('C' + fila + ':E' + fila).setValues([[mediodiaTotal + nochePropio, mediodiaTotal, nochePropio]]);
+    hoja.getRange('G' + fila + ':H' + fila).setValues([[empanadasDia, '=F' + fila + '+G' + fila]]);
+    hoja.getRange('I' + fila + ':O' + fila).setValues([[
+      tpv1Dia, tpv2Dia, tpv3Dia, '=I' + fila + '+J' + fila + '+K' + fila,
+      efevoDia, diferenciaDia, retiraDia
+    ]]);
 
     return { ok: true, pestana: hoja.getName(), fila: fila };
   } catch (err) {
@@ -1446,6 +1559,8 @@ function onOpen(e) {
     .addSeparator()
     .addItem('Albaranes: restaurar datos viejos 2026 (una sola vez)', 'restaurarAlbaranesViejos2026DesdeMenu')
     .addItem('Albaranes: reenviar un mes desde Cierre de Caja…', 'reenviarMesAAlbaranesDesdeMenu')
+    .addSeparator()
+    .addItem('Contabilidad: pasar a 3 TPV (sin WEB, con GLOVO)', 'adaptarContabilidadTresTpvDesdeMenu')
     .addToUi();
 }
 
@@ -1644,8 +1759,9 @@ function borrarDiaEnTodosLados_(fecha) {
         var ssC = SpreadsheetApp.openById(idPlanilla);
         var hojaMes = ssC.getSheetByName(MESES_MAYUS_[mes - 1]);
         if (hojaMes) {
+          adaptarPestanaContabilidadTresTpv_(hojaMes);
           var filaC = 3 + (diaDelMes - 1);
-          ['A', 'B', 'D', 'E', 'H', 'J', 'K', 'M', 'N', 'O'].forEach(function (col) {
+          COLS_CONTABILIDAD_APP_.forEach(function (col) {
             hojaMes.getRange(col + filaC).clearContent();
           });
           resumen.contabilidad = MESES_MAYUS_[mes - 1] + ' fila ' + filaC;
