@@ -30,10 +30,20 @@ function doPost(e) {
     var registro = getOrCrearRegistro_(ss);
     var mov = getOrCrearMovimientos_(ss);
 
+    // Una copia vieja de la caja (de un dispositivo que no vio el último
+    // cambio que hizo otro) no pisa lo que ya está guardado.
+    var desactualizada = cajaDesactualizada_(registro, data);
+    if (desactualizada) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ ok: false, conflicto: true, error: desactualizada }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    var ahora = new Date();
     TURNOS.forEach(function (turnoInfo) {
       var t = data[turnoInfo.key];
       if (!t) return;
-      escribirRegistroYMovimientos_(registro, mov, data, t, turnoInfo.label);
+      escribirRegistroYMovimientos_(registro, mov, data, t, turnoInfo.label, ahora);
     });
 
     // Cada uno de estos dos pasos va en su propio try/catch: si uno falla
@@ -52,7 +62,7 @@ function doPost(e) {
     var albaranes = escribirAlbaranes_(data); // ver Albaranes.gs
 
     return ContentService
-      .createTextOutput(JSON.stringify({ ok: true, hojaDia: hojaDia, contabilidad: contabilidad, albaranes: albaranes }))
+      .createTextOutput(JSON.stringify({ ok: true, actualizadoEn: ahora.toISOString(), hojaDia: hojaDia, contabilidad: contabilidad, albaranes: albaranes }))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
@@ -202,7 +212,42 @@ function reconstruirMovimientosDesdeRegistro(idPlanillaCierreCaja) {
   return filas.length;
 }
 
-function escribirRegistroYMovimientos_(registro, mov, data, t, turnoLabel) {
+// Cada dispositivo manda, por turno, la "Última actualización" que vio la
+// última vez que trajo o guardó ese turno (`base`) y su identificador
+// (`dispositivo`). Si desde entonces otro dispositivo (o una edición a mano
+// en el Sheet) guardó ese turno, lo que manda es una copia vieja: no se
+// guarda, y la app trae lo último. Las filas de antes de esto (sin
+// "escritoPor") y la app vieja (sin `dispositivo`) no se revisan.
+function cajaDesactualizada_(registro, data) {
+  if (!data.dispositivo) return null;
+  var header = registro.getRange(1, 1, 1, registro.getLastColumn()).getValues()[0];
+  var idxUltima = header.indexOf('Última actualización');
+  var idxJSON = -1;
+  for (var h = 0; h < header.length; h++) {
+    if (String(header[h] || '').indexOf('Datos JSON') === 0) { idxJSON = h; break; }
+  }
+  if (idxUltima === -1 || idxJSON === -1) return null;
+
+  var claves = ['mediodia', 'noche'];
+  for (var i = 0; i < claves.length; i++) {
+    var t = data[claves[i]];
+    if (!t || !t.id) continue;
+    var fila = buscarFilaPorId_(registro, t.id);
+    if (fila === -1) continue;
+    var valores = registro.getRange(fila, 1, 1, header.length).getValues()[0];
+    var escritoPor = '';
+    try { escritoPor = (JSON.parse(valores[idxJSON] || '{}') || {}).escritoPor || ''; } catch (errJson) {}
+    if (!escritoPor || escritoPor === data.dispositivo) continue;
+    var ultima = valores[idxUltima] instanceof Date ? valores[idxUltima].getTime() : 0;
+    var base = t.base ? new Date(t.base).getTime() : 0;
+    if (ultima > (isFinite(base) ? base : 0) + 1000) {
+      return 'La caja del ' + data.fecha + ' (' + (claves[i] === 'noche' ? 'Noche' : 'Mediodía') + ') se cambió desde otro dispositivo después de la última vez que este la trajo.';
+    }
+  }
+  return null;
+}
+
+function escribirRegistroYMovimientos_(registro, mov, data, t, turnoLabel, ahora) {
   var c = t.calc || {};
   var id = t.id || '';
   var estado = t.estado || 'Sincronizado';
@@ -215,6 +260,7 @@ function escribirRegistroYMovimientos_(registro, mov, data, t, turnoLabel) {
     tpv2: t.tpv2,
     tpv3: t.tpv3 || 0,
     fondoConteo: t.fondoConteo || null,
+    escritoPor: data.dispositivo || '',
     denom: t.denom,
     movimientos: t.movimientosRaw || t.movimientos,
     calc: t.calc
@@ -225,7 +271,7 @@ function escribirRegistroYMovimientos_(registro, mov, data, t, turnoLabel) {
     t.fondoFijo, t.totalFacturado, c.empanadas, c.facturadoNeto,
     t.tpv1, t.tpv2, c.ventasEfectivo, c.ingresoEfectivo,
     c.gastoEfectivo, c.egreso, c.esperado, c.totalContado, c.diferencia,
-    c.gastoNoEfectivo, (t.movimientos || []).length, new Date(), datosJSON
+    c.gastoNoEfectivo, (t.movimientos || []).length, ahora || new Date(), datosJSON
   ];
   // "TPV 3" va al final (se agregó después): en las pestañas de antes se
   // crea la columna sola.
@@ -1118,6 +1164,7 @@ function guardarDiaCompleto_(ss, fecha, negocio, dia) {
     if (idxContado > -1) registro.getRange(filaN, idxContado + 1).setValue(c.totalContado || 0);
     if (idxDiferencia > -1) registro.getRange(filaN, idxDiferencia + 1).setValue(c.diferencia || 0);
     if (idxFacturadoNeto > -1) registro.getRange(filaN, idxFacturadoNeto + 1).setValue(c.facturadoNeto || 0);
+    turno.escritoPor = 'sheet'; // editado a mano: una copia vieja de la app no lo pisa
     registro.getRange(filaN, idxJSON + 1).setValue(JSON.stringify(turno));
     if (idxUltima > -1) registro.getRange(filaN, idxUltima + 1).setValue(new Date());
   });

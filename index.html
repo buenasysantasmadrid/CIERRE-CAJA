@@ -810,6 +810,7 @@
   var ultimaEdicionLocalEn = 0;
   function saveDraft(){
     ultimaEdicionLocalEn = Date.now();
+    state._sinSubir = true; // hay cambios de este dispositivo que el Sheet todavía no tiene
     guardarDiaActual();
     scheduleAutoSync();
   }
@@ -3204,12 +3205,54 @@
     };
   }
 
+  // Identificador de este dispositivo (navegador), para que el Sheet sepa
+  // quién guardó cada caja por última vez.
+  var LS_DISPOSITIVO = 'cierreCaja_dispositivo';
+  function idDispositivo(){
+    try{
+      var id = localStorage.getItem(LS_DISPOSITIVO);
+      if(!id){ id = 'd_' + uid(); localStorage.setItem(LS_DISPOSITIVO, id); }
+      return id;
+    }catch(e){ return 'd_sin_storage'; }
+  }
+
+  // `base`: la "Última actualización" de cada turno que este dispositivo vio
+  // la última vez. Si en el Sheet hay algo más nuevo guardado por otro, el
+  // Sheet no acepta este envío (ver cajaDesactualizada_ en CierreCaja.gs).
   function buildSheetPayload(dia){
-    var payload = { fecha: dia.fecha, negocio: dia.negocio };
+    var payload = { fecha: dia.fecha, negocio: dia.negocio, dispositivo: idDispositivo() };
     TURNOS.forEach(function(t){
       payload[t] = buildTurnoPayload(dia[t]);
+      payload[t].base = (dia[t] && dia[t].actualizadoEn) || null;
     });
     return payload;
+  }
+
+  // El Sheet rechazó el envío porque este dispositivo tenía una copia vieja
+  // de la caja: se trae la del Sheet (la buena) y se avisa.
+  function recargarDiaPorConflicto(fecha, motivo){
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)) return;
+    fetch(url + (url.indexOf('?')>-1?'&':'?') + 'fecha=' + encodeURIComponent(fecha))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if(!data || !data.ok || !data.encontrado) return;
+        var store = getDiasStore();
+        var dia = (state.fecha === fecha) ? state : store[fecha];
+        if(!dia) return;
+        TURNOS.forEach(function(t){
+          if(!data[t]) return;
+          var idPrevio = dia[t] && dia[t].id;
+          dia[t] = Object.assign(crearTurnoVacio(), data[t]);
+          if(!dia[t].id) dia[t].id = idPrevio || uid();
+        });
+        dia._sinSubir = false;
+        if(dia === state){ aplicarEstadoATurnos(true); guardarDiaActual(); }
+        else { store[fecha] = dia; saveDiasStore(store); }
+        logSheetStatus('Copia vieja rechazada por el Sheet (' + motivo + '). Se trajo lo último.', true);
+        alert('OJO: esta caja se había cambiado desde otro dispositivo y este tenía una versión vieja, así que no se guardó lo último que hiciste acá.\n\nYa se cargó lo que está guardado en el Sheet: revisa y, si falta, vuelve a poner tu último cambio.');
+      })
+      .catch(function(){});
   }
 
   // ---------- sincronización automática ----------
@@ -3227,9 +3270,20 @@
     var url = loadSheetUrl();
     if(!hasValidSheetUrl(url)) return;
     TURNOS.forEach(function(t){ if(!state[t].id) state[t].id = uid(); });
-    sendToSheet(url, buildSheetPayload(state))
+    var dia = state;
+    var enviadoEn = Date.now();
+    sendToSheet(url, buildSheetPayload(dia))
       .then(function(res){
+        if(res && res.conflicto){
+          recargarDiaPorConflicto(dia.fecha, res.error || '');
+          return;
+        }
         if(res && res.ok){
+          // Lo que se acaba de guardar es ahora lo último del Sheet.
+          if(res.actualizadoEn) TURNOS.forEach(function(t){ if(dia[t]) dia[t].actualizadoEn = res.actualizadoEn; });
+          if(ultimaEdicionLocalEn <= enviadoEn) dia._sinSubir = false;
+          if(dia === state) guardarDiaActual();
+          else { var st = getDiasStore(); if(st[dia.fecha]){ st[dia.fecha] = dia; saveDiasStore(st); } }
           logSheetStatus('Sincronizado a las ' + new Date().toLocaleTimeString('es-ES') + ' · pestaña "' + fechaTabName(state.fecha) + '"');
           if(res.hojaDia && res.hojaDia.ok === false){
             logSheetStatus('La pestaña del día no se pudo crear/actualizar: ' + res.hojaDia.error, true);
@@ -3302,6 +3356,7 @@
     if(!hasValidSheetUrl(url)) return;
     sendToSheet(url, buildSheetPayload(dia))
       .then(function(res){
+        if(res && res.conflicto){ recargarDiaPorConflicto(dia.fecha, res.error || ''); return; }
         toast(res && res.ok ? 'Día sincronizado con Google Sheets' : 'El Sheet respondió con un error');
       })
       .catch(function(){
@@ -3437,6 +3492,10 @@
           if(!data || !data.ok || !data.encontrado) return;
           if(state.fecha !== fechaAlMomento) return; // cambió de día mientras se consultaba
           if(Date.now() - ultimaEdicionLocalEn < MARGEN_EDICION_LOCAL_MS) return; // por las dudas, no interrumpir una edición reciente
+          // Cambios de este dispositivo que todavía no llegaron al Sheet: no
+          // se pisan con lo del Sheet; se vuelven a mandar (y si el Sheet
+          // tiene algo más nuevo de otro dispositivo, lo avisa al guardar).
+          if(state._sinSubir){ if(!autoSyncTimer) scheduleAutoSync(); return; }
 
           var huboCambios = false;
           TURNOS.forEach(function(t){
