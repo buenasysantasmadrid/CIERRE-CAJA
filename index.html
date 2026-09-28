@@ -1020,6 +1020,11 @@
     var partes = [];
     if(m.tipo === 'gasto'){
       var info = quitarTagInfoGasto(m.info, m.subtipo);
+      // Lo que ponía solo el escaneo de facturas ("Base imponible: … · IVA …%")
+      // no se muestra: si no hay otro comentario, no aparece nada.
+      info = info.split(' · ').filter(function(p){
+        return !/^Base imponible:/.test(p) && !/^IVA [\d.,]+\s*%$/.test(p);
+      }).join(' · ');
       if(info) partes.push(info);
     } else if(m.tipo === 'empanadas'){
       if(m.responsable) partes.push(m.responsable);
@@ -1787,18 +1792,7 @@
       var ivaEl = document.querySelector('#formFields [data-field="iva"]');
       if(ivaEl) ivaEl.value = parsearNumeroFactura(data.importe_iva);
     }
-
-    var notas = [];
-    if(data.base_imponible != null && data.base_imponible !== ''){
-      notas.push('Base imponible: ' + fmt(parsearNumeroFactura(data.base_imponible)));
-    }
-    if(data.tipo_iva != null && data.tipo_iva !== ''){
-      notas.push('IVA ' + data.tipo_iva + '%');
-    }
-    if(notas.length){
-      var infoEl = document.querySelector('#formFields [data-field="info"]');
-      if(infoEl && !infoEl.value) infoEl.value = notas.join(' · ');
-    }
+    // Info queda como está: no se le agrega la base imponible ni el % de IVA.
   }
 
   // Convierte "1.234,56" o "1234.56" o 1234.56 a número. Si viene con coma
