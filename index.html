@@ -369,6 +369,11 @@
   .alb-row:active{background:var(--panel);}
   .alb-pagado{font-size:.76rem;font-weight:700;color:var(--green);}
   .tag-nopagado{align-self:flex-start;font-size:.72rem;font-weight:700;color:var(--red);background:var(--red-soft);padding:3px 9px;border-radius:999px;margin-top:2px;}
+  .alb-nopagado{background:var(--red-soft);border-left:4px solid var(--red);border-bottom:none;padding-left:10px;margin:6px 0;}
+  .alb-nopagado .mov-amt{color:var(--red);}
+  .alb-nopagado .tag-nopagado{background:#fff;}
+  .alb-nopagado .ico-circle{background:#fff;}
+  .alb-resumen{background:var(--red-soft);color:var(--red);font-weight:700;font-size:.9rem;border-radius:12px;padding:10px 12px;margin:4px 0 8px;}
   .empty-row{color:var(--ink-soft);text-align:center;padding:24px 0;font-size:.9rem;}
 
   /* ---------- marcar como pagado ---------- */
@@ -2110,6 +2115,12 @@
     var empty = document.getElementById('albaranesEmpty');
     body.innerHTML = '';
     if(!facturas.length){ empty.style.display = 'block'; return; }
+    // Resumen de lo que falta pagar, arriba de la lista.
+    var sinPagar = facturas.filter(function(f){ return f.subtipo === 'No pagado'; });
+    if(sinPagar.length){
+      var totalSinPagar = sinPagar.reduce(function(s, f){ return s + num(f.importe); }, 0);
+      body.insertAdjacentHTML('beforeend', '<div class="alb-resumen">'+sinPagar.length+' sin pagar · '+fmt(totalSinPagar)+' pendientes</div>');
+    }
     empty.style.display = 'none';
     facturas.forEach(function(f){
       var noPagado = f.subtipo === 'No pagado';
@@ -2123,7 +2134,7 @@
       var fechaCorta = partesFecha.length === 3 ? partesFecha[2]+'/'+partesFecha[1] : String(f.fecha||'');
       var tr = document.createElement('button');
       tr.type = 'button';
-      tr.className = 'alb-row';
+      tr.className = 'alb-row' + (noPagado ? ' alb-nopagado' : '');
       tr.innerHTML =
         '<span class="ico-circle c-gasto">'+icon('truck')+'</span>' +
         '<span class="mov-main">' +
