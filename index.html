@@ -1336,7 +1336,7 @@
       currentSubtipo = 'empanadas';
       empanadaPago = existing ? 'no_pago' : null;
       l3Label.textContent = '¿Pagó?';
-      l3Note.textContent = '"Pago" se guarda como un ingreso a nombre del cliente.';
+      l3Note.textContent = '"Pago" se guarda como un ingreso de Empanadas a nombre del cliente.';
       renderChipRow(l3, EMPANADA_PAGO_OPTS, empanadaPago, function(k){
         var valoresActuales = capturarValoresFormActuales();
         empanadaPago = k;
@@ -1383,8 +1383,8 @@
       } else {
         html += '<div class="form-grid">' +
           ((empanadaPago === 'pago')
-            ? field('Cliente','motivo','text', f.motivo||'', 'Nombre del cliente', 'span-2')
-            : empanadasProveedorField(f.proveedor||'')) +
+            ? empanadasClienteField('motivo', f.motivo||'')
+            : empanadasClienteField('proveedor', f.proveedor||'')) +
           responsableField(f.responsable||'') +
         '</div>';
         html += importeBlock(f.importe);
@@ -1863,9 +1863,11 @@
     '</div>';
   }
 
-  var PROVEEDORES_EMPANADAS = ['BAKEA', 'LOMBAY', 'OTRO'];
-  function empanadasProveedorField(selected){
-    return '<div class="field span-2"><label>Cliente</label>' + chipSelectHTML('proveedor', null, PROVEEDORES_EMPANADAS, selected) + '</div>';
+  // Clientes de empanadas, en chips. En "No pago" van como proveedor del
+  // movimiento de Empanadas; en "Pago", como motivo del ingreso.
+  var CLIENTES_EMPANADAS = ['LOMBAY', 'BAKEA', 'OTRO'];
+  function empanadasClienteField(key, selected){
+    return '<div class="field span-2"><label>Cliente</label>' + chipSelectHTML(key, null, CLIENTES_EMPANADAS, selected) + '</div>';
   }
 
   // Responsables conocidos, en chips. Un nombre guardado que no esté en la
@@ -1904,15 +1906,15 @@
     var data = collectForm();
     var importe = num(data.importe);
     if(!importe){ toast('Ingresá un importe válido'); return; }
-    if(currentTipo === 'empanadas' && empanadaPago === 'pago' && !(data.motivo||'').trim()){ toast('Escribí el cliente'); return; }
+    if(currentTipo === 'empanadas' && empanadaPago === 'pago' && !(data.motivo||'').trim()){ toast('Elige el cliente'); return; }
 
-    // Empanadas "Pago" se guarda como un ingreso de Varios (con el cliente
-    // en el campo Motivo) en lugar de como movimiento de Empanadas.
+    // Empanadas "Pago" se guarda como un ingreso de Empanadas (con el
+    // cliente en el campo Motivo) en lugar de como movimiento de Empanadas.
     var tipoFinal = currentTipo;
     var subtipoFinal = currentSubtipo;
     if(currentTipo === 'empanadas' && empanadaPago === 'pago'){
       tipoFinal = 'ingreso';
-      subtipoFinal = 'varios';
+      subtipoFinal = 'empanadas_ing';
     }
 
     var proveedorFinal = data.proveedor || '';
