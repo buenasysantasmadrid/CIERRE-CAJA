@@ -382,7 +382,8 @@ function escribirHojaDelDiaExacta_(ss, data) {
     hoja.getRange('H64:H66').setValues([['TPV 3'], ['TOTAL'], ['TPV 3 NOCHE']]);
   }
   hoja.getRange('I63').setValue(tpv1NochePropio + tpv2NochePropio + tpv3NochePropio);
-  hoja.getRange('I67').setValue((nc.tpv1 || 0) + (nc.tpv2 || 0) + (nc.tpv3 || 0)); // TOT TARJETA
+  hoja.getRange('I67').setValue( // TOT TARJETA del día (si Noche no cargó un TPV, vale el de Mediodía)
+    Math.max(md.tpv1 || 0, nc.tpv1 || 0) + Math.max(md.tpv2 || 0, nc.tpv2 || 0) + Math.max(md.tpv3 || 0, nc.tpv3 || 0));
 
   escribirFilasFijas_(hoja, 63, 10, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtipo_(movsNc, 'Efectivo').map(filaGasto_));
   escribirFilasFijas_(hoja, 63, 6, celdas.colsEfectivoAntiguo, filtrarPorSubtipo_(movsNc, 'Efectivo antiguo').map(filaGasto_));
@@ -1532,9 +1533,12 @@ function escribirContabilidad_(data) {
     var mediodiaTotal = md.totalFacturado || 0;
     var nochePropio = Math.max(0, (nc.totalFacturado || 0) - mediodiaTotal);
     var empanadasDia = (cMd.empanadas || 0) + (cNc.empanadas || 0);
-    var tpv1Dia = ncActivo ? (nc.tpv1 || 0) : (md.tpv1 || 0);
-    var tpv2Dia = ncActivo ? (nc.tpv2 || 0) : (md.tpv2 || 0);
-    var tpv3Dia = ncActivo ? (nc.tpv3 || 0) : (md.tpv3 || 0);
+    // Noche carga el acumulado del día completo, que nunca puede ser menor
+    // que lo que ya marcó Mediodía: si en Noche quedó en 0 (no se cargó),
+    // vale el de Mediodía.
+    var tpv1Dia = Math.max(md.tpv1 || 0, nc.tpv1 || 0);
+    var tpv2Dia = Math.max(md.tpv2 || 0, nc.tpv2 || 0);
+    var tpv3Dia = Math.max(md.tpv3 || 0, nc.tpv3 || 0);
     var efevoDia = ncActivo ? (cNc.totalContado || 0) : (cMd.totalContado || 0);
     var diferenciaDia = (cMd.diferencia || 0) + (cNc.diferencia || 0);
     var retiraDia = (cMd.egreso || 0) + (cNc.egreso || 0);
