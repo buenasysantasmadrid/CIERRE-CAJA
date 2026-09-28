@@ -132,6 +132,16 @@
   .tc-lbl-total{font-size:.95rem;font-weight:700;color:var(--ink);letter-spacing:.02em;}
   .tc-diff{font-family:var(--serif);font-size:1.15rem;line-height:1.2;margin-bottom:0;font-variant-numeric:tabular-nums;white-space:nowrap;}
   .tc-btn{border-radius:12px;padding:11px 16px;font-size:.9rem;min-height:46px;width:100%;}
+  .tc-tpv{display:flex;gap:6px;margin:0 0 10px;}
+  .tc-tpv span{flex:1;min-width:0;background:rgba(255,255,255,.65);border-radius:10px;padding:5px 8px;font-size:.72rem;color:var(--ink-soft);display:flex;flex-direction:column;}
+  .tc-tpv b{font-size:.9rem;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .fondo-box{margin-top:14px;}
+  .fondo-toggle{width:100%;background:#fff;border:1px solid var(--line);border-radius:12px;min-height:46px;font-weight:600;}
+  .fondo-res{margin-top:12px;padding:12px 14px;border-radius:12px;font-size:.88rem;line-height:1.45;}
+  .fondo-res.ok{background:var(--green-soft);color:var(--green);font-weight:700;}
+  .fondo-res.mal{background:var(--red-soft);color:var(--red);}
+  .fondo-res.info{background:var(--panel);color:var(--ink-soft);}
+  .fondo-res ul{margin:6px 0 0;padding-left:18px;}
   .turno-card.mediodia .tc-btn.filled{background:var(--md-ink);color:#fff;}
   .turno-card.noche .tc-btn.filled{background:var(--nc-ink);color:#fff;}
   .turno-card.mediodia .tc-btn.outline{background:transparent;border:1.5px solid var(--md-ink);color:var(--md-ink);}
@@ -665,6 +675,7 @@
       tpv1: 0,
       tpv2: 0,
       tpv3: 0,
+      fondoConteo: null,
       actualizadoEn: null
     };
   }
@@ -871,6 +882,7 @@
             campo('tpv2', 'TPV 2'+dia) +
             campo('tpv3', 'TPV 3'+dia) +
           '</div>' +
+          (t==='mediodia' ? fondoConteoHTML() : '') +
         '</div>' +
 
         '<div class="paso">' +
@@ -896,6 +908,181 @@
         '<button type="button" class="btn-big" data-guardar-cierre="'+t+'">Guardar cierre de '+label+'</button>' +
       '</div></div>' +
     '</section>';
+  }
+
+  // Conteo del fondo fijo al abrir (solo Mediodía): se cuenta por billete y
+  // moneda y se compara con el efectivo contado en el último cierre (el de
+  // Noche del último día trabajado, o el de Mediodía si Noche no contó).
+  function fondoConteoHTML(){
+    return '<div class="fondo-box">' +
+      '<button type="button" class="fondo-toggle" id="fondoToggle">Contar el fondo fijo</button>' +
+      '<div id="fondoConteoBox" style="display:none;">' +
+        '<div class="sub-label">Billetes</div><div id="fondoBilletes"></div>' +
+        '<div class="sub-label">Monedas</div>' +
+        '<div class="monedas-row head"><span></span><span style="text-align:center;">Sueltas</span><span style="text-align:center;">Rollos</span><span style="text-align:right;">Subtotal</span></div>' +
+        '<div id="fondoMonedas"></div>' +
+        '<div class="total-contado"><span>Fondo contado</span><span id="fondoContadoLbl">0,00 €</span></div>' +
+      '</div>' +
+      '<div id="fondoResultado"></div>' +
+    '</div>';
+  }
+
+  function conteoVacio(){ return { billetes:{}, monedasSueltas:{}, monedasBlister:{} }; }
+
+  // Cantidad de billetes o monedas sueltas de un valor (los rollos se
+  // pasan a monedas), para comparar aunque se haya abierto un rollo.
+  function unidadesDenom(d, v, esBillete){
+    d = d || {};
+    if(esBillete) return Math.round(num((d.billetes||{})[v]));
+    var sueltas = num((d.monedasSueltas||{})[v]);
+    var rollos = num((d.monedasBlister||{})[v]);
+    return Math.round(sueltas + rollos * (ROLL_VALUE[v] || 0) / v);
+  }
+  function totalDenom(d){
+    var total = 0;
+    BILLETES.forEach(function(v){ total += unidadesDenom(d, v, true) * v; });
+    MONEDAS.forEach(function(v){ total += unidadesDenom(d, v, false) * v; });
+    return Math.round(total * 100) / 100;
+  }
+  function hayConteo(d){
+    return BILLETES.some(function(v){ return unidadesDenom(d, v, true); }) ||
+      MONEDAS.some(function(v){ return unidadesDenom(d, v, false); });
+  }
+
+  function buildFondoConteo(){
+    var s = state.mediodia;
+    if(!s.fondoConteo) s.fondoConteo = conteoVacio();
+    var d = s.fondoConteo;
+    document.getElementById('fondoBilletes').innerHTML = BILLETES.map(function(v){
+      return '<div class="denom-row">' +
+        '<span class="denom-lbl">'+v.toLocaleString('es-ES')+' €</span>' +
+        '<div class="stepper">' +
+          '<button type="button" data-step="-1" aria-label="Uno menos">'+icon('minus')+'</button>' +
+          '<input type="number" inputmode="numeric" min="0" step="1" data-fondo-billete="'+v+'" value="'+(d.billetes[v]||0)+'">' +
+          '<button type="button" data-step="1" aria-label="Uno más">'+icon('plus')+'</button>' +
+        '</div>' +
+        '<span class="denom-sub" id="fondoSub_b_'+v+'">0,00 €</span></div>';
+    }).join('');
+    document.getElementById('fondoMonedas').innerHTML = MONEDAS.map(function(v){
+      return '<div class="monedas-row">' +
+        '<span class="denom-lbl">'+v.toLocaleString('es-ES')+' €<small>rollo '+fmt(ROLL_VALUE[v])+'</small></span>' +
+        '<input type="number" inputmode="numeric" min="0" step="1" data-fondo-suelta="'+v+'" value="'+(d.monedasSueltas[v]||0)+'" aria-label="Sueltas de '+v+' €">' +
+        '<input type="number" inputmode="numeric" min="0" step="1" data-fondo-rollo="'+v+'" value="'+(d.monedasBlister[v]||0)+'" aria-label="Rollos de '+v+' €">' +
+        '<span class="denom-sub" id="fondoSub_m_'+v+'">0,00 €</span></div>';
+    }).join('');
+    var abierto = hayConteo(d);
+    document.getElementById('fondoConteoBox').style.display = abierto ? '' : 'none';
+    document.getElementById('fondoToggle').textContent = abierto ? 'Ocultar el conteo del fondo fijo' : 'Contar el fondo fijo';
+    compararFondo();
+  }
+
+  function wireFondoConteo(){
+    var box = document.getElementById('fondoConteoBox');
+    document.getElementById('fondoToggle').addEventListener('click', function(){
+      var abrir = box.style.display === 'none';
+      box.style.display = abrir ? '' : 'none';
+      this.textContent = abrir ? 'Ocultar el conteo del fondo fijo' : 'Contar el fondo fijo';
+    });
+    box.addEventListener('click', function(e){
+      var btn = e.target.closest('[data-step]');
+      if(!btn) return;
+      var inp = btn.parentNode.querySelector('input');
+      inp.value = Math.max(0, num(inp.value) + Number(btn.getAttribute('data-step')));
+      inp.dispatchEvent(new Event('input', {bubbles:true}));
+    });
+    box.addEventListener('input', function(e){
+      var inp = e.target;
+      var d = state.mediodia.fondoConteo || (state.mediodia.fondoConteo = conteoVacio());
+      if(inp.hasAttribute('data-fondo-billete')) d.billetes[inp.getAttribute('data-fondo-billete')] = num(inp.value);
+      else if(inp.hasAttribute('data-fondo-suelta')) d.monedasSueltas[inp.getAttribute('data-fondo-suelta')] = num(inp.value);
+      else if(inp.hasAttribute('data-fondo-rollo')) d.monedasBlister[inp.getAttribute('data-fondo-rollo')] = num(inp.value);
+      else return;
+      compararFondo();
+      saveDraft();
+    });
+  }
+
+  // Último cierre antes de `fecha`: {fecha, turno, denom}. Se busca en este
+  // dispositivo y, si no está, se trae del Sheet (una vez por fecha).
+  var cierreAnteriorCache = {};
+  function ultimaFechaTrabajada(fecha){
+    var store = getDiasStore();
+    var fechas = {};
+    Object.keys(store).forEach(function(f){ if(f < fecha && diaTieneActividad(store[f])) fechas[f] = true; });
+    Object.keys(cierresSheet).forEach(function(f){ if(f < fecha && cierresSheet[f].actividad) fechas[f] = true; });
+    return Object.keys(fechas).sort().pop() || null;
+  }
+  function cierreDeDia(fecha, dia){
+    function contado(x){ return ((x && (x._calc || x.calc)) || {}).totalContado || 0; }
+    var turno = contado(dia.noche) > 0 ? 'noche' : 'mediodia';
+    return { fecha: fecha, turno: turno, denom: (dia[turno] && dia[turno].denom) || conteoVacio() };
+  }
+  function cierreAnterior(fecha, cb){
+    var ultima = ultimaFechaTrabajada(fecha);
+    if(!ultima){ cb(null); return; }
+    var dia = getDiasStore()[ultima];
+    if(dia && diaTieneActividad(dia)){ cb(cierreDeDia(ultima, dia)); return; }
+    if(cierreAnteriorCache[ultima]){ cb(cierreAnteriorCache[ultima]); return; }
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)){ cb(null); return; }
+    fetch(url + (url.indexOf('?')>-1?'&':'?') + 'fecha=' + encodeURIComponent(ultima))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if(!data || !data.ok || !data.encontrado){ cb(null); return; }
+        cierreAnteriorCache[ultima] = cierreDeDia(ultima, data);
+        cb(cierreAnteriorCache[ultima]);
+      })
+      .catch(function(){ cb(null); });
+  }
+
+  function textoUnidades(n, v, esBillete){
+    var nombre = esBillete ? (n === 1 ? 'billete' : 'billetes') : (n === 1 ? 'moneda' : 'monedas');
+    return n + ' ' + nombre + ' de ' + v.toLocaleString('es-ES') + ' €';
+  }
+
+  function compararFondo(){
+    var el = document.getElementById('fondoResultado');
+    if(!el) return;
+    var d = state.mediodia.fondoConteo || conteoVacio();
+    BILLETES.forEach(function(v){
+      var sub = document.getElementById('fondoSub_b_'+v);
+      if(sub) sub.textContent = fmt(unidadesDenom(d, v, true) * v);
+    });
+    MONEDAS.forEach(function(v){
+      var sub = document.getElementById('fondoSub_m_'+v);
+      if(sub) sub.textContent = fmt(unidadesDenom(d, v, false) * v);
+    });
+    var lbl = document.getElementById('fondoContadoLbl');
+    if(lbl) lbl.textContent = fmt(totalDenom(d));
+    if(!hayConteo(d)){ el.innerHTML = ''; return; }
+
+    var fechaAlMomento = state.fecha;
+    el.className = 'fondo-res info';
+    el.textContent = 'Buscando el último cierre para comparar…';
+    cierreAnterior(state.fecha, function(ant){
+      if(state.fecha !== fechaAlMomento) return;
+      var d2 = state.mediodia.fondoConteo || conteoVacio();
+      if(!ant){ el.className = 'fondo-res info'; el.textContent = 'No encontré un cierre anterior para comparar.'; return; }
+      var p = ant.fecha.split('-');
+      var deCual = 'el cierre de ' + TURNO_LABEL[ant.turno] + ' del ' + p[2] + '/' + p[1];
+      var lineas = [];
+      function comparar(v, esBillete){
+        var hoy = unidadesDenom(d2, v, esBillete), antes = unidadesDenom(ant.denom, v, esBillete);
+        if(hoy < antes) lineas.push('Falta hoy: ' + textoUnidades(antes - hoy, v, esBillete) + ' (en ' + deCual.replace('el cierre de ', '') + ' había ' + antes + ', hoy ' + hoy + ')');
+        else if(hoy > antes) lineas.push('Sobra hoy: ' + textoUnidades(hoy - antes, v, esBillete) + ' (en ' + deCual.replace('el cierre de ', '') + ' había ' + antes + ', hoy ' + hoy + ')');
+      }
+      BILLETES.forEach(function(v){ comparar(v, true); });
+      MONEDAS.forEach(function(v){ comparar(v, false); });
+      if(!lineas.length){
+        el.className = 'fondo-res ok';
+        el.textContent = 'OK — el fondo fijo cuadra con ' + deCual + ' (' + fmt(totalDenom(d2)) + ').';
+        return;
+      }
+      var dif = Math.round((totalDenom(d2) - totalDenom(ant.denom)) * 100) / 100;
+      el.className = 'fondo-res mal';
+      el.innerHTML = '<b>No cuadra con ' + escapeHtml(deCual) + '</b> (diferencia ' + escapeHtml(fmtSigno(dif)) + ')' +
+        '<ul>' + lineas.map(function(x){ return '<li>' + escapeHtml(x) + '</li>'; }).join('') + '</ul>';
+    });
   }
 
   function abrirCierre(t){
@@ -1125,6 +1312,11 @@
       cont.innerHTML =
         '<div class="tc-head"><span class="tc-name">'+icon(TURNO_ICON[t])+'Cierre '+TURNO_LABEL[t]+'</span>' +
           '<span class="tc-estado">'+(cerrado ? 'Cerrado' : 'Pendiente')+'</span></div>' +
+        '<div class="tc-tpv">' +
+          ['tpv1','tpv2','tpv3'].map(function(k, i){
+            return '<span>TPV '+(i+1)+'<b>'+fmt((state[t] && state[t][k]) || 0)+'</b></span>';
+          }).join('') +
+        '</div>' +
         '<div class="tc-row">' +
           '<div><div class="tc-lbl tc-lbl-total">Total</div>' +
             '<div class="tc-total'+(hayTotal ? '' : ' none')+'">'+(hayTotal ? fmt(c.facturadoNeto) : '—')+'</div></div>' +
@@ -2687,6 +2879,7 @@
       renderMovimientos(t);
       recalc(t);
     });
+    buildFondoConteo();
     updateFechaLabel();
     recalcDia();
   }
@@ -2981,6 +3174,7 @@
       id: s.id,
       estado: 'Sincronizado',
       fondoFijo: s.fondoFijo, totalFacturado: s.totalFacturado, tpv1: s.tpv1, tpv2: s.tpv2, tpv3: s.tpv3 || 0,
+      fondoConteo: s.fondoConteo || null,
       denom: s.denom,
       movimientos: (s.movimientos||[]).map(function(m){
         return {
@@ -3363,6 +3557,7 @@
     document.getElementById('fechaCierre').value = state.fecha || todayISO();
     document.getElementById('turnoSections').innerHTML = TURNOS.map(turnoSectionHTML).join('');
     TURNOS.forEach(wireTurnoEvents);
+    wireFondoConteo();
     aplicarEstadoATurnos();
   }
 

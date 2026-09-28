@@ -214,6 +214,7 @@ function escribirRegistroYMovimientos_(registro, mov, data, t, turnoLabel) {
     tpv1: t.tpv1,
     tpv2: t.tpv2,
     tpv3: t.tpv3 || 0,
+    fondoConteo: t.fondoConteo || null,
     denom: t.denom,
     movimientos: t.movimientosRaw || t.movimientos,
     calc: t.calc
