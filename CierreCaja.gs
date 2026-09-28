@@ -255,19 +255,50 @@ function fechaDesdeNombreHoja_(nombre) {
   return p[2] + '-' + p[1] + '-' + p[0];
 }
 
+// Copias de la plantilla "1" que quedaron sin renombrar ("Copia de 1",
+// "Copia de 1 2", ...), de cuando dos guardados del mismo día crearon la
+// pestaña a la vez.
+function borrarCopiasSueltasPlantilla_(ss) {
+  ss.getSheets().forEach(function (h) {
+    if (/^(Copia de|Copy of) 1( \d+)?$/.test(h.getName())) ss.deleteSheet(h);
+  });
+}
+
 function escribirHojaDelDiaExacta_(ss, data) {
   var nombre = nombreHojaDia_(data.fecha);
   var hoja = ss.getSheetByName(nombre);
 
   if (!hoja) {
-    var plantilla = ss.getSheetByName('1');
-    if (!plantilla) {
-      throw new Error('No se encontró la hoja "1" (la plantilla) en esta planilla, así que no se pudo crear la pestaña del día.');
+    // De a un guardado por vez: si llegan dos del mismo día juntos (ej. dos
+    // dispositivos, o uno que vuelve a mandar una caja recién borrada), los
+    // dos veían que no estaba la pestaña, los dos copiaban la plantilla y
+    // la copia del segundo quedaba suelta como "Copia de 1".
+    var lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      hoja = ss.getSheetByName(nombre); // la pudo crear otro guardado mientras se esperaba
+      if (!hoja) {
+        var plantilla = ss.getSheetByName('1');
+        if (!plantilla) {
+          throw new Error('No se encontró la hoja "1" (la plantilla) en esta planilla, así que no se pudo crear la pestaña del día.');
+        }
+        borrarCopiasSueltasPlantilla_(ss);
+        var copia = plantilla.copyTo(ss);
+        try {
+          copia.setName(nombre);
+          hoja = copia;
+        } catch (errNombre) {
+          ss.deleteSheet(copia);
+          hoja = ss.getSheetByName(nombre);
+          if (!hoja) throw errNombre;
+        }
+        ss.setActiveSheet(hoja);
+        ss.moveActiveSheet(ss.getNumSheets());
+        SpreadsheetApp.flush();
+      }
+    } finally {
+      lock.releaseLock();
     }
-    hoja = plantilla.copyTo(ss);
-    hoja.setName(nombre);
-    ss.setActiveSheet(hoja);
-    ss.moveActiveSheet(ss.getNumSheets());
   }
 
   var md = data.mediodia || {};
