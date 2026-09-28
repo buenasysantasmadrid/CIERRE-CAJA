@@ -600,6 +600,25 @@
   // Carrefour, etc., el que haya tocado ese día), así que funciona igual.
   var PROVEEDORES_CON_DETALLE_LIBRE = ['Varios', 'Super'];
 
+  // Nombre legal (el que viene en la factura) de cada proveedor de la
+  // lista. Al escanear una factura se busca acá para ponerla en el
+  // proveedor que corresponde en vez del nombre legal.
+  var NOMBRES_LEGALES_PROVEEDORES = {
+    'Frutapro': ['Mediterranean Onions, S.L.'],
+    'Mercandalucia': ['CARNICERIA MERCANDALUCIA'],
+    'Polleria': ['CALIDAD DIAZ'],
+    'Las 3B': ['CARNICERIA POLLERIA 3B'],
+    'Atlanta': ['ATLANTA RESTAURACION TELEMATICA S.L.'],
+    'cream de luxe': ['CREM DE LUX S.L.'],
+    'Disbesa': ['INICIATIVAS SODEXO S.L.'],
+    'Envapro': ['ENVASES PARA PROFESIONALES S.L.'],
+    'Hughes': ['ALBERTO L. HUGHES S.L.'],
+    'Iberolactal': ['IBEROLACTAL IMPORT-EXPORT S.L.'],
+    'La Jaula': ['RAFA LA JAULA'],
+    'Mercadona': ['MERCADONA SA'],
+    'Monbake': ['MONBAKE GRUPO EMPRESARIAL SAU']
+  };
+
   var RESPONSABLES_CONOCIDOS = [
     "Yamila","Ramiro","Luciana","Clara","Jennifer","Shenay","Julio","Otros"
   ];
@@ -1934,29 +1953,72 @@
   // Vuelca lo que devolvió la IA en los campos del formulario de Proveedores
   // que ya está abierto — no guarda solo, el usuario revisa y confirma con
   // "Guardar movimiento" como siempre.
+  // Pasa un nombre a minúsculas, sin tildes, sin puntuación y sin "S.L.",
+  // "S.A.", etc., para poder comparar el nombre leído de la factura.
+  function normalizarNombreProveedor(n){
+    var s = String(n || '').toLowerCase();
+    if(s.normalize) s = s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+    s = s.replace(/\./g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+    var sufijos = ['sl', 'sa', 'sau', 'slu', 'sll', 'scoop', 'cb'];
+    return s.split(' ').filter(function(w){ return w && sufijos.indexOf(w) === -1; }).join(' ');
+  }
+
+  // Busca a qué proveedor de la lista corresponde el nombre leído de la
+  // factura: por su nombre en la lista o por su nombre legal. Si no lo
+  // encuentra devuelve null.
+  function buscarProveedorPorNombre(nombre){
+    var n = normalizarNombreProveedor(nombre);
+    if(!n) return null;
+    var exacto = PROVEEDORES_CONOCIDOS.filter(function(p){
+      return normalizarNombreProveedor(p) === n;
+    })[0];
+    if(exacto) return exacto;
+    var claves = Object.keys(NOMBRES_LEGALES_PROVEEDORES);
+    for(var i = 0; i < claves.length; i++){
+      var legales = NOMBRES_LEGALES_PROVEEDORES[claves[i]];
+      for(var j = 0; j < legales.length; j++){
+        var l = normalizarNombreProveedor(legales[j]);
+        if(l && (n.indexOf(l) > -1 || (n.length >= 5 && l.indexOf(n) > -1))) return claves[i];
+      }
+    }
+    return null;
+  }
+
   function aplicarDatosFactura(data){
     data = data || {};
 
+    // Primero el proveedor y después la fecha: las preguntas usan la misma
+    // ventana, así que van una detrás de la otra.
     var nombreExtraido = (data.proveedor || '').trim();
-    if(nombreExtraido){
-      var sel = document.getElementById('proveedorSelect');
-      var match = PROVEEDORES_CONOCIDOS.filter(function(p){
-        return p.toLowerCase() === nombreExtraido.toLowerCase();
-      })[0];
-      if(sel){
-        if(match){
-          sel.value = match;
-        } else {
-          // No está en la lista conocida: cae en "Varios" (columna A =
-          // "Varios") con el nombre leído de la factura como detalle
-          // (columna B) — igual que si se hubiera escrito a mano.
-          sel.value = 'Varios';
-          var detalleInput = document.getElementById('proveedorDetalleInput');
-          if(detalleInput) detalleInput.value = nombreExtraido;
-        }
-        sel.dispatchEvent(new Event('change', {bubbles:true}));
+    var sel = document.getElementById('proveedorSelect');
+    var ponerProveedor = function(valor, detalle){
+      sel.value = valor;
+      sel.dispatchEvent(new Event('change', {bubbles:true}));
+      if(detalle){
+        var detalleInput = document.getElementById('proveedorDetalleInput');
+        if(detalleInput) detalleInput.value = detalle;
       }
+    };
+    if(nombreExtraido && sel){
+      var match = buscarProveedorPorNombre(nombreExtraido);
+      if(match){
+        ponerProveedor(match);
+        aplicarRestoFactura(data);
+      } else {
+        // No está en la lista: se pregunta si va a "Varios" o a "Super",
+        // con el nombre leído de la factura como detalle (columna B).
+        preguntar(
+          'NO ENCONTRÉ EL PROVEEDOR "' + nombreExtraido.toUpperCase() + '". ¿ES VARIOS O SUPER?',
+          'Varios', 'Super',
+          function(){ ponerProveedor('Varios', nombreExtraido); aplicarRestoFactura(data); },
+          function(){ ponerProveedor('Super', nombreExtraido); aplicarRestoFactura(data); });
+      }
+    } else {
+      aplicarRestoFactura(data);
     }
+  }
+
+  function aplicarRestoFactura(data){
 
     var facturaEl = document.querySelector('#formFields [data-field="factura"]');
     if(facturaEl && data.numero_factura) facturaEl.value = data.numero_factura;
