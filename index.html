@@ -2801,7 +2801,7 @@
     var pop = document.getElementById('calendarioPopup');
     var primerDiaMes = new Date(calAnioMostrado, calMesMostrado, 1);
     var diasEnMes = new Date(calAnioMostrado, calMesMostrado + 1, 0).getDate();
-    var diaSemanaInicio = primerDiaMes.getDay(); // 0 = domingo
+    var diaSemanaInicio = (primerDiaMes.getDay() + 6) % 7; // 0 = lunes
     var hoy = todayISO();
 
     var celdas = '';
@@ -2823,7 +2823,7 @@
         '<span>'+MESES[calMesMostrado]+' '+calAnioMostrado+'</span>' +
         '<button type="button" class="cal-nav" id="calMesSiguiente" aria-label="Mes siguiente">'+icon('chevronRight')+'</button>' +
       '</div>' +
-      '<div class="calendario-dias-semana"><span>D</span><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span></div>' +
+      '<div class="calendario-dias-semana"><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span></div>' +
       '<div class="calendario-grid">'+celdas+'</div>' +
       '<div class="calendario-leyenda"><span><i class="muestra"></i>Caja abierta</span><span><i class="muestra elegido"></i>Día elegido</span></div>';
 
