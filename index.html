@@ -1334,9 +1334,9 @@
       currentSubtipo = 'retiro';
     } else if(tipo === 'empanadas'){
       currentSubtipo = 'empanadas';
-      empanadaPago = existing ? 'no_pago' : null;
+      empanadaPago = existing ? (existing.pareja ? 'pago' : 'no_pago') : null;
       l3Label.textContent = '¿Pagó?';
-      l3Note.textContent = '"Pago" se guarda como un ingreso de Empanadas a nombre del cliente.';
+      l3Note.textContent = '"Pago" se resta como empanadas y además entra como ingreso de Empanadas (pagaron). "No pago" solo se resta.';
       renderChipRow(l3, EMPANADA_PAGO_OPTS, empanadaPago, function(k){
         var valoresActuales = capturarValoresFormActuales();
         empanadaPago = k;
@@ -1382,9 +1382,7 @@
         html += '<p class="muted">Elige Pago o No pago.</p>';
       } else {
         html += '<div class="form-grid">' +
-          ((empanadaPago === 'pago')
-            ? empanadasClienteField('motivo', f.motivo||'')
-            : empanadasClienteField('proveedor', f.proveedor||'')) +
+          empanadasClienteField('proveedor', f.proveedor||'') +
           responsableField(f.responsable||'') +
         '</div>';
         html += importeBlock(f.importe);
@@ -1863,8 +1861,8 @@
     '</div>';
   }
 
-  // Clientes de empanadas, en chips. En "No pago" van como proveedor del
-  // movimiento de Empanadas; en "Pago", como motivo del ingreso.
+  // Clientes de empanadas, en chips: van como proveedor del movimiento de
+  // Empanadas (y como motivo de su ingreso, si pagaron).
   var CLIENTES_EMPANADAS = ['LOMBAY', 'BAKEA', 'OTRO'];
   function empanadasClienteField(key, selected){
     return '<div class="field span-2"><label>Cliente</label>' + chipSelectHTML(key, null, CLIENTES_EMPANADAS, selected) + '</div>';
@@ -1906,16 +1904,10 @@
     var data = collectForm();
     var importe = num(data.importe);
     if(!importe){ toast('Ingresá un importe válido'); return; }
-    if(currentTipo === 'empanadas' && empanadaPago === 'pago' && !(data.motivo||'').trim()){ toast('Elige el cliente'); return; }
+    if(currentTipo === 'empanadas' && !(data.proveedor||'').trim()){ toast('Elige el cliente'); return; }
 
-    // Empanadas "Pago" se guarda como un ingreso de Empanadas (con el
-    // cliente en el campo Motivo) en lugar de como movimiento de Empanadas.
     var tipoFinal = currentTipo;
     var subtipoFinal = currentSubtipo;
-    if(currentTipo === 'empanadas' && empanadaPago === 'pago'){
-      tipoFinal = 'ingreso';
-      subtipoFinal = 'empanadas_ing';
-    }
 
     var proveedorFinal = data.proveedor || '';
     var proveedorDetalle = '';
@@ -1970,12 +1962,14 @@
     };
 
     var t = modalTurno;
+    var anterior = editingId ? state[t].movimientos.find(function(m){ return m.id === editingId; }) : null;
     if(editingId){
       var idx = state[t].movimientos.findIndex(function(m){ return m.id === editingId; });
       if(idx > -1) state[t].movimientos[idx] = mov;
     } else {
       state[t].movimientos.push(mov);
     }
+    actualizarParejaEmpanadas(t, mov, anterior);
 
     saveDraft();
     renderMovimientos(t);
@@ -1989,11 +1983,48 @@
   document.getElementById('modalOverlay').addEventListener('click', function(e){
     if(e.target === this) closeModal();
   });
+  // Empanadas pagadas: el movimiento de Empanadas (se resta del cierre) va
+  // con un ingreso de Empanadas "pareja" (entra la plata), unidos por
+  // `pareja` (el id del otro). Al guardar uno se actualiza el otro; al
+  // pasar a "No pago" se saca el ingreso; al eliminar uno se van los dos.
+  function actualizarParejaEmpanadas(t, mov, anterior){
+    var movs = state[t].movimientos;
+    var idPareja = anterior && anterior.pareja;
+    var pareja = idPareja ? movs.find(function(m){ return m.id === idPareja; }) : null;
+
+    if(mov.tipo === 'empanadas'){
+      if(empanadaPago === 'pago'){
+        var ingreso = {
+          id: pareja ? pareja.id : uid(),
+          tipo: 'ingreso', subtipo: 'empanadas_ing', importe: mov.importe, fecha: mov.fecha,
+          proveedor: '', proveedorDetalle: '', factura: '', info: '', iva: null,
+          motivo: mov.proveedor, responsable: mov.responsable, pareja: mov.id
+        };
+        mov.pareja = ingreso.id;
+        if(pareja) movs[movs.indexOf(pareja)] = ingreso; else movs.push(ingreso);
+      } else if(pareja){
+        state[t].movimientos = movs.filter(function(m){ return m !== pareja; });
+      }
+      return;
+    }
+    if(!pareja) return;
+    if(mov.tipo === 'ingreso' && mov.subtipo === 'empanadas_ing'){
+      // Se editó el ingreso: el movimiento de Empanadas sigue igual.
+      mov.pareja = pareja.id;
+      pareja.importe = mov.importe;
+      pareja.responsable = mov.responsable;
+    } else {
+      delete pareja.pareja; // dejó de ser el pago de esas empanadas
+    }
+  }
+
   document.getElementById('modalEliminar').addEventListener('click', function(){
     if(!editingId || !editingTurno) return;
     if(!confirm('¿Eliminar este movimiento? Esta acción no se puede deshacer.')) return;
     var t = editingTurno;
-    state[t].movimientos = state[t].movimientos.filter(function(m){ return m.id !== editingId; });
+    var borrado = state[t].movimientos.find(function(m){ return m.id === editingId; });
+    var idPareja = borrado && borrado.pareja;
+    state[t].movimientos = state[t].movimientos.filter(function(m){ return m.id !== editingId && !(idPareja && m.id === idPareja); });
     saveDraft();
     renderMovimientos(t);
     recalc(t);
