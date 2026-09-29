@@ -1864,7 +1864,7 @@
     fileCamera.addEventListener('change', function(e){ handleScanFile(e.target.files[0]); });
     fileUpload.addEventListener('change', function(e){ handleScanFile(e.target.files[0]); });
 
-    document.getElementById('scanBtnExtract').addEventListener('click', extractInvoiceViaAI);
+    document.getElementById('scanBtnExtract').addEventListener('click', function(){ extractInvoiceViaAI(0); });
     document.getElementById('scanBtnResetImg').addEventListener('click', resetScanPreview);
   }
 
@@ -1910,12 +1910,17 @@
     var fu = document.getElementById('scanFileUpload'); if(fu) fu.value = '';
   }
 
-  function extractInvoiceViaAI(){
+  // El plan gratis de Gemini deja leer pocas facturas por minuto. Si se
+  // pasa, responde "Please retry in 45.3s": se espera ese tiempo y se
+  // vuelve a intentar solo (hasta 2 veces) en vez de dar error.
+  function extractInvoiceViaAI(reintento){
+    reintento = reintento || 0;
     if(!scanImageBase64){ toast('Elegí o sacá una foto primero'); return; }
     var btn = document.getElementById('scanBtnExtract');
     btn.disabled = true;
+    var esperandoReintento = false;
     document.getElementById('scanStatusLine').style.display = 'flex';
-    document.getElementById('scanStatusText').textContent = 'Leyendo la factura…';
+    document.getElementById('scanStatusText').textContent = reintento ? 'Leyendo la factura (reintento ' + reintento + ')…' : 'Leyendo la factura…';
     document.getElementById('scanErrorLine').style.display = 'none';
     document.getElementById('scanOkLine').style.display = 'none';
 
@@ -1941,12 +1946,26 @@
       toast('Datos de la factura cargados');
     })
     .catch(function(err){
+      var msg = err.message || '';
+      var espera = msg.match(/retry in ([\d.]+)\s*s/i);
+      if(reintento < 2 && (espera || /quota|rate.?limit|429/i.test(msg))){
+        esperandoReintento = true;
+        var seg = Math.ceil(espera ? parseFloat(espera[1]) : 60) + 2;
+        var cuenta = function(){
+          if(seg <= 0){ extractInvoiceViaAI(reintento + 1); return; }
+          document.getElementById('scanStatusText').textContent = 'Demasiadas lecturas seguidas. Reintentando en ' + seg + ' s…';
+          seg--;
+          setTimeout(cuenta, 1000);
+        };
+        cuenta();
+        return;
+      }
       document.getElementById('scanStatusLine').style.display = 'none';
       document.getElementById('scanErrorLine').style.display = 'block';
-      document.getElementById('scanErrorLine').textContent = 'No se pudieron leer los datos automáticamente. Completá a mano abajo. (' + (err.message||'error desconocido') + ')';
+      document.getElementById('scanErrorLine').textContent = 'No se pudieron leer los datos automáticamente. Completá a mano abajo. (' + (msg||'error desconocido') + ')';
     })
     .finally(function(){
-      btn.disabled = false;
+      if(!esperandoReintento) btn.disabled = false;
     });
   }
 
