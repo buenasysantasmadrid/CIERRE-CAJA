@@ -553,7 +553,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 (function(){
   "use strict";
@@ -569,13 +568,6 @@
   function hasValidSheetUrl(url){
     return !!url && /^https?:\/\//.test(url);
   }
-
-  // Config del "Libro de Facturas" (Supabase) para poder leer una factura
-  // por foto y volcar los datos en el formulario de Proveedores. Mismos
-  // valores que ya usa esa herramienta.
-  var SUPABASE_URL = "https://clvcknwgyyfdvzbgwvxg.supabase.co";
-  var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsdmNrbndneXlmZHZ6Ymd3dnhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYxMDExOTEsImV4cCI6MjEwMTY3NzE5MX0.JBUbPZ6mr0g07qAkrGKIT3Kdt5Qjm68PX46u-C4DT7o";
-  var SCAN_EDGE_FUNCTION_URL = "https://clvcknwgyyfdvzbgwvxg.supabase.co/functions/v1/rapid-task";
   var scanImageBase64 = null;
   var scanMediaType = null;
 
@@ -1924,18 +1916,17 @@
     document.getElementById('scanErrorLine').style.display = 'none';
     document.getElementById('scanOkLine').style.display = 'none';
 
-    fetch(SCAN_EDGE_FUNCTION_URL, {
+    // La lectura la hace el Apps Script del Sheet (con Claude): la clave de
+    // la IA queda guardada allá, no en la app.
+    var url = loadSheetUrl();
+    fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
-      },
-      body: JSON.stringify({ imageBase64: scanImageBase64, mediaType: scanMediaType })
+      headers: {'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ accionEscanearFactura: true, imageBase64: scanImageBase64, mediaType: scanMediaType })
     })
     .then(function(resp){
       return resp.json().then(function(parsed){
-        if(!resp.ok) throw new Error(parsed.error || ('Error del servidor (' + resp.status + ')'));
+        if(!resp.ok || !parsed || parsed.ok === false) throw new Error((parsed && parsed.error) || ('Error del servidor (' + resp.status + ')'));
         return parsed;
       });
     })
