@@ -8,6 +8,14 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // Leer una factura desde una foto (botón "Escanear" de la app). No
+    // guarda nada en el Sheet: solo devuelve los datos leídos.
+    if (data.accionEscanearFactura) {
+      return ContentService
+        .createTextOutput(JSON.stringify(escanearFactura_(data)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // Cualquier guardado cambia los días o los albaranes: que la próxima
     // consulta de listados los vuelva a armar.
     invalidarCacheListados_();
@@ -1934,4 +1942,92 @@ function pasarCierresATresTpvDesdeMenu() {
   );
   if (ok !== ui.Button.YES) return;
   ui.alert('Listo', pasarCierresATresTpv().join('\n'), ui.ButtonSet.OK);
+}
+
+// ---------- Escanear facturas con Claude ----------
+// La clave de Anthropic NO va en el código (el repositorio es público): se
+// guarda en Configuración del proyecto → Propiedades del script, con el
+// nombre ANTHROPIC_API_KEY.
+var MODELO_ESCANEO = 'claude-sonnet-5';
+
+var ESQUEMA_FACTURA = {
+  type: 'object',
+  properties: {
+    proveedor: { type: 'string' },
+    numero_factura: { type: 'string' },
+    fecha: { type: 'string' },
+    importe_total: { type: 'string' },
+    importe_iva: { type: 'string' },
+    base_imponible: { type: 'string' },
+    tipo_iva: { type: 'string' }
+  },
+  required: ['proveedor', 'numero_factura', 'fecha', 'importe_total', 'importe_iva', 'base_imponible', 'tipo_iva'],
+  additionalProperties: false
+};
+
+var INSTRUCCIONES_FACTURA =
+  'Esta es la foto de una factura, albarán o ticket de compra de un restaurante ' +
+  '(el restaurante es el CLIENTE: "Buenas y Santas"). Extrae estos datos:\n' +
+  '- proveedor: nombre de la empresa que EMITE la factura (el vendedor), tal como aparece. Nunca el cliente.\n' +
+  '- numero_factura: número de factura, albarán o ticket.\n' +
+  '- fecha: fecha de la factura en formato YYYY-MM-DD.\n' +
+  '- importe_total: total a pagar, IVA incluido.\n' +
+  '- importe_iva: suma de todas las cuotas de IVA (si hay varios tipos, súmalas).\n' +
+  '- base_imponible: suma de las bases imponibles.\n' +
+  '- tipo_iva: porcentaje o porcentajes de IVA, por ejemplo "10" o "4, 10, 21".\n' +
+  'Los importes con punto como separador decimal y sin símbolo de euro (ejemplo: 1234.56). ' +
+  'Si un dato no aparece o no se lee con seguridad, deja el campo vacío ("") en vez de inventarlo.';
+
+function escanearFactura_(data) {
+  var clave = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  if (!clave) return { ok: false, error: 'Falta la clave ANTHROPIC_API_KEY en las Propiedades del script' };
+  if (!data.imageBase64) return { ok: false, error: 'No llegó la foto' };
+
+  var cuerpo = {
+    model: MODELO_ESCANEO,
+    max_tokens: 16000,
+    output_config: {
+      effort: 'low',
+      format: { type: 'json_schema', schema: ESQUEMA_FACTURA }
+    },
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: data.mediaType || 'image/jpeg', data: data.imageBase64 } },
+        { type: 'text', text: INSTRUCCIONES_FACTURA }
+      ]
+    }]
+  };
+
+  // Si Anthropic está saturado (429 / 529 / 5xx) se reintenta un par de veces.
+  var resp, codigo, json;
+  for (var intento = 0; intento < 3; intento++) {
+    resp = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'x-api-key': clave, 'anthropic-version': '2023-06-01' },
+      payload: JSON.stringify(cuerpo),
+      muteHttpExceptions: true
+    });
+    codigo = resp.getResponseCode();
+    if (codigo !== 429 && codigo < 500) break;
+    Utilities.sleep(2000 * (intento + 1));
+  }
+
+  try { json = JSON.parse(resp.getContentText()); } catch (err) { json = null; }
+  if (codigo !== 200 || !json) {
+    var msg = (json && json.error && json.error.message) || ('Error de la IA (' + codigo + ')');
+    return { ok: false, error: msg };
+  }
+  if (json.stop_reason === 'refusal') return { ok: false, error: 'La IA no quiso leer esta imagen' };
+
+  var texto = (json.content || []).filter(function (b) { return b.type === 'text'; })
+    .map(function (b) { return b.text; }).join('');
+  try {
+    var datos = JSON.parse(texto);
+    datos.ok = true;
+    return datos;
+  } catch (err) {
+    return { ok: false, error: 'No se pudo entender la respuesta de la IA' };
+  }
 }
