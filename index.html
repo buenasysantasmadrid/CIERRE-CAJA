@@ -147,6 +147,7 @@
   .fondo-res.mal{background:var(--red-soft);color:var(--red);}
   .fondo-res.info{background:var(--panel);color:var(--ink-soft);}
   .fondo-res ul{margin:6px 0 0;padding-left:18px;}
+  .fondo-titulo{font-family:var(--serif);font-size:1.6rem;font-weight:700;line-height:1.2;}
   .fondo-desglose{margin-top:8px;color:var(--ink);font-weight:400;}
   .fondo-desglose .desglose-line{padding:3px 0;}
   .turno-card.mediodia .tc-btn.filled{background:var(--md-ink);color:#fff;}
@@ -1079,7 +1080,7 @@
     }
     el.className = 'fondo-res ' + (Math.abs(dif) < 0.005 ? 'ok' : 'mal');
     el.innerHTML =
-      '<b>' + (Math.abs(dif) < 0.005 ? 'OK — la caja cuadra' : 'No cuadra: ' + (dif > 0 ? 'sobran ' : 'faltan ') + fmt(Math.abs(dif))) + '</b>' +
+      '<div class="fondo-titulo">' + (Math.abs(dif) < 0.005 ? 'OK — la caja cuadra' : 'No cuadra: ' + (dif > 0 ? 'sobran ' : 'faltan ') + fmt(Math.abs(dif))) + '</div>' +
       '<div class="fondo-desglose">' +
         linea('Fondo fijo', fmt(fondo)) +
         linea('+ Ingresos', fmt(ingresos)) +
