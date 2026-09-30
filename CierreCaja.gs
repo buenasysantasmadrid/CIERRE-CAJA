@@ -16,6 +16,14 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // Entender un gasto dictado por voz (botón "Dictar gasto"). Tampoco
+    // guarda nada: solo devuelve los campos.
+    if (data.accionDictarGasto) {
+      return ContentService
+        .createTextOutput(JSON.stringify(dictarGasto_(data)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // Cualquier guardado cambia los días o los albaranes: que la próxima
     // consulta de listados los vuelva a armar.
     invalidarCacheListados_();
@@ -1979,24 +1987,67 @@ var INSTRUCCIONES_FACTURA =
   'Si un dato no aparece o no se lee con seguridad, deja el campo vacío ("") en vez de inventarlo.';
 
 function escanearFactura_(data) {
+  if (!data.imageBase64) return { ok: false, error: 'No llegó la foto' };
+  return pedirJsonAClaude_([
+    { type: 'image', source: { type: 'base64', media_type: data.mediaType || 'image/jpeg', data: data.imageBase64 } },
+    { type: 'text', text: INSTRUCCIONES_FACTURA }
+  ], ESQUEMA_FACTURA);
+}
+
+var ESQUEMA_DICTADO = {
+  type: 'object',
+  properties: {
+    proveedor: { type: 'string' },
+    numero_factura: { type: 'string' },
+    fecha: { type: 'string' },
+    importe_total: { type: 'string' },
+    importe_iva: { type: 'string' },
+    forma_pago: { type: 'string', enum: ['efectivo', 'tarjeta', 'no_pagado', 'transferencia', ''] },
+    responsable: { type: 'string' },
+    info: { type: 'string' }
+  },
+  required: ['proveedor', 'numero_factura', 'fecha', 'importe_total', 'importe_iva', 'forma_pago', 'responsable', 'info'],
+  additionalProperties: false
+};
+
+// Un gasto de proveedor dicho en voz alta ("factura de Monbake de hoy,
+// número 113, importe 99, IVA 1, pagada en efectivo, responsable Luciana").
+function dictarGasto_(data) {
+  var texto = String(data.texto || '').trim();
+  if (!texto) return { ok: false, error: 'No llegó el texto' };
+  var instrucciones =
+    'Un empleado de un restaurante dictó por voz un gasto a un proveedor. Hoy es ' + (data.fechaHoy || '') + ' (YYYY-MM-DD).\n' +
+    'Proveedores de la lista: ' + (data.proveedores || []).join(', ') + '.\n' +
+    'Empleados: ' + (data.responsables || []).join(', ') + '.\n' +
+    'Extrae:\n' +
+    '- proveedor: si coincide con uno de la lista (aunque el dictado lo diga un poco distinto), escríbelo exactamente como en la lista; si no, el nombre tal como se dijo.\n' +
+    '- numero_factura: número de factura o albarán.\n' +
+    '- fecha: en formato YYYY-MM-DD. "hoy", "ayer", "el lunes"... se calculan a partir de hoy.\n' +
+    '- importe_total: importe total (con punto decimal, sin símbolo, ej. 99.50).\n' +
+    '- importe_iva: importe del IVA en euros (no el porcentaje).\n' +
+    '- forma_pago: efectivo, tarjeta, no_pagado (si dice que no se pagó o queda pendiente) o transferencia.\n' +
+    '- responsable: el empleado que lo carga, escrito como en la lista si coincide.\n' +
+    '- info: cualquier otro detalle u observación que se haya dicho; si no hay, vacío.\n' +
+    'El texto viene de un reconocimiento de voz y puede tener errores (ej. "faceta" por "factura"). ' +
+    'Si un dato no se dijo, deja el campo vacío ("") en vez de inventarlo.\n\n' +
+    'Dictado: """' + texto + '"""';
+  return pedirJsonAClaude_([{ type: 'text', text: instrucciones }], ESQUEMA_DICTADO);
+}
+
+// Llama a Claude con el contenido dado y devuelve el JSON que pide el
+// esquema, con ok: true (o { ok: false, error } si algo falla).
+function pedirJsonAClaude_(contenido, esquema) {
   var clave = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
   if (!clave) return { ok: false, error: 'Falta la clave ANTHROPIC_API_KEY en las Propiedades del script' };
-  if (!data.imageBase64) return { ok: false, error: 'No llegó la foto' };
 
   var cuerpo = {
     model: MODELO_ESCANEO,
     max_tokens: 16000,
     output_config: {
       effort: 'low',
-      format: { type: 'json_schema', schema: ESQUEMA_FACTURA }
+      format: { type: 'json_schema', schema: esquema }
     },
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'image', source: { type: 'base64', media_type: data.mediaType || 'image/jpeg', data: data.imageBase64 } },
-        { type: 'text', text: INSTRUCCIONES_FACTURA }
-      ]
-    }]
+    messages: [{ role: 'user', content: contenido }]
   };
 
   // Si Anthropic está saturado (429 / 529 / 5xx) se reintenta un par de veces.
@@ -2019,7 +2070,7 @@ function escanearFactura_(data) {
     var msg = (json && json.error && json.error.message) || ('Error de la IA (' + codigo + ')');
     return { ok: false, error: msg };
   }
-  if (json.stop_reason === 'refusal') return { ok: false, error: 'La IA no quiso leer esta imagen' };
+  if (json.stop_reason === 'refusal') return { ok: false, error: 'La IA no quiso responder a esto' };
 
   var texto = (json.content || []).filter(function (b) { return b.type === 'text'; })
     .map(function (b) { return b.text; }).join('');
