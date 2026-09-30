@@ -2,6 +2,15 @@ function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
 
+    // Inicio de sesión con Google (ver "Acceso" al final de este archivo).
+    // Todo lo demás necesita una sesión válida.
+    if (data.accionIniciarSesion) {
+      return ContentService
+        .createTextOutput(JSON.stringify(iniciarSesion_(data.idToken)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    if (!sesionValida_(data.sesion)) return respuestaSinSesion_();
+
     if (data.test) {
       return ContentService
         .createTextOutput(JSON.stringify({ ok: true, msg: 'Conexión OK' }))
@@ -567,6 +576,16 @@ function puntajeTurno_(t) {
 }
 
 function doGet(e) {
+  var parametros = (e && e.parameter) || {};
+  // La app pregunta si este Apps Script ya pide inicio de sesión.
+  if (parametros.loginInfo) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: true, login: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  // Todo lo demás necesita una sesión válida (ver "Acceso" al final).
+  if (!sesionValida_(parametros.sesion)) return respuestaSinSesion_();
+
   // Diagnóstico rápido desde el navegador (GET ?diag=1, opcionalmente
   // &fecha=YYYY-MM-DD): lista el nombre exacto de cada pestaña de la
   // planilla de Cierre de Caja del mes de esa fecha (hoy por defecto), para
@@ -2184,4 +2203,82 @@ function autorizarEscaneo() {
     muteHttpExceptions: true
   });
   Logger.log(resp.getResponseCode() === 200 ? 'OK: permiso dado y clave correcta' : 'Error ' + resp.getResponseCode() + ': ' + resp.getContentText());
+}
+
+// ============================================================================
+// Acceso: solo estas cuentas de Google pueden usar la app.
+// ============================================================================
+// Para dar o quitar acceso, cambiar esta lista, pegar el archivo y crear una
+// Nueva versión. Quitar una cuenta de acá la deja afuera enseguida, aunque
+// tenga una sesión abierta.
+var CUENTAS_PERMITIDAS_ = [
+  'lfisbein@gmail.com',
+  'buenasysantasmadrid@gmail.com',
+  'buenasysantas9@gmail.com'
+];
+// ID de cliente de OAuth (Google Cloud, proyecto "Buenas y Santas"). No es
+// secreto: es el mismo que usa la página.
+var GOOGLE_CLIENT_ID_ = '831497268247-b3hhi4pqlvnd18vv7dph2ihodmih2jmp.apps.googleusercontent.com';
+var DIAS_SESION_ = 90;
+
+// La app manda el "credential" que le dio Google al iniciar sesión. Se
+// comprueba con Google que es válido y para esta app, y que la cuenta está
+// en la lista. Si todo va bien se crea una sesión (un código al azar que
+// vale DIAS_SESION_ días) guardada en las propiedades del script.
+function iniciarSesion_(idToken) {
+  if (!idToken) return { ok: false, error: 'No llegó el inicio de sesión de Google.' };
+  var resp = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken), { muteHttpExceptions: true });
+  if (resp.getResponseCode() !== 200) return { ok: false, error: 'Google no dio por válido el inicio de sesión. Prueba de nuevo.' };
+  var info = JSON.parse(resp.getContentText());
+  if (info.aud !== GOOGLE_CLIENT_ID_) return { ok: false, error: 'El inicio de sesión no es de esta app.' };
+  var email = String(info.email || '').toLowerCase();
+  if (String(info.email_verified) !== 'true') return { ok: false, error: 'La cuenta ' + email + ' no está verificada por Google.' };
+  if (CUENTAS_PERMITIDAS_.indexOf(email) === -1) return { ok: false, error: 'La cuenta ' + email + ' no tiene acceso a la caja.' };
+
+  var props = PropertiesService.getScriptProperties();
+  borrarSesionesVencidas_(props);
+  var sesion = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  var expira = Date.now() + DIAS_SESION_ * 24 * 60 * 60 * 1000;
+  props.setProperty('sesion_' + sesion, JSON.stringify({ email: email, expira: expira }));
+  return { ok: true, sesion: sesion, email: email, expira: expira };
+}
+
+// Devuelve la cuenta de la sesión, o null si no es válida (no existe,
+// venció o la cuenta ya no está en la lista).
+function sesionValida_(sesion) {
+  if (!sesion || !/^[a-f0-9]{64}$/.test(String(sesion))) return null;
+  var texto = PropertiesService.getScriptProperties().getProperty('sesion_' + sesion);
+  if (!texto) return null;
+  var s;
+  try { s = JSON.parse(texto); } catch (err) { return null; }
+  if (!s || !(s.expira > Date.now()) || CUENTAS_PERMITIDAS_.indexOf(s.email) === -1) return null;
+  return s.email;
+}
+
+function respuestaSinSesion_() {
+  return ContentService
+    .createTextOutput(JSON.stringify({ ok: false, sinSesion: true, error: 'Hay que iniciar sesión con una cuenta autorizada.' }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function borrarSesionesVencidas_(props) {
+  var todas = props.getProperties();
+  Object.keys(todas).forEach(function (clave) {
+    if (clave.indexOf('sesion_') !== 0) return;
+    var s = null;
+    try { s = JSON.parse(todas[clave]); } catch (err) {}
+    if (!s || !(s.expira > Date.now())) props.deleteProperty(clave);
+  });
+}
+
+// Para correr a mano desde el editor (por ejemplo si se pierde un móvil):
+// cierra la sesión en todos los dispositivos. Cada uno tendrá que volver
+// a iniciar sesión con Google.
+function cerrarTodasLasSesiones() {
+  var props = PropertiesService.getScriptProperties();
+  var borradas = 0;
+  Object.keys(props.getProperties()).forEach(function (clave) {
+    if (clave.indexOf('sesion_') === 0) { props.deleteProperty(clave); borradas++; }
+  });
+  Logger.log('Sesiones cerradas: ' + borradas);
 }

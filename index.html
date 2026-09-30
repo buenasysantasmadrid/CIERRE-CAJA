@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#DCEFC8">
 <title>Cierre de Caja</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root{
     --bg:#DCEFC8;
@@ -147,6 +148,14 @@
   .fondo-res.mal{background:var(--red-soft);color:var(--red);}
   .fondo-res.info{background:var(--panel);color:var(--ink-soft);}
   .fondo-res ul{margin:6px 0 0;padding-left:18px;}
+  .login-overlay{position:fixed;inset:0;z-index:1000;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:16px;}
+  .login-overlay.oculto{display:none;}
+  .login-box{background:#fff;border-radius:18px;padding:28px 22px;max-width:360px;width:100%;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,.08);}
+  .login-box h2{margin:10px 0 8px;}
+  .login-logo{width:72px;height:72px;object-fit:contain;border-radius:14px;}
+  .login-texto{margin:0 0 18px;color:var(--ink);}
+  #loginBoton{display:flex;justify-content:center;min-height:44px;}
+  .login-error{margin:14px 0 0;color:var(--red);font-size:.9rem;min-height:1.2em;}
   .tpv-aviso-titulo{margin-right:0;color:var(--red);font-size:1.6rem;text-align:center;}
   .tpv-aviso-texto{text-align:center;margin:0 0 6px;}
   .fondo-titulo{font-family:var(--serif);font-size:1.6rem;font-weight:700;line-height:1.2;}
@@ -432,6 +441,18 @@
 </style>
 </head>
 <body>
+
+<!-- Inicio de sesión: la caja solo se abre con una de las cuentas de Google
+     autorizadas (la lista está en el Apps Script, que es el que decide). -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <img src="logo_buenasysantas.jpg" alt="" class="login-logo" onerror="this.style.display='none'">
+    <h2>Cierre de Caja</h2>
+    <p class="login-texto" id="loginTexto">Comprobando…</p>
+    <div id="loginBoton"></div>
+    <p class="login-error" id="loginError"></p>
+  </div>
+</div>
 
 <div class="aviso-caja-antigua" id="avisoCajaAntigua" style="display:none;">
   <span><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636-2.87l-8.106-13.536a1.914 1.914 0 0 0-3.274 0z"/><path d="M12 16h.01"/></svg>OJO, NO ES LA CAJA DEL DÍA DE HOY</span>
@@ -4113,7 +4134,7 @@
   }
 
   function revisarAvisoTpv1(){
-    if(!state || !state.fecha) return;
+    if(!appIniciada || !state || !state.fecha) return;
     if(document.getElementById('tpvAvisoOverlay').classList.contains('open')) return;
     var mes = state.fecha.slice(0, 7);
     var total = tpv1DelMes(mes);
@@ -4142,7 +4163,120 @@
   // quede abierta todo el rato.
   setInterval(revisarAvisoTpv1, 60 * 1000);
 
-  init();
+  // ---------- Inicio de sesión con Google ----------
+  // La caja solo se abre con una de las cuentas autorizadas. Al iniciar
+  // sesión, el Apps Script comprueba la cuenta con Google y devuelve una
+  // "sesión" que este dispositivo guarda (dura 90 días). Todo pedido al
+  // Apps Script lleva esa sesión, y el Apps Script no responde ni guarda
+  // nada sin una sesión válida.
+  var GOOGLE_CLIENT_ID = '831497268247-b3hhi4pqlvnd18vv7dph2ihodmih2jmp.apps.googleusercontent.com';
+  var LS_SESION = 'cierreCaja_sesion_v1';
+  var appIniciada = false;
+
+  function leerSesion(){
+    try {
+      var s = JSON.parse(localStorage.getItem(LS_SESION) || 'null');
+      return (s && s.sesion && s.expira > Date.now()) ? s : null;
+    } catch(e){ return null; }
+  }
+  function guardarSesion(s){ try { localStorage.setItem(LS_SESION, JSON.stringify(s)); } catch(e){} }
+  function borrarSesion(){ try { localStorage.removeItem(LS_SESION); } catch(e){} }
+
+  // Le agrega la sesión a cada pedido al Apps Script (en la URL si es GET,
+  // en el cuerpo si es POST). Si el Apps Script contesta que no hay sesión
+  // válida, se vuelve a pedir el inicio de sesión.
+  var fetchOriginal = window.fetch.bind(window);
+  window.fetch = function(input, opts){
+    var url = typeof input === 'string' ? input : '';
+    if(url.indexOf(SHEET_URL_DEFAULT) !== 0) return fetchOriginal(input, opts);
+    var s = leerSesion();
+    var token = s ? s.sesion : '';
+    opts = opts ? Object.assign({}, opts) : {};
+    if(String(opts.method || 'GET').toUpperCase() === 'POST' && typeof opts.body === 'string'){
+      try {
+        var cuerpo = JSON.parse(opts.body);
+        if(!cuerpo.accionIniciarSesion){ cuerpo.sesion = token; opts.body = JSON.stringify(cuerpo); }
+      } catch(e){}
+    } else {
+      url += (url.indexOf('?') > -1 ? '&' : '?') + 'sesion=' + encodeURIComponent(token);
+    }
+    return fetchOriginal(url, opts).then(function(resp){
+      resp.clone().json().then(function(d){ if(d && d.sinSesion) sesionCaducada(); }).catch(function(){});
+      return resp;
+    });
+  };
+
+  function loginMensaje(texto, error){
+    document.getElementById('loginTexto').textContent = texto || '';
+    document.getElementById('loginError').textContent = error || '';
+  }
+
+  function mostrarLogin(error){
+    document.getElementById('loginOverlay').classList.remove('oculto');
+    loginMensaje('Inicia sesión con una cuenta autorizada de Buenas y Santas.', error);
+    esperarGoogle(function(){
+      google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: alIniciarSesionGoogle });
+      var cont = document.getElementById('loginBoton');
+      cont.innerHTML = '';
+      google.accounts.id.renderButton(cont, { theme: 'filled_blue', size: 'large', text: 'signin_with', locale: 'es' });
+    });
+  }
+
+  var esperaGoogleIntentos = 0;
+  function esperarGoogle(cb){
+    if(window.google && google.accounts && google.accounts.id){ cb(); return; }
+    if(++esperaGoogleIntentos > 75){
+      loginMensaje('', 'No se pudo cargar el inicio de sesión de Google. Revisa la conexión y recarga la página.');
+      return;
+    }
+    setTimeout(function(){ esperarGoogle(cb); }, 200);
+  }
+
+  function alIniciarSesionGoogle(respuesta){
+    loginMensaje('Comprobando la cuenta…');
+    fetch(SHEET_URL_DEFAULT, {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ accionIniciarSesion: true, idToken: respuesta.credential })
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if(d && d.ok && d.sesion){
+        guardarSesion({ sesion: d.sesion, email: d.email, expira: d.expira });
+        iniciarApp();
+      } else {
+        loginMensaje('Inicia sesión con una cuenta autorizada de Buenas y Santas.', (d && d.error) || 'No se pudo iniciar sesión.');
+      }
+    }).catch(function(err){
+      loginMensaje('Inicia sesión con una cuenta autorizada de Buenas y Santas.', 'No se pudo conectar (' + err.message + ').');
+    });
+  }
+
+  function sesionCaducada(){
+    borrarSesion();
+    mostrarLogin('La sesión se cerró o esta cuenta no tiene acceso. Vuelve a iniciar sesión.');
+  }
+
+  function iniciarApp(){
+    document.getElementById('loginOverlay').classList.add('oculto');
+    if(appIniciada) return;
+    appIniciada = true;
+    init();
+  }
+
+  // Con una sesión guardada en este dispositivo se entra directo (también
+  // sin conexión). Si no, se pregunta al Apps Script si ya tiene el inicio
+  // de sesión: mientras tenga la versión vieja (sin esto) la caja se abre
+  // como antes, para no dejar a nadie sin poder trabajar.
+  function arrancar(){
+    if(leerSesion()){ iniciarApp(); return; }
+    fetchOriginal(SHEET_URL_DEFAULT + '?loginInfo=1').then(function(r){ return r.json(); }).then(function(d){
+      if(d && d.login) mostrarLogin();
+      else iniciarApp();
+    }).catch(function(){
+      mostrarLogin('Sin conexión: para entrar la primera vez hace falta internet.');
+    });
+  }
+
+  arrancar();
 })();
 </script>
 </body>
