@@ -147,6 +147,8 @@
   .fondo-res.mal{background:var(--red-soft);color:var(--red);}
   .fondo-res.info{background:var(--panel);color:var(--ink-soft);}
   .fondo-res ul{margin:6px 0 0;padding-left:18px;}
+  .fondo-desglose{margin-top:8px;color:var(--ink);font-weight:400;}
+  .fondo-desglose .desglose-line{padding:3px 0;}
   .turno-card.mediodia .tc-btn.filled{background:var(--md-ink);color:#fff;}
   .turno-card.noche .tc-btn.filled{background:var(--nc-ink);color:#fff;}
   .turno-card.mediodia .tc-btn.outline{background:transparent;border:1.5px solid var(--md-ink);color:var(--md-ink);}
@@ -935,11 +937,11 @@
     '</section>';
   }
 
-  // Conteo del fondo fijo al abrir cada turno (en la pantalla principal,
-  // en el bloque del turno): se cuenta por billete y moneda y se compara
-  // con lo que quedó contado antes. En Mediodía, con el último cierre (el
-  // de Noche del último día trabajado, o el de Mediodía si Noche no contó);
-  // en Noche, con el cierre de Mediodía de ese mismo día.
+  // Control de caja en cualquier momento del turno (en la pantalla
+  // principal, en el bloque del turno): se cuenta el efectivo por billete y
+  // moneda y se compara con lo que debería haber en ese momento: el fondo
+  // fijo del turno + ingresos − gastos en efectivo − retiros anotados hasta
+  // ahora (ver compararFondo).
   function fondoConteoHTML(t){
     return '<div class="fondo-box" id="fondoConteoBox_'+t+'" style="display:none;">' +
       '<button type="button" class="fondo-cerrar" data-fondo-cerrar aria-label="Cerrar el conteo">'+icon('x')+'</button>' +
@@ -1013,7 +1015,6 @@
       var box = document.getElementById('fondoConteoBox_'+t);
       var abrir = box.style.display === 'none';
       box.style.display = abrir ? '' : 'none';
-      // En Noche se compara con Mediodía, que puede haber cambiado.
       if(abrir) compararFondo(t);
     });
     TURNOS.forEach(function(t){
@@ -1039,56 +1040,18 @@
     });
   }
 
-  // Último cierre antes de `fecha`: {fecha, turno, denom}. Se busca en este
-  // dispositivo y, si no está, se trae del Sheet (una vez por fecha).
-  var cierreAnteriorCache = {};
-  function ultimaFechaTrabajada(fecha){
-    var store = getDiasStore();
-    var fechas = {};
-    Object.keys(store).forEach(function(f){ if(f < fecha && diaTieneActividad(store[f])) fechas[f] = true; });
-    Object.keys(cierresSheet).forEach(function(f){ if(f < fecha && cierresSheet[f].actividad) fechas[f] = true; });
-    return Object.keys(fechas).sort().pop() || null;
-  }
-  function cierreDeDia(fecha, dia){
-    function contado(x){ return ((x && (x._calc || x.calc)) || {}).totalContado || 0; }
-    var turno = contado(dia.noche) > 0 ? 'noche' : 'mediodia';
-    return { fecha: fecha, turno: turno, denom: (dia[turno] && dia[turno].denom) || conteoVacio() };
-  }
-  function cierreAnterior(fecha, cb){
-    var ultima = ultimaFechaTrabajada(fecha);
-    if(!ultima){ cb(null); return; }
-    var dia = getDiasStore()[ultima];
-    if(dia && diaTieneActividad(dia)){ cb(cierreDeDia(ultima, dia)); return; }
-    if(cierreAnteriorCache[ultima]){ cb(cierreAnteriorCache[ultima]); return; }
-    var url = loadSheetUrl();
-    if(!hasValidSheetUrl(url)){ cb(null); return; }
-    fetch(url + (url.indexOf('?')>-1?'&':'?') + 'fecha=' + encodeURIComponent(ultima))
-      .then(function(r){ return r.json(); })
-      .then(function(data){
-        if(!data || !data.ok || !data.encontrado){ cb(null); return; }
-        cierreAnteriorCache[ultima] = cierreDeDia(ultima, data);
-        cb(cierreAnteriorCache[ultima]);
-      })
-      .catch(function(){ cb(null); });
+  // Fondo fijo con el que arrancó el turno. En Noche, si no se escribió
+  // uno, es lo que quedó contado en el cierre de Mediodía.
+  function fondoInicialTurno(t){
+    var fondo = num(state[t].fondoFijo);
+    if(t === 'noche' && !fondo) fondo = ((state.mediodia && state.mediodia._calc) || {}).totalContado || 0;
+    return fondo;
   }
 
-  function textoUnidades(n, v, esBillete){
-    var nombre = esBillete ? (n === 1 ? 'billete' : 'billetes') : (n === 1 ? 'moneda' : 'monedas');
-    return n + ' ' + nombre + ' de ' + v.toLocaleString('es-ES') + ' €';
-  }
-
-  // Con qué se compara el fondo contado al abrir el turno: en Mediodía,
-  // el último cierre de otro día (cierreAnterior); en Noche, el efectivo
-  // contado en el cierre de Mediodía de hoy.
-  function cierreParaComparar(t, cb){
-    if(t === 'noche'){
-      var md = state.mediodia.denom || conteoVacio();
-      cb(hayConteo(md) ? { fecha: state.fecha, turno: 'mediodia', denom: md } : null);
-      return;
-    }
-    cierreAnterior(state.fecha, cb);
-  }
-
+  // Compara el efectivo contado en el control con lo que debería haber en
+  // la caja ahora: fondo fijo + ingresos − gastos en efectivo − retiros
+  // anotados hasta este momento en el turno (las ventas todavía no, se
+  // cuentan en el cierre).
   function compararFondo(t){
     var el = document.getElementById('fondoResultado_'+t);
     if(!el) return;
@@ -1101,43 +1064,30 @@
       var sub = document.getElementById('fondoSub_'+t+'_m_'+v);
       if(sub) sub.textContent = fmt(unidadesDenom(d, v, false) * v);
     });
+    var contado = totalDenom(d);
     var lbl = document.getElementById('fondoContadoLbl_'+t);
-    if(lbl) lbl.textContent = fmt(totalDenom(d));
+    if(lbl) lbl.textContent = fmt(contado);
     if(!hayConteo(d)){ el.innerHTML = ''; return; }
 
-    var fechaAlMomento = state.fecha;
-    el.className = 'fondo-res info';
-    el.textContent = 'Buscando el último cierre para comparar…';
-    cierreParaComparar(t, function(ant){
-      if(state.fecha !== fechaAlMomento) return;
-      var d2 = state[t].fondoConteo || conteoVacio();
-      if(!ant){
-        el.className = 'fondo-res info';
-        el.textContent = t === 'noche'
-          ? 'Todavía no se contó el efectivo del cierre de Mediodía de hoy: no hay con qué comparar.'
-          : 'No encontré un cierre anterior para comparar.';
-        return;
-      }
-      var p = ant.fecha.split('-');
-      var deCual = 'el cierre de ' + TURNO_LABEL[ant.turno] + ' del ' + p[2] + '/' + p[1];
-      var lineas = [];
-      function comparar(v, esBillete){
-        var ahora = unidadesDenom(d2, v, esBillete), antes = unidadesDenom(ant.denom, v, esBillete);
-        if(ahora < antes) lineas.push('Falta: ' + textoUnidades(antes - ahora, v, esBillete) + ' (en ' + deCual.replace('el cierre de ', '') + ' había ' + antes + ', ahora ' + ahora + ')');
-        else if(ahora > antes) lineas.push('Sobra: ' + textoUnidades(ahora - antes, v, esBillete) + ' (en ' + deCual.replace('el cierre de ', '') + ' había ' + antes + ', ahora ' + ahora + ')');
-      }
-      BILLETES.forEach(function(v){ comparar(v, true); });
-      MONEDAS.forEach(function(v){ comparar(v, false); });
-      if(!lineas.length){
-        el.className = 'fondo-res ok';
-        el.textContent = 'OK — el fondo fijo cuadra con ' + deCual + ' (' + fmt(totalDenom(d2)) + ').';
-        return;
-      }
-      var dif = Math.round((totalDenom(d2) - totalDenom(ant.denom)) * 100) / 100;
-      el.className = 'fondo-res mal';
-      el.innerHTML = '<b>No cuadra con ' + escapeHtml(deCual) + '</b> (diferencia ' + escapeHtml(fmtSigno(dif)) + ')' +
-        '<ul>' + lineas.map(function(x){ return '<li>' + escapeHtml(x) + '</li>'; }).join('') + '</ul>';
-    });
+    var c = state[t]._calc || {};
+    var fondo = fondoInicialTurno(t);
+    var ingresos = c.ingresoEfectivo || 0, gastos = c.gastoEfectivo || 0, retiros = c.egreso || 0;
+    var esperado = Math.round((fondo + ingresos - gastos - retiros) * 100) / 100;
+    var dif = Math.round((contado - esperado) * 100) / 100;
+    function linea(txt, valor, cls){
+      return '<div class="desglose-line'+(cls ? ' '+cls : '')+'"><span>'+txt+'</span><span>'+valor+'</span></div>';
+    }
+    el.className = 'fondo-res ' + (Math.abs(dif) < 0.005 ? 'ok' : 'mal');
+    el.innerHTML =
+      '<b>' + (Math.abs(dif) < 0.005 ? 'OK — la caja cuadra' : 'No cuadra: ' + (dif > 0 ? 'sobran ' : 'faltan ') + fmt(Math.abs(dif))) + '</b>' +
+      '<div class="fondo-desglose">' +
+        linea('Fondo fijo', fmt(fondo)) +
+        linea('+ Ingresos', fmt(ingresos)) +
+        linea('− Gastos en efectivo', fmt(gastos)) +
+        linea('− Retiros', fmt(retiros)) +
+        linea('= Debería haber', fmt(esperado), 'total') +
+        linea('Contado', fmt(contado)) +
+      '</div>';
   }
 
   function abrirCierre(t){
@@ -3094,8 +3044,6 @@
       '<div class="desglose-line" style="color:var(--ink-soft);font-size:.78rem;"><span>Ventas en efectivo = (facturado '+fmt(totalFacturadoPropio)+' − empanadas '+fmt(empanadas)+') − TPV '+fmt(tpv1Propio + tpv2Propio + tpv3Propio)+'</span></div>';
 
     state[t].fondoFijo = fondoFijo;
-    // El control del fondo de Noche se compara con lo contado en Mediodía.
-    if(t === 'mediodia') compararFondo('noche');
     state[t].totalFacturado = totalFacturado;
     state[t].tpv1 = tpv1;
     state[t].tpv2 = tpv2;
@@ -3105,6 +3053,11 @@
       egreso:egreso, empanadas:empanadas, facturadoNeto:facturadoNeto, ventasEfectivo:ventasEfectivo,
       esperado:esperado, diferencia:diferencia,
       totalFacturadoPropio:totalFacturadoPropio, tpv1Propio:tpv1Propio, tpv2Propio:tpv2Propio, tpv3Propio:tpv3Propio};
+
+    // El control de caja se actualiza con cada gasto, ingreso o retiro. El
+    // de Noche también depende de Mediodía (su fondo puede ser lo contado ahí).
+    compararFondo(t);
+    if(t === 'mediodia') compararFondo('noche');
 
     recalcDia();
   }
