@@ -935,21 +935,22 @@
     '</section>';
   }
 
-  // Conteo del fondo fijo al abrir (en la pantalla principal, en el bloque
-  // de Mediodía): se cuenta por billete y
-  // moneda y se compara con el efectivo contado en el último cierre (el de
-  // Noche del último día trabajado, o el de Mediodía si Noche no contó).
-  function fondoConteoHTML(){
-    return '<div class="fondo-box" id="fondoConteoBox" style="display:none;">' +
+  // Conteo del fondo fijo al abrir cada turno (en la pantalla principal,
+  // en el bloque del turno): se cuenta por billete y moneda y se compara
+  // con lo que quedó contado antes. En Mediodía, con el último cierre (el
+  // de Noche del último día trabajado, o el de Mediodía si Noche no contó);
+  // en Noche, con el cierre de Mediodía de ese mismo día.
+  function fondoConteoHTML(t){
+    return '<div class="fondo-box" id="fondoConteoBox_'+t+'" style="display:none;">' +
       '<button type="button" class="fondo-cerrar" data-fondo-cerrar aria-label="Cerrar el conteo">'+icon('x')+'</button>' +
       '<div>' +
-        '<div class="sub-label">Contar el fondo fijo · Billetes</div><div id="fondoBilletes"></div>' +
+        '<div class="sub-label">Contar el fondo fijo · Billetes</div><div id="fondoBilletes_'+t+'"></div>' +
         '<div class="sub-label">Monedas</div>' +
         '<div class="monedas-row head"><span></span><span style="text-align:center;">Sueltas</span><span style="text-align:center;">Rollos</span><span style="text-align:right;">Subtotal</span></div>' +
-        '<div id="fondoMonedas"></div>' +
-        '<div class="total-contado"><span>Fondo contado</span><span id="fondoContadoLbl">0,00 €</span></div>' +
+        '<div id="fondoMonedas_'+t+'"></div>' +
+        '<div class="total-contado"><span>Fondo contado</span><span id="fondoContadoLbl_'+t+'">0,00 €</span></div>' +
       '</div>' +
-      '<div id="fondoResultado"></div>' +
+      '<div id="fondoResultado_'+t+'"></div>' +
     '</div>';
   }
 
@@ -976,10 +977,13 @@
   }
 
   function buildFondoConteo(){
-    var s = state.mediodia;
+    TURNOS.forEach(buildFondoConteoTurno);
+  }
+  function buildFondoConteoTurno(t){
+    var s = state[t];
     if(!s.fondoConteo) s.fondoConteo = conteoVacio();
     var d = s.fondoConteo;
-    document.getElementById('fondoBilletes').innerHTML = BILLETES.map(function(v){
+    document.getElementById('fondoBilletes_'+t).innerHTML = BILLETES.map(function(v){
       return '<div class="denom-row">' +
         '<span class="denom-lbl">'+v.toLocaleString('es-ES')+' €</span>' +
         '<div class="stepper">' +
@@ -987,43 +991,51 @@
           '<input type="number" inputmode="numeric" min="0" step="1" data-fondo-billete="'+v+'" value="'+(d.billetes[v]||0)+'">' +
           '<button type="button" data-step="1" aria-label="Uno más">'+icon('plus')+'</button>' +
         '</div>' +
-        '<span class="denom-sub" id="fondoSub_b_'+v+'">0,00 €</span></div>';
+        '<span class="denom-sub" id="fondoSub_'+t+'_b_'+v+'">0,00 €</span></div>';
     }).join('');
-    document.getElementById('fondoMonedas').innerHTML = MONEDAS.map(function(v){
+    document.getElementById('fondoMonedas_'+t).innerHTML = MONEDAS.map(function(v){
       return '<div class="monedas-row">' +
         '<span class="denom-lbl">'+v.toLocaleString('es-ES')+' €<small>rollo '+fmt(ROLL_VALUE[v])+'</small></span>' +
         '<input type="number" inputmode="numeric" min="0" step="1" data-fondo-suelta="'+v+'" value="'+(d.monedasSueltas[v]||0)+'" aria-label="Sueltas de '+v+' €">' +
         '<input type="number" inputmode="numeric" min="0" step="1" data-fondo-rollo="'+v+'" value="'+(d.monedasBlister[v]||0)+'" aria-label="Rollos de '+v+' €">' +
-        '<span class="denom-sub" id="fondoSub_m_'+v+'">0,00 €</span></div>';
+        '<span class="denom-sub" id="fondoSub_'+t+'_m_'+v+'">0,00 €</span></div>';
     }).join('');
-    compararFondo();
+    compararFondo(t);
   }
 
   function wireFondoConteo(){
-    var box = document.getElementById('fondoConteoBox');
-    // El botón "Contar fondo fijo" está en la tarjeta de Mediodía (que se
-    // vuelve a pintar a cada rato): abre y cierra el conteo, debajo.
+    // El botón "CONTROL" está en la tarjeta de cada turno (que se vuelve a
+    // pintar a cada rato): abre y cierra el conteo de ese turno, debajo.
     document.getElementById('turnoBloques').addEventListener('click', function(e){
-      if(!e.target.closest('[data-fondo-toggle]')) return;
-      box.style.display = box.style.display === 'none' ? '' : 'none';
+      var toggle = e.target.closest('[data-fondo-toggle]');
+      if(!toggle) return;
+      var t = toggle.getAttribute('data-fondo-toggle');
+      var box = document.getElementById('fondoConteoBox_'+t);
+      var abrir = box.style.display === 'none';
+      box.style.display = abrir ? '' : 'none';
+      // En Noche se compara con Mediodía, que puede haber cambiado.
+      if(abrir) compararFondo(t);
     });
-    box.addEventListener('click', function(e){
-      if(e.target.closest('[data-fondo-cerrar]')){ box.style.display = 'none'; return; }
-      var btn = e.target.closest('[data-step]');
-      if(!btn) return;
-      var inp = btn.parentNode.querySelector('input');
-      inp.value = Math.max(0, num(inp.value) + Number(btn.getAttribute('data-step')));
-      inp.dispatchEvent(new Event('input', {bubbles:true}));
-    });
-    box.addEventListener('input', function(e){
-      var inp = e.target;
-      var d = state.mediodia.fondoConteo || (state.mediodia.fondoConteo = conteoVacio());
-      if(inp.hasAttribute('data-fondo-billete')) d.billetes[inp.getAttribute('data-fondo-billete')] = num(inp.value);
-      else if(inp.hasAttribute('data-fondo-suelta')) d.monedasSueltas[inp.getAttribute('data-fondo-suelta')] = num(inp.value);
-      else if(inp.hasAttribute('data-fondo-rollo')) d.monedasBlister[inp.getAttribute('data-fondo-rollo')] = num(inp.value);
-      else return;
-      compararFondo();
-      saveDraft();
+    TURNOS.forEach(function(t){
+      var box = document.getElementById('fondoConteoBox_'+t);
+      box.addEventListener('click', function(e){
+        if(e.target.closest('[data-fondo-cerrar]')){ box.style.display = 'none'; return; }
+        var btn = e.target.closest('[data-step]');
+        if(!btn) return;
+        var inp = btn.parentNode.querySelector('input');
+        inp.value = Math.max(0, num(inp.value) + Number(btn.getAttribute('data-step')));
+        inp.dispatchEvent(new Event('input', {bubbles:true}));
+      });
+      box.addEventListener('input', function(e){
+        var inp = e.target;
+        var d = state[t].fondoConteo || (state[t].fondoConteo = conteoVacio());
+        if(inp.hasAttribute('data-fondo-billete')) d.billetes[inp.getAttribute('data-fondo-billete')] = num(inp.value);
+        else if(inp.hasAttribute('data-fondo-suelta')) d.monedasSueltas[inp.getAttribute('data-fondo-suelta')] = num(inp.value);
+        else if(inp.hasAttribute('data-fondo-rollo')) d.monedasBlister[inp.getAttribute('data-fondo-rollo')] = num(inp.value);
+        else return;
+        compararFondo(t);
+        saveDraft();
+      });
     });
   }
 
@@ -1065,36 +1077,54 @@
     return n + ' ' + nombre + ' de ' + v.toLocaleString('es-ES') + ' €';
   }
 
-  function compararFondo(){
-    var el = document.getElementById('fondoResultado');
+  // Con qué se compara el fondo contado al abrir el turno: en Mediodía,
+  // el último cierre de otro día (cierreAnterior); en Noche, el efectivo
+  // contado en el cierre de Mediodía de hoy.
+  function cierreParaComparar(t, cb){
+    if(t === 'noche'){
+      var md = state.mediodia.denom || conteoVacio();
+      cb(hayConteo(md) ? { fecha: state.fecha, turno: 'mediodia', denom: md } : null);
+      return;
+    }
+    cierreAnterior(state.fecha, cb);
+  }
+
+  function compararFondo(t){
+    var el = document.getElementById('fondoResultado_'+t);
     if(!el) return;
-    var d = state.mediodia.fondoConteo || conteoVacio();
+    var d = state[t].fondoConteo || conteoVacio();
     BILLETES.forEach(function(v){
-      var sub = document.getElementById('fondoSub_b_'+v);
+      var sub = document.getElementById('fondoSub_'+t+'_b_'+v);
       if(sub) sub.textContent = fmt(unidadesDenom(d, v, true) * v);
     });
     MONEDAS.forEach(function(v){
-      var sub = document.getElementById('fondoSub_m_'+v);
+      var sub = document.getElementById('fondoSub_'+t+'_m_'+v);
       if(sub) sub.textContent = fmt(unidadesDenom(d, v, false) * v);
     });
-    var lbl = document.getElementById('fondoContadoLbl');
+    var lbl = document.getElementById('fondoContadoLbl_'+t);
     if(lbl) lbl.textContent = fmt(totalDenom(d));
     if(!hayConteo(d)){ el.innerHTML = ''; return; }
 
     var fechaAlMomento = state.fecha;
     el.className = 'fondo-res info';
     el.textContent = 'Buscando el último cierre para comparar…';
-    cierreAnterior(state.fecha, function(ant){
+    cierreParaComparar(t, function(ant){
       if(state.fecha !== fechaAlMomento) return;
-      var d2 = state.mediodia.fondoConteo || conteoVacio();
-      if(!ant){ el.className = 'fondo-res info'; el.textContent = 'No encontré un cierre anterior para comparar.'; return; }
+      var d2 = state[t].fondoConteo || conteoVacio();
+      if(!ant){
+        el.className = 'fondo-res info';
+        el.textContent = t === 'noche'
+          ? 'Todavía no se contó el efectivo del cierre de Mediodía de hoy: no hay con qué comparar.'
+          : 'No encontré un cierre anterior para comparar.';
+        return;
+      }
       var p = ant.fecha.split('-');
       var deCual = 'el cierre de ' + TURNO_LABEL[ant.turno] + ' del ' + p[2] + '/' + p[1];
       var lineas = [];
       function comparar(v, esBillete){
-        var hoy = unidadesDenom(d2, v, esBillete), antes = unidadesDenom(ant.denom, v, esBillete);
-        if(hoy < antes) lineas.push('Falta hoy: ' + textoUnidades(antes - hoy, v, esBillete) + ' (en ' + deCual.replace('el cierre de ', '') + ' había ' + antes + ', hoy ' + hoy + ')');
-        else if(hoy > antes) lineas.push('Sobra hoy: ' + textoUnidades(hoy - antes, v, esBillete) + ' (en ' + deCual.replace('el cierre de ', '') + ' había ' + antes + ', hoy ' + hoy + ')');
+        var ahora = unidadesDenom(d2, v, esBillete), antes = unidadesDenom(ant.denom, v, esBillete);
+        if(ahora < antes) lineas.push('Falta: ' + textoUnidades(antes - ahora, v, esBillete) + ' (en ' + deCual.replace('el cierre de ', '') + ' había ' + antes + ', ahora ' + ahora + ')');
+        else if(ahora > antes) lineas.push('Sobra: ' + textoUnidades(ahora - antes, v, esBillete) + ' (en ' + deCual.replace('el cierre de ', '') + ' había ' + antes + ', ahora ' + ahora + ')');
       }
       BILLETES.forEach(function(v){ comparar(v, true); });
       MONEDAS.forEach(function(v){ comparar(v, false); });
@@ -1308,7 +1338,7 @@
   function bloqueTurnoHTML(t){
     return '<section class="turno-bloque" id="bloque_'+t+'">' +
       '<div class="turno-card '+t+'" id="turnoCard_'+t+'"><p class="muted" style="margin:0;">Cargando la caja…</p></div>' +
-      (t==='mediodia' ? fondoConteoHTML() : '') +
+      fondoConteoHTML(t) +
       '<div class="section-label">Anotar en '+TURNO_LABEL[t]+'</div>' +
       '<div class="fichas fichas-mini">' +
         FICHAS_ANOTAR.map(function(f){
@@ -1338,7 +1368,7 @@
       cont.innerHTML =
         '<div class="tc-head"><span class="tc-name">'+icon(TURNO_ICON[t])+'Cierre '+TURNO_LABEL[t]+'</span>' +
           '<span class="tc-head-der">' +
-            (t === 'mediodia' ? '<button type="button" class="tc-fondo" data-fondo-toggle>CONTROL</button>' : '') +
+            '<button type="button" class="tc-fondo" data-fondo-toggle="'+t+'">CONTROL</button>' +
             '<span class="tc-estado">'+(cerrado ? 'Cerrado' : 'Pendiente')+'</span>' +
           '</span></div>' +
         '<div class="tc-row">' +
@@ -3064,6 +3094,8 @@
       '<div class="desglose-line" style="color:var(--ink-soft);font-size:.78rem;"><span>Ventas en efectivo = (facturado '+fmt(totalFacturadoPropio)+' − empanadas '+fmt(empanadas)+') − TPV '+fmt(tpv1Propio + tpv2Propio + tpv3Propio)+'</span></div>';
 
     state[t].fondoFijo = fondoFijo;
+    // El control del fondo de Noche se compara con lo contado en Mediodía.
+    if(t === 'mediodia') compararFondo('noche');
     state[t].totalFacturado = totalFacturado;
     state[t].tpv1 = tpv1;
     state[t].tpv2 = tpv2;
