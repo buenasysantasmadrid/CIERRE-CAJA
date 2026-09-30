@@ -1499,7 +1499,7 @@
     currentTipo = 'gasto';
     var gExisting = existing && existing.tipo === 'gasto' ? existing : null;
     currentSubtipo = gExisting ? gExisting.subtipo : null;
-    document.getElementById('scanSlot').innerHTML = scanBoxHTML() + dictarBoxHTML();
+    document.getElementById('scanSlot').innerHTML = scanBoxHTML() + dictarBoxHTML('gasto');
     wireScanUI();
     wireDictarUI();
     document.getElementById('levelTwoLabel').textContent = '¿Cómo se pagó?';
@@ -1542,6 +1542,8 @@
       });
     }
     renderFormFields(tipo, existing);
+    document.getElementById('scanSlot').innerHTML = dictarBoxHTML(tipo);
+    wireDictarUI();
   }
 
   // Junta los valores que ya están tipeados en el formulario actual, para
@@ -1833,14 +1835,23 @@
   // en el formulario igual que al escanear: no se guarda solo.
   var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  function dictarBoxHTML(){
+  // Título y ejemplo del recuadro de dictar según el tipo de movimiento.
+  var DICTAR_TEXTOS = {
+    gasto: { titulo: 'Dictar gasto', ejemplo: 'Ej: factura de Monbake de hoy, número 113, importe 99, IVA 1, pagada en efectivo, responsable Luciana' },
+    ingreso: { titulo: 'Dictar ingreso', ejemplo: 'Ej: ingreso de cambio de 100 euros, responsable Clara' },
+    egreso: { titulo: 'Dictar retiro', ejemplo: 'Ej: retiro de 200 euros para el banco, responsable Ramiro' },
+    empanadas: { titulo: 'Dictar empanadas', ejemplo: 'Ej: empanadas de Lombay, 45 euros, pagaron, responsable Yamila' }
+  };
+
+  function dictarBoxHTML(tipo){
+    var txt = DICTAR_TEXTOS[tipo || 'gasto'];
     return '<div class="scan-box">' +
         '<div class="scan-head">' +
-          '<span class="ttl">'+icon('mic')+'Dictar gasto</span>' +
+          '<span class="ttl">'+icon('mic')+txt.titulo+'</span>' +
           '<button type="button" id="dictarToggleBtn">Usar voz</button>' +
         '</div>' +
         '<div class="collapse" id="dictarContent">' +
-          '<textarea id="dictarTexto" class="dictar-texto" placeholder="Ej: factura de Monbake de hoy, número 113, importe 99, IVA 1, pagada en efectivo, responsable Luciana"></textarea>' +
+          '<textarea id="dictarTexto" class="dictar-texto" placeholder="'+escapeHtml(txt.ejemplo)+'"></textarea>' +
           '<div class="scan-status" id="dictarStatusLine" style="display:none;"><span class="scan-spinner"></span><span id="dictarStatusText">Entendiendo…</span></div>' +
           '<div class="scan-error" id="dictarErrorLine" style="display:none;"></div>' +
           '<div class="scan-ok" id="dictarOkLine" style="display:none;">'+icon('check')+' Datos cargados, revísalos antes de guardar</div>' +
@@ -1943,16 +1954,16 @@
     document.getElementById('dictarErrorLine').style.display = 'none';
     document.getElementById('dictarOkLine').style.display = 'none';
 
+    var responsables = RESPONSABLES_CONOCIDOS.filter(function(r){ return r !== 'Otros'; });
+    var esGasto = currentTipo === 'gasto';
+    var tipoDictado = currentTipo;
+    var pedido = esGasto
+      ? { accionDictarGasto: true, texto: texto, fechaHoy: todayISO(), proveedores: PROVEEDORES_CONOCIDOS, responsables: responsables }
+      : { accionDictarMovimiento: true, tipo: currentTipo, texto: texto, responsables: responsables, clientesEmpanadas: CLIENTES_EMPANADAS };
     fetch(url, {
       method: 'POST',
       headers: {'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({
-        accionDictarGasto: true,
-        texto: texto,
-        fechaHoy: todayISO(),
-        proveedores: PROVEEDORES_CONOCIDOS,
-        responsables: RESPONSABLES_CONOCIDOS.filter(function(r){ return r !== 'Otros'; })
-      })
+      body: JSON.stringify(pedido)
     })
     .then(function(resp){
       return resp.json().then(function(parsed){
@@ -1962,7 +1973,10 @@
     })
     .then(function(d){
       document.getElementById('dictarStatusLine').style.display = 'none';
-      aplicarDictado(d);
+      // Si mientras tanto se cerró o cambió la hoja, no se toca nada.
+      if(currentTipo !== tipoDictado) return;
+      if(esGasto) aplicarDictado(d);
+      else aplicarDictadoOtros(d);
       document.getElementById('dictarOkLine').style.display = 'flex';
     })
     .catch(function(err){
@@ -1974,6 +1988,48 @@
     .finally(function(){ btn.disabled = false; });
   }
 
+  // Ingreso, Retiro o Empanadas dictados: se queda en el tipo de la hoja
+  // abierta. Primero el tipo de ingreso o si pagaron (redibujan el
+  // formulario) y después los campos.
+  function aplicarDictadoOtros(d){
+    if(currentTipo === 'ingreso' && INGRESO_SUBTYPES.some(function(s){ return s.k === d.subtipo; })){
+      var chipIng = document.querySelector('#levelThreeRow [data-k="' + d.subtipo + '"]');
+      if(chipIng) chipIng.click();
+    }
+    if(currentTipo === 'empanadas'){
+      var pago = d.pagado === 'si' ? 'pago' : (d.pagado === 'no' ? 'no_pago' : null);
+      if(pago){
+        var chipPago = document.querySelector('#levelThreeRow [data-k="' + pago + '"]');
+        if(chipPago) chipPago.click();
+      }
+      var cliente = String(d.cliente || '').toUpperCase();
+      if(cliente){
+        var chipCli = document.querySelector('#formFields [data-chip-select="proveedor"] [data-valor="' + (CLIENTES_EMPANADAS.indexOf(cliente) > -1 ? cliente : 'OTRO') + '"]');
+        if(chipCli) chipCli.click();
+      }
+    }
+    ponerResponsableDictado(d.responsable);
+    var motivoEl = document.querySelector('#formFields [data-field="motivo"]');
+    if(motivoEl && d.info) motivoEl.value = d.info;
+    var importeEl = document.querySelector('#formFields [data-field="importe"]');
+    var importe = parseFloat(String(d.importe || '').replace(',', '.'));
+    if(importeEl && !isNaN(importe)) importeEl.value = importe;
+  }
+
+  function ponerResponsableDictado(resp){
+    resp = (resp || '').trim();
+    if(!resp) return;
+    var conocido = RESPONSABLES_CONOCIDOS.filter(function(r){
+      return normalizarNombreProveedor(r) === normalizarNombreProveedor(resp);
+    })[0];
+    var respChip = document.querySelector('#formFields [data-chip-select="responsable"] [data-valor="' + (conocido || 'Otros') + '"]');
+    if(respChip) respChip.click();
+    if(!conocido){
+      var respDet = document.getElementById('responsableDetalleInput');
+      if(respDet) respDet.value = resp;
+    }
+  }
+
   function aplicarDictado(d){
     // Primero la forma de pago: al elegirla se vuelve a dibujar el
     // formulario, así que después se rellenan los campos.
@@ -1982,18 +2038,7 @@
       if(chip) chip.click();
     }
 
-    var resp = (d.responsable || '').trim();
-    if(resp){
-      var conocido = RESPONSABLES_CONOCIDOS.filter(function(r){
-        return normalizarNombreProveedor(r) === normalizarNombreProveedor(resp);
-      })[0];
-      var respChip = document.querySelector('#formFields [data-chip-select="responsable"] [data-valor="' + (conocido || 'Otros') + '"]');
-      if(respChip) respChip.click();
-      if(!conocido){
-        var respDet = document.getElementById('responsableDetalleInput');
-        if(respDet) respDet.value = resp;
-      }
-    }
+    ponerResponsableDictado(d.responsable);
 
     var infoEl = document.querySelector('#formFields [data-field="info"]');
     if(infoEl && d.info) infoEl.value = d.info;

@@ -24,6 +24,13 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // Lo mismo para un ingreso, un retiro o unas empanadas dictados.
+    if (data.accionDictarMovimiento) {
+      return ContentService
+        .createTextOutput(JSON.stringify(dictarMovimiento_(data)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // Cualquier guardado cambia los días o los albaranes: que la próxima
     // consulta de listados los vuelva a armar.
     invalidarCacheListados_();
@@ -2032,6 +2039,49 @@ function dictarGasto_(data) {
     'Si un dato no se dijo, deja el campo vacío ("") en vez de inventarlo.\n\n' +
     'Dictado: """' + texto + '"""';
   return pedirJsonAClaude_([{ type: 'text', text: instrucciones }], ESQUEMA_DICTADO);
+}
+
+var ESQUEMA_DICTADO_MOVIMIENTO = {
+  type: 'object',
+  properties: {
+    subtipo: { type: 'string', enum: ['cambio', 'varios', 'empanadas_ing', 'empleados', ''] },
+    pagado: { type: 'string', enum: ['si', 'no', ''] },
+    cliente: { type: 'string' },
+    importe: { type: 'string' },
+    responsable: { type: 'string' },
+    info: { type: 'string' }
+  },
+  required: ['subtipo', 'pagado', 'cliente', 'importe', 'responsable', 'info'],
+  additionalProperties: false
+};
+
+var DICTADO_TIPO_TEXTO_ = {
+  ingreso: 'un INGRESO de dinero a la caja',
+  egreso: 'un RETIRO de dinero de la caja',
+  empanadas: 'una venta de EMPANADAS a un cliente'
+};
+
+// Un ingreso, un retiro o unas empanadas dichos en voz alta. El tipo lo
+// pone la app (la hoja que está abierta), acá solo se sacan los campos.
+function dictarMovimiento_(data) {
+  var texto = String(data.texto || '').trim();
+  if (!texto) return { ok: false, error: 'No llegó el texto' };
+  var tipoTexto = DICTADO_TIPO_TEXTO_[data.tipo];
+  if (!tipoTexto) return { ok: false, error: 'Tipo de movimiento no válido' };
+  var instrucciones =
+    'Un empleado de un restaurante dictó por voz ' + tipoTexto + '.\n' +
+    'Empleados: ' + (data.responsables || []).join(', ') + '.\n' +
+    'Extrae:\n' +
+    '- subtipo: solo si es un ingreso: cambio (entra cambio/sencillo para la caja), empanadas_ing (pago de empanadas), empleados (dinero que pone un empleado) o varios (cualquier otro). Si no es un ingreso, vacío.\n' +
+    '- pagado: solo si son empanadas: si (pagaron) o no (no pagaron, quedan debiendo). Si no se dijo o no son empanadas, vacío.\n' +
+    '- cliente: solo si son empanadas: uno de ' + (data.clientesEmpanadas || []).join(', ') + ' si coincide (escríbelo igual), si no el nombre tal como se dijo.\n' +
+    '- importe: importe en euros (con punto decimal, sin símbolo, ej. 45.50).\n' +
+    '- responsable: el empleado que lo carga, escrito como en la lista si coincide.\n' +
+    '- info: motivo, detalle u observación que se haya dicho; si no hay, vacío.\n' +
+    'El texto viene de un reconocimiento de voz y puede tener errores. ' +
+    'Si un dato no se dijo, deja el campo vacío ("") en vez de inventarlo.\n\n' +
+    'Dictado: """' + texto + '"""';
+  return pedirJsonAClaude_([{ type: 'text', text: instrucciones }], ESQUEMA_DICTADO_MOVIMIENTO);
 }
 
 // Llama a Claude con el contenido dado y devuelve el JSON que pide el
