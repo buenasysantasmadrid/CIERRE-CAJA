@@ -540,6 +540,9 @@
       <div class="field-label">¿De qué turno de hoy sale?</div>
       <div class="turno-big" id="pagoAlbaranTurnoRow"></div>
     </div>
+    <div class="sheet-actions">
+      <button type="button" id="pagoAlbaranEditar" style="flex:1;">Editar albarán (importe, factura…)</button>
+    </div>
   </div>
 </div>
 
@@ -2908,6 +2911,14 @@
   document.getElementById('albaranesClose').addEventListener('click', cerrarAlbaranes);
   document.getElementById('albaranesProveedor').addEventListener('change', buscarAlbaranes);
   document.getElementById('pagoAlbaranClose').addEventListener('click', cerrarPagoAlbaran);
+  // Abre el movimiento completo (el mismo modal que el lápiz de la caja de
+  // ese día) para poder corregir importe, factura, IVA, etc.
+  document.getElementById('pagoAlbaranEditar').addEventListener('click', function(){
+    var f = pagoAlbaranActual;
+    if(!f) return;
+    cerrarPagoAlbaran();
+    abrirMovimientoHistorico(f.fecha, f.idTurno, f.idMovimiento);
+  });
   document.getElementById('pagoAlbaranOverlay').addEventListener('click', function(e){
     if(e.target === this) cerrarPagoAlbaran();
   });
