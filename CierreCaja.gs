@@ -2031,3 +2031,16 @@ function escanearFactura_(data) {
     return { ok: false, error: 'No se pudo entender la respuesta de la IA' };
   }
 }
+
+// Ejecutar UNA VEZ a mano desde el editor (menú de funciones → autorizarEscaneo
+// → Ejecutar) para que Google pida el permiso de conectarse con Claude.
+// También sirve para comprobar que la clave está bien puesta.
+function autorizarEscaneo() {
+  var clave = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  if (!clave) { Logger.log('Falta la propiedad ANTHROPIC_API_KEY'); return; }
+  var resp = UrlFetchApp.fetch('https://api.anthropic.com/v1/models', {
+    headers: { 'x-api-key': clave, 'anthropic-version': '2023-06-01' },
+    muteHttpExceptions: true
+  });
+  Logger.log(resp.getResponseCode() === 200 ? 'OK: permiso dado y clave correcta' : 'Error ' + resp.getResponseCode() + ': ' + resp.getContentText());
+}
