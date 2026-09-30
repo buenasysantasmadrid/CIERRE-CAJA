@@ -2159,7 +2159,16 @@
 
   // Busca a qué proveedor de la lista corresponde el nombre leído de la
   // factura: por su nombre en la lista o por su nombre legal. Si no lo
-  // encuentra devuelve null.
+  // encuentra devuelve null. Vale para todos los proveedores y va de más
+  // seguro a más tolerante:
+  //   1. igual al nombre de la lista;
+  //   2. el nombre legal está dentro de lo leído (o al revés);
+  //   3. todas las palabras del nombre de la lista o del nombre legal
+  //      aparecen en lo leído, aunque estén en otro orden, con o sin la "s"
+  //      final ("Iniciativa" / "Iniciativas") o con una letra mal leída
+  //      ("Mercandalucia" / "Mercadalucia").
+  // Varios, Super y Extras son genéricos: solo cuentan si coinciden igual.
+  var PROVEEDORES_SIN_COINCIDENCIA_TOLERANTE = ['Varios', 'Super', 'Extras'];
   function buscarProveedorPorNombre(nombre){
     var n = normalizarNombreProveedor(nombre);
     if(!n) return null;
@@ -2172,21 +2181,53 @@
       var legales = NOMBRES_LEGALES_PROVEEDORES[claves[i]];
       for(var j = 0; j < legales.length; j++){
         var l = normalizarNombreProveedor(legales[j]);
-        if(l && (n.indexOf(l) > -1 || (n.length >= 5 && l.indexOf(n) > -1) || mismasPalabras(n, l))) return claves[i];
+        if(l && (n.indexOf(l) > -1 || (n.length >= 5 && l.indexOf(n) > -1))) return claves[i];
       }
+    }
+    var candidatos = [];
+    PROVEEDORES_CONOCIDOS.forEach(function(p){
+      if(PROVEEDORES_SIN_COINCIDENCIA_TOLERANTE.indexOf(p) > -1) return;
+      candidatos.push({ proveedor: p, nombre: p });
+      (NOMBRES_LEGALES_PROVEEDORES[p] || []).forEach(function(l){ candidatos.push({ proveedor: p, nombre: l }); });
+    });
+    for(var k = 0; k < candidatos.length; k++){
+      if(mismasPalabras(n, normalizarNombreProveedor(candidatos[k].nombre))) return candidatos[k].proveedor;
     }
     return null;
   }
 
-  // La factura puede leerse un poco distinta al nombre legal guardado:
-  // "Iniciativa" en vez de "Iniciativas", las palabras en otro orden, con
-  // algo más en el medio ("Sodexo Iniciativas Hosteleras"). Se da por
-  // buena si todas las palabras del nombre legal aparecen en lo leído
-  // (sin fijarse en la "s" final).
-  function mismasPalabras(leido, legal){
-    function palabras(t){ return t.split(' ').map(function(w){ return w.replace(/s$/, ''); }); }
+  // Palabras que no cuentan al comparar ("cream DE luxe", "LA Jaula",
+  // "Envases PARA Profesionales").
+  var PALABRAS_DE_RELLENO = ['de', 'del', 'la', 'el', 'los', 'las', 'y', 'e', 'para', 'en', 'con'];
+
+  // true si cada palabra de "nombre" aparece en "leido" (los dos ya
+  // normalizados), sin mirar el orden ni la "s" final, y dejando pasar
+  // una letra distinta, de más o de menos en palabras de 5 letras o más.
+  function mismasPalabras(leido, nombre){
+    function palabras(t){
+      return t.split(' ').filter(function(w){ return w && PALABRAS_DE_RELLENO.indexOf(w) === -1; })
+        .map(function(w){ return w.length > 3 ? w.replace(/s$/, '') : w; });
+    }
     var enLeido = palabras(leido);
-    return palabras(legal).every(function(w){ return enLeido.indexOf(w) > -1; });
+    var buscadas = palabras(nombre);
+    if(!buscadas.length) return false;
+    return buscadas.every(function(w){
+      return enLeido.some(function(x){ return x === w || (w.length >= 5 && x.length >= 5 && casiIgual(x, w)); });
+    });
+  }
+
+  // true si a y b difieren como mucho en una letra (cambiada, de más o de menos).
+  function casiIgual(a, b){
+    if(Math.abs(a.length - b.length) > 1) return false;
+    var i = 0, j = 0, diferencias = 0;
+    while(i < a.length && j < b.length){
+      if(a[i] === b[j]){ i++; j++; continue; }
+      if(++diferencias > 1) return false;
+      if(a.length > b.length) i++;
+      else if(b.length > a.length) j++;
+      else { i++; j++; }
+    }
+    return diferencias + (a.length - i) + (b.length - j) <= 1;
   }
 
   function aplicarDatosFactura(data){
