@@ -270,7 +270,7 @@ function guardarBloqueOrdenado_(hoja, filaEncabezado, filas) {
   rango.setValues(salida);
   rangoIds.setValues(salidaIds);
   if (mapa.fecha != null) hoja.getRange(primera, mapa.fecha + 1, ALBARANES_FILAS_DATOS_, 1).setNumberFormat('dd/MM/yyyy');
-  if (mapa.diaPago != null) hoja.getRange(primera, mapa.diaPago + 1, ALBARANES_FILAS_DATOS_, 1).setNumberFormat('dd/MM/yyyy');
+  if (mapa.diaPago != null) hoja.getRange(primera, mapa.diaPago + 1, ALBARANES_FILAS_DATOS_, 1).setNumberFormat('dd/MM/yyyy').setFontWeight('bold');
   if (!hoja.isColumnHiddenByUser(ALBARANES_COL_ID_)) hoja.hideColumns(ALBARANES_COL_ID_);
 }
 
@@ -773,7 +773,37 @@ function revisarAlbaranesHasta27Sep() {
 }
 
 function completarAlbaranesHasta27Sep() {
-  Logger.log(completarAlbaranesDesdeExcel_(false).join('\n'));
+  var resumen = completarAlbaranesDesdeExcel_(false);
+  resumen = resumen.concat(ponerDiaDePagoEnNegrita_());
+  Logger.log(resumen.join('\n'));
+}
+
+// DIA DE PAGO en negrita en todas las pestañas y meses de todas las
+// planillas de Albaranes (encabezado y filas de datos). Lo que escribe la
+// app después también queda en negrita (ver guardarBloqueOrdenado_).
+function negritaDiaDePagoAlbaranes() {
+  Logger.log(ponerDiaDePagoEnNegrita_().join('\n'));
+}
+
+function ponerDiaDePagoEnNegrita_() {
+  var resumen = [];
+  planillasDelTipo_('ALBARANES').forEach(function (p) {
+    var ss = SpreadsheetApp.openById(p.id);
+    var pestanas = 0;
+    ss.getSheets().forEach(function (hoja) {
+      if (ALBARANES_PESTANAS_EXCLUIDAS_.indexOf(hoja.getName()) > -1) return;
+      var tocada = false;
+      filasEncabezadoAlbaranes_(hoja).forEach(function (filaEnc) {
+        var mapa = mapaColumnasAlbaranes_(hoja.getRange(filaEnc, 1, 1, ALBARANES_ANCHO_).getValues()[0]);
+        if (mapa.diaPago == null) return;
+        hoja.getRange(filaEnc, mapa.diaPago + 1, ALBARANES_FILAS_DATOS_ + 1, 1).setFontWeight('bold');
+        tocada = true;
+      });
+      if (tocada) pestanas++;
+    });
+    resumen.push(p.nombre + ': DIA DE PAGO en negrita en ' + pestanas + ' pestañas');
+  });
+  return resumen.length ? resumen : ['No hay planillas de Albaranes en el Índice.'];
 }
 
 function claveAlbaranMigracion_(fecha, importe) {
