@@ -31,6 +31,14 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // Aviso del TPV 1: "Cambiado" o "Después lo cambio", para todos los
+    // dispositivos. No toca los días ni los albaranes.
+    if (data.accionAvisoTpv1) {
+      return ContentService
+        .createTextOutput(JSON.stringify(guardarAvisoTpv1_(data.mes, data.estado)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // Cualquier guardado cambia los días o los albaranes: que la próxima
     // consulta de listados los vuelva a armar.
     invalidarCacheListados_();
@@ -633,6 +641,13 @@ function doGet(e) {
     }
     return ContentService
       .createTextOutput(JSON.stringify(resultadoTest))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var avisoTpv1Mes = e && e.parameter && e.parameter.avisoTpv1;
+  if (avisoTpv1Mes) {
+    return ContentService
+      .createTextOutput(JSON.stringify(leerAvisoTpv1_(avisoTpv1Mes)))
       .setMimeType(ContentService.MimeType.JSON);
   }
 
@@ -2041,6 +2056,29 @@ function dictarGasto_(data) {
     'Si un dato no se dijo, deja el campo vacío ("") en vez de inventarlo.\n\n' +
     'Dictado: """' + texto + '"""';
   return pedirJsonAClaude_([{ type: 'text', text: instrucciones }], ESQUEMA_DICTADO);
+}
+
+// ============================================================================
+// Aviso de la app cuando el TPV 1 llega al límite del mes: lo que se eligió
+// ("Cambiado" o "Después lo cambio" hasta cierta hora) queda guardado acá,
+// en las propiedades del script, para que lo vean todos los dispositivos.
+// Una propiedad por mes: avisoTpv1_YYYY-MM.
+// ============================================================================
+function leerAvisoTpv1_(mes) {
+  if (!/^\d{4}-\d{2}$/.test(String(mes || ''))) return { ok: false, error: 'Mes no válido' };
+  var texto = PropertiesService.getScriptProperties().getProperty('avisoTpv1_' + mes);
+  var estado = {};
+  try { estado = texto ? JSON.parse(texto) : {}; } catch (err) { estado = {}; }
+  return { ok: true, mes: mes, estado: estado };
+}
+
+function guardarAvisoTpv1_(mes, estado) {
+  if (!/^\d{4}-\d{2}$/.test(String(mes || ''))) return { ok: false, error: 'Mes no válido' };
+  var limpio = {};
+  if (estado && estado.cambiado) limpio.cambiado = true;
+  if (estado && Number(estado.posponerHasta)) limpio.posponerHasta = Number(estado.posponerHasta);
+  PropertiesService.getScriptProperties().setProperty('avisoTpv1_' + mes, JSON.stringify(limpio));
+  return { ok: true, mes: mes, estado: limpio };
 }
 
 var ESQUEMA_DICTADO_MOVIMIENTO = {

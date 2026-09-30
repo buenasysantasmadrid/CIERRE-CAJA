@@ -4017,20 +4017,60 @@
   // hora; "Cambiado" no lo muestra más en ese mes. Si después, ese mismo
   // mes, se escribe algo en TPV 1 de un día posterior, sale "¡CAMBIAR TPV!
   // LLEGÓ A SU LÍMITE" y el recordatorio vuelve a quedar activo.
+  // Lo elegido se guarda en el Sheet (Apps Script) para que valga en todos
+  // los dispositivos; este dispositivo guarda una copia por si no hay
+  // conexión.
   var LIMITE_TPV1_MES = 24000;
   var LS_AVISO_TPV1 = 'cierreCaja_avisoTpv1_v1';
   var UNA_HORA_MS = 60 * 60 * 1000;
 
-  function leerAvisoTpv1(mes){
+  function leerAvisoTpv1Local(mes){
     try { return (JSON.parse(localStorage.getItem(LS_AVISO_TPV1) || '{}') || {})[mes] || {}; }
     catch(e){ return {}; }
   }
-  function guardarAvisoTpv1(mes, estado){
+  function guardarAvisoTpv1Local(mes, estado){
     try {
       var todo = JSON.parse(localStorage.getItem(LS_AVISO_TPV1) || '{}') || {};
       todo[mes] = estado;
       localStorage.setItem(LS_AVISO_TPV1, JSON.stringify(todo));
     } catch(e){}
+  }
+
+  // Lo que se eligió en cualquier dispositivo, traído del Sheet como mucho
+  // cada 2 minutos (el aviso se revisa cada minuto). Si no hay conexión,
+  // vale la copia de este dispositivo.
+  var avisoTpv1TraidoEn = {};
+  function traerAvisoTpv1(mes){
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url) || (avisoTpv1TraidoEn[mes] && Date.now() - avisoTpv1TraidoEn[mes] < 2 * 60 * 1000)){
+      return Promise.resolve(leerAvisoTpv1Local(mes));
+    }
+    return fetch(url + (url.indexOf('?')>-1?'&':'?') + 'avisoTpv1=' + encodeURIComponent(mes))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if(!data || !data.ok || !data.estado) return leerAvisoTpv1Local(mes);
+        avisoTpv1TraidoEn[mes] = Date.now();
+        guardarAvisoTpv1Local(mes, data.estado);
+        return data.estado;
+      })
+      .catch(function(){ return leerAvisoTpv1Local(mes); });
+  }
+
+  function guardarAvisoTpv1(mes, estado){
+    guardarAvisoTpv1Local(mes, estado);
+    avisoTpv1TraidoEn[mes] = Date.now();
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)) return;
+    fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ accionAvisoTpv1: true, mes: mes, estado: estado }),
+      keepalive: true
+    }).catch(function(){
+      // Sin conexión: se vuelve a preguntar al Sheet en la próxima revisión.
+      avisoTpv1TraidoEn[mes] = 0;
+      toast('No se pudo guardar en el Sheet lo elegido del TPV 1 (sin conexión)');
+    });
   }
 
   // TPV 1 de un día: en Noche se anota la lectura de todo el día, así que
@@ -4078,10 +4118,14 @@
     var mes = state.fecha.slice(0, 7);
     var total = tpv1DelMes(mes);
     if(total < LIMITE_TPV1_MES) return;
-    var aviso = leerAvisoTpv1(mes);
-    if(aviso.cambiado || (aviso.posponerHasta && Date.now() < aviso.posponerHasta)) return;
-    mostrarAvisoTpv1('CAMBIAR TPV 1',
-      'Este mes el TPV 1 ya lleva ' + fmt(total) + ' (el límite es ' + fmt(LIMITE_TPV1_MES) + ').', mes);
+    traerAvisoTpv1(mes).then(function(aviso){
+      aviso = aviso || {};
+      if(state.fecha.slice(0, 7) !== mes) return;
+      if(document.getElementById('tpvAvisoOverlay').classList.contains('open')) return;
+      if(aviso.cambiado || (aviso.posponerHasta && Date.now() < aviso.posponerHasta)) return;
+      mostrarAvisoTpv1('CAMBIAR TPV 1',
+        'Este mes el TPV 1 ya lleva ' + fmt(total) + ' (el límite es ' + fmt(LIMITE_TPV1_MES) + ').', mes);
+    });
   }
 
   // Al escribir en TPV 1 un día en que el mes ya había llegado al límite
