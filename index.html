@@ -1883,30 +1883,66 @@
     // se puede usar el micrófono del teclado del móvil en el cuadro de texto.
     var micBtn = document.getElementById('dictarBtnMic');
     if(!micBtn) return;
-    var rec = null;
-    micBtn.addEventListener('click', function(){
-      if(rec){ rec.stop(); return; }
+    // En Android el modo "continuo" repite frases y se corta en cada pausa.
+    // Por eso se escucha de a una frase (continuous = false) y, al terminar
+    // cada una, se vuelve a arrancar solo hasta que se toca "parar" o pasan
+    // 15 s sin que se diga nada. Solo se agrega el texto definitivo de cada
+    // frase, así no queda repetido.
+    var escuchando = false, rec = null, acumulado = '', ultimoHabla = 0, errorFatal = false;
+    function juntar(a, b){ return a ? a.replace(/\s+$/, '') + (b ? ' ' + b.replace(/^\s+/, '') : '') : (b || ''); }
+    function terminar(){
+      escuchando = false;
+      micBtn.classList.remove('escuchando');
+      micBtn.innerHTML = icon('mic') + 'Hablar';
+      texto.value = acumulado;
+    }
+    function escucharFrase(){
       rec = new SpeechRec();
       rec.lang = 'es-ES';
       rec.interimResults = true;
-      rec.continuous = true;
-      var base = texto.value ? texto.value.replace(/\s+$/, '') + ' ' : '';
+      rec.continuous = false;
       rec.onresult = function(e){
-        var dicho = '';
-        for(var i = 0; i < e.results.length; i++) dicho += e.results[i][0].transcript;
-        texto.value = base + dicho;
+        ultimoHabla = Date.now();
+        var definitivo = '', provisorio = '';
+        for(var i = e.resultIndex; i < e.results.length; i++){
+          if(e.results[i].isFinal) definitivo += e.results[i][0].transcript;
+          else provisorio += e.results[i][0].transcript;
+        }
+        definitivo = definitivo.trim();
+        // Si la frase definitiva es igual a lo último que ya quedó, no se repite.
+        if(definitivo && acumulado.slice(-definitivo.length).toLowerCase() !== definitivo.toLowerCase()){
+          acumulado = juntar(acumulado, definitivo);
+        }
+        texto.value = juntar(acumulado, provisorio.trim());
       };
       rec.onerror = function(e){
-        if(e.error === 'not-allowed') toast('Hay que dar permiso al micrófono');
+        if(e.error === 'not-allowed' || e.error === 'service-not-allowed'){
+          errorFatal = true;
+          toast('Hay que dar permiso al micrófono');
+        }
       };
       rec.onend = function(){
         rec = null;
-        micBtn.classList.remove('escuchando');
-        micBtn.innerHTML = icon('mic') + 'Hablar';
+        if(escuchando && !errorFatal && Date.now() - ultimoHabla < 15000){
+          try { escucharFrase(); return; } catch(err){}
+        }
+        terminar();
       };
+      rec.start();
+    }
+    micBtn.addEventListener('click', function(){
+      if(escuchando){
+        escuchando = false;
+        if(rec) rec.stop(); else terminar();
+        return;
+      }
+      escuchando = true;
+      errorFatal = false;
+      acumulado = texto.value.trim();
+      ultimoHabla = Date.now();
       micBtn.classList.add('escuchando');
       micBtn.innerHTML = icon('mic') + 'Escuchando… (tocar para parar)';
-      rec.start();
+      escucharFrase();
     });
   }
 
