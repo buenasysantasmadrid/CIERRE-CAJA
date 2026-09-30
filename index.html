@@ -608,7 +608,7 @@
     'Las 3B': ['CARNICERIA POLLERIA 3B'],
     'Atlanta': ['ATLANTA RESTAURACION TELEMATICA S.L.'],
     'cream de luxe': ['CREM DE LUX S.L.'],
-    'Disbesa': ['INICIATIVAS SODEXO S.L.'],
+    'Disbesa': ['INICIATIVAS SODEXO S.L.', 'SODEXO'],
     'Envapro': ['ENVASES PARA PROFESIONALES S.L.'],
     'Hughes': ['ALBERTO L. HUGHES S.L.'],
     'Iberolactal': ['IBEROLACTAL IMPORT-EXPORT S.L.'],
@@ -2172,10 +2172,21 @@
       var legales = NOMBRES_LEGALES_PROVEEDORES[claves[i]];
       for(var j = 0; j < legales.length; j++){
         var l = normalizarNombreProveedor(legales[j]);
-        if(l && (n.indexOf(l) > -1 || (n.length >= 5 && l.indexOf(n) > -1))) return claves[i];
+        if(l && (n.indexOf(l) > -1 || (n.length >= 5 && l.indexOf(n) > -1) || mismasPalabras(n, l))) return claves[i];
       }
     }
     return null;
+  }
+
+  // La factura puede leerse un poco distinta al nombre legal guardado:
+  // "Iniciativa" en vez de "Iniciativas", las palabras en otro orden, con
+  // algo más en el medio ("Sodexo Iniciativas Hosteleras"). Se da por
+  // buena si todas las palabras del nombre legal aparecen en lo leído
+  // (sin fijarse en la "s" final).
+  function mismasPalabras(leido, legal){
+    function palabras(t){ return t.split(' ').map(function(w){ return w.replace(/s$/, ''); }); }
+    var enLeido = palabras(leido);
+    return palabras(legal).every(function(w){ return enLeido.indexOf(w) > -1; });
   }
 
   function aplicarDatosFactura(data){
