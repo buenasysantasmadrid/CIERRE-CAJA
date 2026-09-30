@@ -712,8 +712,9 @@
     return (n >= 0 ? '+' : '−') + fmt(Math.abs(n));
   }
   function claseSigno(n){
-    // La diferencia siempre va en rojo suave, sea positiva o negativa.
-    return 'dif-color';
+    // Sobra dinero en verde, falta en rojo; cero en gris.
+    if(!isFinite(n) || Math.abs(n) < 0.005) return 'none';
+    return n > 0 ? 'pos' : 'neg';
   }
   // Tipos que se anotan desde la pantalla principal (fichas "Anotar").
   var ANOTAR_TIPOS = {
