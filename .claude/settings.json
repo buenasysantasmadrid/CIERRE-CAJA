@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "allow": [
+      "PowerShell(powershell -NoProfile -ExecutionPolicy Bypass -File .claude/publicar.ps1 *)",
+      "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File .claude/publicar.ps1 *)"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
