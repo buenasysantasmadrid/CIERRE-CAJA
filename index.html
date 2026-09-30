@@ -147,6 +147,8 @@
   .fondo-res.mal{background:var(--red-soft);color:var(--red);}
   .fondo-res.info{background:var(--panel);color:var(--ink-soft);}
   .fondo-res ul{margin:6px 0 0;padding-left:18px;}
+  .tpv-aviso-titulo{margin-right:0;color:var(--red);font-size:1.6rem;text-align:center;}
+  .tpv-aviso-texto{text-align:center;margin:0 0 6px;}
   .fondo-titulo{font-family:var(--serif);font-size:1.6rem;font-weight:700;line-height:1.2;}
   .fondo-desglose{margin-top:8px;color:var(--ink);font-weight:400;}
   .fondo-desglose .desglose-line{padding:3px 0;}
@@ -556,6 +558,18 @@
     <div class="pregunta-acciones">
       <button type="button" id="preguntaNo"></button>
       <button type="button" id="preguntaSi" class="btn-turno"></button>
+    </div>
+  </div>
+</div>
+
+<!-- Aviso: el TPV 1 llegó al límite del mes -->
+<div class="modal-overlay center-overlay" id="tpvAvisoOverlay">
+  <div class="modal" role="dialog" aria-modal="true">
+    <h3 id="tpvAvisoTitulo" class="tpv-aviso-titulo"></h3>
+    <p id="tpvAvisoTexto" class="tpv-aviso-texto"></p>
+    <div class="pregunta-acciones">
+      <button type="button" id="tpvAvisoDespues">Después lo cambio</button>
+      <button type="button" id="tpvAvisoCambiado" class="btn-turno">Cambiado</button>
     </div>
   </div>
 </div>
@@ -3459,6 +3473,9 @@
   });
 
   function wireTurnoEvents(t){
+    document.getElementById('tpv1_'+t).addEventListener('change', function(){
+      if(num(this.value) > 0) avisarTpv1AlEditar();
+    });
     ['fondoFijo','totalFacturado','tpv1','tpv2','tpv3'].forEach(function(base){
       document.getElementById(base+'_'+t).addEventListener('input', function(){
         recalc(t);
@@ -3911,7 +3928,7 @@
       mostrarPantallaInicial();
       iniciarSondeoSheet();
       revisarActualizacionesDesdeSheet();
-      cargarFechasConDatosDesdeSheet().then(refrescarFondoFijoMediodia);
+      cargarFechasConDatosDesdeSheet().then(refrescarFondoFijoMediodia).then(revisarAvisoTpv1);
       return;
     }
 
@@ -3934,6 +3951,7 @@
         loadDraft(); // carga lo local que haya y, si no está acá, lo trae del Sheet
         mostrarPantallaInicial();
         iniciarSondeoSheet();
+        revisarAvisoTpv1();
         return;
       }
 
@@ -3989,8 +4007,96 @@
     if(document.visibilityState === 'visible'){
       revisarSiCambioElDia_();
       revisarActualizacionesDesdeSheet();
+      revisarAvisoTpv1();
     }
   });
+
+  // ---------- Aviso: TPV 1 al límite del mes ----------
+  // Cuando lo cobrado por el TPV 1 en el mes llega a 24.000 €, al abrir la
+  // caja sale "CAMBIAR TPV 1". "Después lo cambio" lo vuelve a mostrar a la
+  // hora; "Cambiado" no lo muestra más en ese mes. Si después, ese mismo
+  // mes, se escribe algo en TPV 1 de un día posterior, sale "¡CAMBIAR TPV!
+  // LLEGÓ A SU LÍMITE" y el recordatorio vuelve a quedar activo.
+  var LIMITE_TPV1_MES = 24000;
+  var LS_AVISO_TPV1 = 'cierreCaja_avisoTpv1_v1';
+  var UNA_HORA_MS = 60 * 60 * 1000;
+
+  function leerAvisoTpv1(mes){
+    try { return (JSON.parse(localStorage.getItem(LS_AVISO_TPV1) || '{}') || {})[mes] || {}; }
+    catch(e){ return {}; }
+  }
+  function guardarAvisoTpv1(mes, estado){
+    try {
+      var todo = JSON.parse(localStorage.getItem(LS_AVISO_TPV1) || '{}') || {};
+      todo[mes] = estado;
+      localStorage.setItem(LS_AVISO_TPV1, JSON.stringify(todo));
+    } catch(e){}
+  }
+
+  // TPV 1 de un día: en Noche se anota la lectura de todo el día, así que
+  // si Noche tiene algo es el total del día; si no, lo de Mediodía.
+  function tpv1DelDia(mediodia, noche){
+    return num(noche) > 0 ? num(noche) : num(mediodia);
+  }
+
+  // Suma del TPV 1 de los días del mes 'YYYY-MM'. Con `antesDe`, solo los
+  // días anteriores a esa fecha. El día abierto sale de la pantalla; los
+  // demás, de este dispositivo o, si no están acá, de la lista del Sheet.
+  function tpv1DelMes(mes, antesDe){
+    var store = getDiasStore();
+    var fechas = {};
+    Object.keys(store).concat(Object.keys(cierresSheet), [state.fecha]).forEach(function(f){
+      if(f.indexOf(mes) === 0 && (!antesDe || f < antesDe)) fechas[f] = true;
+    });
+    var total = 0;
+    Object.keys(fechas).forEach(function(f){
+      var dia = f === state.fecha ? state : store[f];
+      if(dia) total += tpv1DelDia(dia.mediodia && dia.mediodia.tpv1, dia.noche && dia.noche.tpv1);
+      else if(cierresSheet[f]) total += tpv1DelDia(cierresSheet[f].tpv1Mediodia, cierresSheet[f].tpv1Noche);
+    });
+    return Math.round(total * 100) / 100;
+  }
+
+  function mostrarAvisoTpv1(titulo, texto, mes){
+    var ov = document.getElementById('tpvAvisoOverlay');
+    document.getElementById('tpvAvisoTitulo').textContent = titulo;
+    document.getElementById('tpvAvisoTexto').textContent = texto;
+    document.getElementById('tpvAvisoDespues').onclick = function(){
+      ov.classList.remove('open');
+      guardarAvisoTpv1(mes, { posponerHasta: Date.now() + UNA_HORA_MS });
+    };
+    document.getElementById('tpvAvisoCambiado').onclick = function(){
+      ov.classList.remove('open');
+      guardarAvisoTpv1(mes, { cambiado: true });
+    };
+    ov.classList.add('open');
+  }
+
+  function revisarAvisoTpv1(){
+    if(!state || !state.fecha) return;
+    if(document.getElementById('tpvAvisoOverlay').classList.contains('open')) return;
+    var mes = state.fecha.slice(0, 7);
+    var total = tpv1DelMes(mes);
+    if(total < LIMITE_TPV1_MES) return;
+    var aviso = leerAvisoTpv1(mes);
+    if(aviso.cambiado || (aviso.posponerHasta && Date.now() < aviso.posponerHasta)) return;
+    mostrarAvisoTpv1('CAMBIAR TPV 1',
+      'Este mes el TPV 1 ya lleva ' + fmt(total) + ' (el límite es ' + fmt(LIMITE_TPV1_MES) + ').', mes);
+  }
+
+  // Al escribir en TPV 1 un día en que el mes ya había llegado al límite
+  // antes de ese día: no se debería cobrar más por el TPV 1.
+  function avisarTpv1AlEditar(){
+    var mes = state.fecha.slice(0, 7);
+    var antes = tpv1DelMes(mes, state.fecha);
+    if(antes < LIMITE_TPV1_MES) return;
+    mostrarAvisoTpv1('¡CAMBIAR TPV! LLEGÓ A SU LÍMITE',
+      'Este mes el TPV 1 ya había llegado a ' + fmt(antes) + ' antes de hoy (el límite es ' + fmt(LIMITE_TPV1_MES) + '). Hay que cobrar con otro TPV.', mes);
+  }
+
+  // Para que "Después lo cambio" vuelva a salir a la hora aunque la app
+  // quede abierta todo el rato.
+  setInterval(revisarAvisoTpv1, 60 * 1000);
 
   init();
 })();

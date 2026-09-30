@@ -1379,7 +1379,8 @@ function actualizarMovimientoEnRegistro_(ss, idTurno, idMovimiento, cambios) {
 // Además devuelve `cierres`: por fecha, el efectivo contado de cada turno y
 // si ese día tuvo actividad — la app lo usa para el fondo fijo sugerido
 // (efectivo contado de la última caja trabajada), aunque esa caja se haya
-// cargado desde otro dispositivo.
+// cargado desde otro dispositivo. También el TPV 1 de cada turno, para
+// el aviso de la app cuando el TPV 1 llega al límite del mes.
 function listarDiasConDatos_() {
   try {
     var fechasSet = {};
@@ -1414,11 +1415,12 @@ function listarDiasConDatos_() {
         var contado = num(fila, idxContado);
         var activo = num(fila, idxCantMov) > 0 || contado !== 0 || num(fila, idxFacturado) !== 0 ||
           num(fila, idxTpv1) !== 0 || num(fila, idxTpv2) !== 0 || num(fila, idxTpv3) !== 0;
-        var c = cierres[fechaStr] || (cierres[fechaStr] = { mediodia: 0, noche: 0, actividad: false });
+        var c = cierres[fechaStr] || (cierres[fechaStr] = { mediodia: 0, noche: 0, actividad: false, tpv1Mediodia: 0, tpv1Noche: 0 });
         var turno = String(idxTurno > -1 ? fila[idxTurno] : '').toLowerCase() === 'noche' ? 'noche' : 'mediodia';
         if (activo) {
           c.actividad = true;
           c[turno] = contado;
+          c[turno === 'noche' ? 'tpv1Noche' : 'tpv1Mediodia'] = num(fila, idxTpv1);
         }
       }
     });
