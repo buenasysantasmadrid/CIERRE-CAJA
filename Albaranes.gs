@@ -753,3 +753,104 @@ function albaranesPasarAFormatoNuevoDesdeMenu() {
   if (ok !== ui.Button.YES) return;
   ui.alert('Listo', albaranesPasarAFormatoNuevo().join('\n'), ui.ButtonSet.OK);
 }
+
+// ============================================================================
+// Migración: completar Albaranes 2026 con el Excel viejo hasta el 27/09/2026.
+// ============================================================================
+// Los datos están en AlbaranesDatosHasta27Sep.gs (sacados de ALBARANES
+// 2026.xlsx; ese archivo se pega solo en el Apps Script, no va al repo).
+// Desde el 28/09 todo lo carga la app.
+//
+// En cada pestaña y mes, cada albarán del Excel se busca en el Sheet por
+// fecha + importe (lo restaurado el 25/09 y lo que cargó la app). Solo se
+// agregan los que faltan; no se borra ni se cambia nada de lo que ya está.
+// Se puede correr más de una vez: lo ya agregado no se duplica.
+//
+// Primero correr revisarAlbaranesHasta27Sep (no escribe nada, solo muestra
+// en el registro qué agregaría) y después completarAlbaranesHasta27Sep.
+function revisarAlbaranesHasta27Sep() {
+  Logger.log(completarAlbaranesDesdeExcel_(true).join('\n'));
+}
+
+function completarAlbaranesHasta27Sep() {
+  Logger.log(completarAlbaranesDesdeExcel_(false).join('\n'));
+}
+
+function claveAlbaranMigracion_(fecha, importe) {
+  var f = fecha instanceof Date ? Utilities.formatDate(fecha, Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(fecha || '');
+  var imp = (importe === '' || importe == null || isNaN(Number(importe))) ? '' : Math.round(Number(importe) * 100);
+  return f + '|' + imp;
+}
+
+function completarAlbaranesDesdeExcel_(soloRevisar) {
+  var id = buscarEnIndice_('ALBARANES', '2026');
+  if (!id) return ['No hay fila ALBARANES 2026 en la pestaña "Archivos" del Índice.'];
+  var ss = SpreadsheetApp.openById(id);
+  var resumen = [soloRevisar ? 'REVISIÓN (no se escribió nada):' : 'COMPLETADO:'];
+  var totalAgregadas = 0;
+
+  Object.keys(ALBARANES_DATOS_HASTA_27SEP_).forEach(function (nombre) {
+    var hoja = pestanaAlbaranesParaProveedor_(ss, nombre);
+    if (!hoja) { resumen.push(nombre + ': NO EXISTE la pestaña en el Sheet — no se cargó nada'); return; }
+    var encabezados = filasEncabezadoAlbaranes_(hoja);
+    if (encabezados.length !== 12) { resumen.push(nombre + ': tiene ' + encabezados.length + ' bloques "FECHA" (se esperaban 12) — no se cargó nada'); return; }
+
+    // Filas del Excel agrupadas por mes.
+    var porMes = {};
+    ALBARANES_DATOS_HASTA_27SEP_[nombre].forEach(function (x) { (porMes[x[0]] = porMes[x[0]] || []).push(x); });
+
+    var agregadas = 0, detalles = [];
+    Object.keys(porMes).forEach(function (mes) {
+      var filaEnc = encabezados[Number(mes) - 1];
+      var primera = filaEnc + 1;
+      var mapa = mapaColumnasAlbaranes_(hoja.getRange(filaEnc, 1, 1, ALBARANES_ANCHO_).getValues()[0]);
+      var rango = hoja.getRange(primera, 1, ALBARANES_FILAS_DATOS_, ALBARANES_ANCHO_);
+      if (rango.getFormulas().some(function (f) { return f.some(String); })) {
+        detalles.push('mes ' + mes + ': tiene fórmulas, no se tocó');
+        return;
+      }
+      var valores = rango.getValues();
+      var ids = hoja.getRange(primera, ALBARANES_COL_ID_, ALBARANES_FILAS_DATOS_, 1).getValues();
+
+      // Lo que ya hay en el bloque, contado por fecha + importe.
+      var actuales = [], disponibles = {};
+      for (var i = 0; i < valores.length; i++) {
+        if (valores[i].every(function (v) { return v === '' || v == null; })) continue;
+        actuales.push({ id: String(ids[i][0] || ''), fila: valores[i] });
+        var k = claveAlbaranMigracion_(mapa.fecha != null ? valores[i][mapa.fecha] : '', mapa.importe != null ? valores[i][mapa.importe] : '');
+        disponibles[k] = (disponibles[k] || 0) + 1;
+      }
+
+      var nuevas = [];
+      porMes[mes].forEach(function (x) {
+        var k = claveAlbaranMigracion_(x[1], x[3]);
+        if (disponibles[k]) { disponibles[k]--; return; }
+        var fila = filaVaciaAlbaranes_();
+        if (mapa.fecha != null) fila[mapa.fecha] = fechaComoDate_(x[1]);
+        if (mapa.factura != null) fila[mapa.factura] = x[2];
+        if (mapa.importe != null) fila[mapa.importe] = x[3];
+        if (mapa.iva != null) fila[mapa.iva] = x[4];
+        var obs = x[5];
+        if (mapa.factura == null && x[2] !== '') obs = ['Fact. ' + x[2], obs].filter(String).join(' · ');
+        if (mapa.obs != null) fila[mapa.obs] = obs;
+        if (mapa.detalle != null) fila[mapa.detalle] = x[6];
+        nuevas.push({ id: '', fila: fila });
+        detalles.push('mes ' + mes + ': ' + x[1] + ' · ' + x[3] + ' €' + (x[2] !== '' ? ' · fact. ' + x[2] : '') + (x[6] ? ' · ' + x[6] : ''));
+      });
+      if (!nuevas.length) return;
+      if (actuales.length + nuevas.length > ALBARANES_FILAS_DATOS_) {
+        detalles.push('mes ' + mes + ': NO ENTRAN (' + (actuales.length + nuevas.length) + ' filas, el bloque tiene ' + ALBARANES_FILAS_DATOS_ + ') — no se agregó nada en este mes');
+        return;
+      }
+      if (!soloRevisar) guardarBloqueOrdenado_(hoja, filaEnc, actuales.concat(nuevas));
+      agregadas += nuevas.length;
+    });
+
+    totalAgregadas += agregadas;
+    resumen.push(nombre + ': ' + (agregadas ? agregadas + (soloRevisar ? ' para agregar' : ' agregadas') : 'ya estaba todo'));
+    detalles.forEach(function (d) { resumen.push('    ' + d); });
+  });
+
+  resumen.push('TOTAL: ' + totalAgregadas + (soloRevisar ? ' filas para agregar' : ' filas agregadas'));
+  return resumen;
+}
