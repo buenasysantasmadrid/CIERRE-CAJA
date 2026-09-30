@@ -1,27 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Caja registradora (icono de la app) -->
-  <rect width="512" height="512" rx="112" fill="#2F7A3E"/>
-  <!-- ticket saliendo por arriba -->
-  <path d="M318 74h86v118h-86z" fill="#FFFFFF"/>
-  <path d="M332 100h58M332 124h58M332 148h40" stroke="#B9C7B2" stroke-width="10" stroke-linecap="round"/>
-  <!-- pantalla -->
-  <rect x="96" y="104" width="196" height="92" rx="18" fill="#1F2430"/>
-  <rect x="116" y="124" width="156" height="52" rx="8" fill="#9BE07A"/>
-  <path d="M136 150h26M178 150h26M220 150h32" stroke="#1F2430" stroke-width="12" stroke-linecap="round"/>
-  <rect x="172" y="196" width="44" height="30" fill="#1F2430"/>
-  <!-- cuerpo -->
-  <path d="M112 226h288l32 150H80z" fill="#FFFFFF"/>
-  <!-- teclas -->
-  <g fill="#2F7A3E">
-    <rect x="140" y="252" width="52" height="30" rx="8"/>
-    <rect x="206" y="252" width="52" height="30" rx="8"/>
-    <rect x="272" y="252" width="52" height="30" rx="8"/>
-    <rect x="132" y="298" width="56" height="30" rx="8"/>
-    <rect x="202" y="298" width="56" height="30" rx="8"/>
-    <rect x="272" y="298" width="56" height="30" rx="8"/>
+  <!-- Caja registradora (icono de la app): negro sobre blanco, grande y simple
+       para que se reconozca aunque se vea chiquito. -->
+  <rect width="512" height="512" rx="64" fill="#FFFFFF"/>
+  <g fill="#111111">
+    <!-- pantalla -->
+    <path fill-rule="evenodd" d="M150 34h212a18 18 0 0 1 18 18v88a18 18 0 0 1-18 18H150a18 18 0 0 1-18-18V52a18 18 0 0 1 18-18zM176 66v60h160V66z"/>
+    <rect x="226" y="156" width="60" height="36"/>
+    <!-- cuerpo con teclas -->
+    <path fill-rule="evenodd" d="M104 190h304l42 186H62zM148 222v48h60v-48zM226 222v48h60v-48zM304 222v48h60v-48zM140 296v48h64v-48zM224 296v48h64v-48zM308 296v48h64v-48z"/>
+    <!-- cajón -->
+    <path fill-rule="evenodd" d="M44 392h424a14 14 0 0 1 14 14v64a14 14 0 0 1-14 14H44a14 14 0 0 1-14-14v-64a14 14 0 0 1 14-14zM196 426v22h120v-22z"/>
   </g>
-  <rect x="340" y="252" width="40" height="76" rx="10" fill="#F4C542"/>
-  <!-- cajón -->
-  <rect x="64" y="376" width="384" height="70" rx="14" fill="#F4C542"/>
-  <rect x="206" y="402" width="100" height="18" rx="9" fill="#1F2430"/>
 </svg>
