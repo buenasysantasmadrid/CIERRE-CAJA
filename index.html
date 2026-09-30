@@ -284,6 +284,9 @@
   .scan-error{font-size:.82rem;color:var(--red);background:var(--red-soft);padding:8px 10px;border-radius:10px;margin-bottom:8px;}
   .scan-ok{font-size:.85rem;font-weight:600;color:var(--green);margin-bottom:8px;display:flex;gap:6px;align-items:center;}
   .resp-detalle{margin-top:8px;}
+  .scan-box + .scan-box{margin-top:10px;}
+  .dictar-texto{width:100%;min-height:78px;resize:vertical;margin-bottom:10px;font:inherit;padding:10px;border:1px solid var(--line);border-radius:10px;box-sizing:border-box;}
+  .scan-actions button.escuchando{background:var(--red-soft);border-color:var(--red);color:var(--red);}
 
   /* ---------- pantallas completas (cierre, albaranes) ---------- */
   .screen{
@@ -638,7 +641,8 @@
     card: ['M3 8a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v8a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3z','M3 10h18','M7 15h.01','M11 15h2'],
     bank: ['M3 21h18','M3 10h18','M5 6l7 -3l7 3','M4 10v11','M20 10v11','M8 14v3','M12 14v3','M16 14v3'],
     clock: ['M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0','M12 7v5l3 3'],
-    check: ['M5 12l5 5l10 -10']
+    check: ['M5 12l5 5l10 -10'],
+    mic: ['M9 5a3 3 0 0 1 6 0v5a3 3 0 0 1 -6 0z','M5 10a7 7 0 0 0 14 0','M8 21h8','M12 17v4']
   };
   function icon(name){
     var paths = ICON_PATHS[name] || [];
@@ -1511,8 +1515,9 @@
     currentTipo = 'gasto';
     var gExisting = existing && existing.tipo === 'gasto' ? existing : null;
     currentSubtipo = gExisting ? gExisting.subtipo : null;
-    document.getElementById('scanSlot').innerHTML = scanBoxHTML();
+    document.getElementById('scanSlot').innerHTML = scanBoxHTML() + dictarBoxHTML();
     wireScanUI();
+    wireDictarUI();
     document.getElementById('levelTwoLabel').textContent = '¿Cómo se pagó?';
     renderChipRow(document.getElementById('levelTwoRow'), GASTO_SUBTYPES, currentSubtipo, function(k){
       var valoresActuales = capturarValoresFormActuales();
@@ -1835,6 +1840,146 @@
           '</div>' +
         '</div>' +
       '</div>';
+  }
+
+  // ---------- Dictar un gasto de proveedor ----------
+  // Se dice (o se escribe) algo como "factura de Monbake de hoy, número
+  // 113, importe 99, IVA 1, pagada en efectivo, responsable Luciana". El
+  // Apps Script se lo pasa a Claude, que devuelve los campos, y se cargan
+  // en el formulario igual que al escanear: no se guarda solo.
+  var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  function dictarBoxHTML(){
+    return '<div class="scan-box">' +
+        '<div class="scan-head">' +
+          '<span class="ttl">'+icon('mic')+'Dictar gasto</span>' +
+          '<button type="button" id="dictarToggleBtn">Usar voz</button>' +
+        '</div>' +
+        '<div class="collapse" id="dictarContent">' +
+          '<textarea id="dictarTexto" class="dictar-texto" placeholder="Ej: factura de Monbake de hoy, número 113, importe 99, IVA 1, pagada en efectivo, responsable Luciana"></textarea>' +
+          '<div class="scan-status" id="dictarStatusLine" style="display:none;"><span class="scan-spinner"></span><span id="dictarStatusText">Entendiendo…</span></div>' +
+          '<div class="scan-error" id="dictarErrorLine" style="display:none;"></div>' +
+          '<div class="scan-ok" id="dictarOkLine" style="display:none;">'+icon('check')+' Datos cargados, revísalos antes de guardar</div>' +
+          '<div class="scan-actions">' +
+            (SpeechRec ? '<button type="button" id="dictarBtnMic">'+icon('mic')+'Hablar</button>' : '') +
+            '<button type="button" class="btn-primary" id="dictarBtnCargar">Cargar datos</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function wireDictarUI(){
+    var toggleBtn = document.getElementById('dictarToggleBtn');
+    var content = document.getElementById('dictarContent');
+    var texto = document.getElementById('dictarTexto');
+    toggleBtn.addEventListener('click', function(){
+      var abrir = !content.classList.contains('open');
+      content.classList.toggle('open', abrir);
+      this.textContent = abrir ? 'Ocultar' : 'Usar voz';
+    });
+    document.getElementById('dictarBtnCargar').addEventListener('click', cargarDictado);
+
+    // Micrófono del navegador (Chrome/Android, Safari). Si no está, igual
+    // se puede usar el micrófono del teclado del móvil en el cuadro de texto.
+    var micBtn = document.getElementById('dictarBtnMic');
+    if(!micBtn) return;
+    var rec = null;
+    micBtn.addEventListener('click', function(){
+      if(rec){ rec.stop(); return; }
+      rec = new SpeechRec();
+      rec.lang = 'es-ES';
+      rec.interimResults = true;
+      rec.continuous = true;
+      var base = texto.value ? texto.value.replace(/\s+$/, '') + ' ' : '';
+      rec.onresult = function(e){
+        var dicho = '';
+        for(var i = 0; i < e.results.length; i++) dicho += e.results[i][0].transcript;
+        texto.value = base + dicho;
+      };
+      rec.onerror = function(e){
+        if(e.error === 'not-allowed') toast('Hay que dar permiso al micrófono');
+      };
+      rec.onend = function(){
+        rec = null;
+        micBtn.classList.remove('escuchando');
+        micBtn.innerHTML = icon('mic') + 'Hablar';
+      };
+      micBtn.classList.add('escuchando');
+      micBtn.innerHTML = icon('mic') + 'Escuchando… (tocar para parar)';
+      rec.start();
+    });
+  }
+
+  var FORMAS_PAGO_DICTADO = ['efectivo', 'tarjeta', 'no_pagado', 'transferencia'];
+
+  function cargarDictado(){
+    var texto = document.getElementById('dictarTexto').value.trim();
+    if(!texto){ toast('Dicta o escribe los datos primero'); return; }
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)){ toast('No hay conexión configurada con el Sheet'); return; }
+    var btn = document.getElementById('dictarBtnCargar');
+    btn.disabled = true;
+    document.getElementById('dictarStatusLine').style.display = 'flex';
+    document.getElementById('dictarErrorLine').style.display = 'none';
+    document.getElementById('dictarOkLine').style.display = 'none';
+
+    fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({
+        accionDictarGasto: true,
+        texto: texto,
+        fechaHoy: todayISO(),
+        proveedores: PROVEEDORES_CONOCIDOS,
+        responsables: RESPONSABLES_CONOCIDOS.filter(function(r){ return r !== 'Otros'; })
+      })
+    })
+    .then(function(resp){
+      return resp.json().then(function(parsed){
+        if(!resp.ok || !parsed || parsed.ok === false) throw new Error((parsed && parsed.error) || ('Error del servidor (' + resp.status + ')'));
+        return parsed;
+      });
+    })
+    .then(function(d){
+      document.getElementById('dictarStatusLine').style.display = 'none';
+      aplicarDictado(d);
+      document.getElementById('dictarOkLine').style.display = 'flex';
+    })
+    .catch(function(err){
+      document.getElementById('dictarStatusLine').style.display = 'none';
+      var el = document.getElementById('dictarErrorLine');
+      el.style.display = 'block';
+      el.textContent = 'No se pudo entender el dictado. Completá a mano abajo. (' + (err.message || 'error desconocido') + ')';
+    })
+    .finally(function(){ btn.disabled = false; });
+  }
+
+  function aplicarDictado(d){
+    // Primero la forma de pago: al elegirla se vuelve a dibujar el
+    // formulario, así que después se rellenan los campos.
+    if(FORMAS_PAGO_DICTADO.indexOf(d.forma_pago) > -1){
+      var chip = document.querySelector('#levelTwoRow [data-k="' + d.forma_pago + '"]');
+      if(chip) chip.click();
+    }
+
+    var resp = (d.responsable || '').trim();
+    if(resp){
+      var conocido = RESPONSABLES_CONOCIDOS.filter(function(r){
+        return normalizarNombreProveedor(r) === normalizarNombreProveedor(resp);
+      })[0];
+      var respChip = document.querySelector('#formFields [data-chip-select="responsable"] [data-valor="' + (conocido || 'Otros') + '"]');
+      if(respChip) respChip.click();
+      if(!conocido){
+        var respDet = document.getElementById('responsableDetalleInput');
+        if(respDet) respDet.value = resp;
+      }
+    }
+
+    var infoEl = document.querySelector('#formFields [data-field="info"]');
+    if(infoEl && d.info) infoEl.value = d.info;
+
+    // Proveedor, nº de factura, fecha, importe e IVA: igual que al escanear.
+    aplicarDatosFactura(d);
   }
 
   function wireScanUI(){
