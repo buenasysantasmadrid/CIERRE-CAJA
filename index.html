@@ -368,7 +368,6 @@
   .desglose-line.total{border-top:1px solid var(--line);margin-top:4px;padding-top:8px;font-weight:700;}
   .btn-big{width:100%;min-height:44px;border-radius:12px;color:#fff;font-size:.95rem;margin-top:8px;padding:8px 14px;}
   .glovo-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 40px;align-items:center;gap:8px;padding:5px 0;}
-  .glovo-row.head{padding:8px 0 0;font-size:.72rem;color:var(--ink-soft);font-weight:600;}
   .glovo-row input{min-width:0;padding:9px 10px;}
   .glovo-row.repetido input[data-glovo-pedido]{border-color:var(--red);color:var(--red);}
   .glovo-row button{width:36px;height:36px;border-radius:50%;padding:0;display:inline-flex;align-items:center;justify-content:center;background:#fff;border:1px solid var(--line);}
@@ -980,12 +979,10 @@
 
         '<div class="paso">' +
           '<div class="paso-head"><span class="paso-num">3</span>Glovo</div>' +
-          '<div class="field-note">Una línea por pedido. Se guarda solo al escribir. No cuenta para la diferencia de caja.</div>' +
-          '<div class="glovo-row head"><span>Nº pedido</span><span>Importe</span><span></span></div>' +
           '<div id="glovoLista_'+t+'"></div>' +
           '<div class="glovo-add">' +
             '<div class="scan-actions">' +
-              '<button type="button" data-glovo-camara>'+icon('camera')+'Sacar foto del ticket</button>' +
+              '<button type="button" data-glovo-camara>'+icon('camera')+'<span><b>Sacar foto</b> · puedes sacar varios tickets juntos</span></button>' +
             '</div>' +
             '<input type="file" data-glovo-file-camara accept="image/*" capture="environment" style="display:none;">' +
             '<div class="glovo-estado" id="glovoEstado_'+t+'"></div>' +
