@@ -1097,12 +1097,9 @@
             ? '<div class="paso-nota">Pon el total del día completo, desde la mañana. La app resta sola lo de Mediodía.</div>'
             : '') +
           '<div class="form-grid">' +
-            (t==='mediodia'
-              ? '<div class="field"><label for="fondoFijo_'+t+'">Fondo fijo</label>' +
-                  '<input type="number" step="0.01" id="fondoFijo_'+t+'" value="0" placeholder="0,00" readonly class="input-readonly">' +
-                  '<span class="field-note">Viene del último cierre</span></div>'
-              : campo('fondoFijo', 'Fondo fijo')
-            ) +
+            '<div class="field"><label for="fondoFijo_'+t+'">Fondo fijo</label>' +
+              '<input type="number" step="0.01" id="fondoFijo_'+t+'" value="0" placeholder="0,00" readonly class="input-readonly">' +
+              '<span class="field-note">'+(t==='mediodia' ? 'Viene del último cierre' : 'Lo contado al cerrar Mediodía')+'</span></div>' +
             campo('totalFacturado', 'Total facturado'+dia) +
           '</div>' +
           '<div class="tpv-fila">' +
@@ -1256,9 +1253,16 @@
   // Fondo fijo con el que arrancó el turno. En Noche, si no se escribió
   // uno, es lo que quedó contado en el cierre de Mediodía.
   function fondoInicialTurno(t){
-    var fondo = num(state[t].fondoFijo);
-    if(t === 'noche' && !fondo) fondo = ((state.mediodia && state.mediodia._calc) || {}).totalContado || 0;
-    return fondo;
+    return t === 'noche' ? fondoFijoNoche() : num(state[t].fondoFijo);
+  }
+
+  // Noche arranca con el efectivo que quedó contado al cerrar Mediodía. Si
+  // ese día no se trabajó Mediodía (nada contado), con el fondo fijo de
+  // Mediodía, que es lo que quedó en la última caja cerrada.
+  function fondoFijoNoche(){
+    var md = state.mediodia || {};
+    var contadoMd = (md._calc || {}).totalContado || 0;
+    return contadoMd > 0 ? contadoMd : num(md.fondoFijo);
   }
 
   // Compara el efectivo contado en el control con lo que debería haber en
@@ -3240,6 +3244,8 @@
 
   // ---------- calculations ----------
   function recalc(t){
+    // El fondo de Noche no se escribe: sale de Mediodía (ver fondoFijoNoche).
+    if(t === 'noche') document.getElementById('fondoFijo_noche').value = Math.round(fondoFijoNoche() * 100) / 100;
     var totalBilletes = 0;
     BILLETES.forEach(function(v){
       var qty = state[t].denom.billetes[v] || 0;
@@ -3340,7 +3346,8 @@
     // El control de caja se actualiza con cada gasto, ingreso o retiro. El
     // de Noche también depende de Mediodía (su fondo puede ser lo contado ahí).
     compararFondo(t);
-    if(t === 'mediodia') compararFondo('noche');
+    // Lo que se cuenta en Mediodía es el fondo de Noche: hay que rehacer Noche.
+    if(t === 'mediodia') recalc('noche');
 
     recalcDia();
   }
