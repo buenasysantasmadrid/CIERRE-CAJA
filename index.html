@@ -3484,8 +3484,12 @@
       buildDenomTables(t);
       renderMovimientos(t);
       renderGlovo(t);
-      recalc(t);
     });
+    // Se calcula después de poner los dos turnos en pantalla: recalc lee los
+    // campos, y recalc de Mediodía rehace también Noche (su fondo fijo sale
+    // de Mediodía). Si se calculara Mediodía antes de poner los campos de
+    // Noche, Noche se quedaría con los valores viejos de la pantalla.
+    TURNOS.forEach(recalc);
     buildFondoConteo();
     updateFechaLabel();
     recalcDia();
