@@ -1,10 +1,12 @@
 // ============================================================================
 // MENÚ — los archivos del negocio que se abren desde las tres rayas de la
 // app (al lado del logo). Cada uno es una planilla que tiene que estar en
-// la pestaña "Archivos" del Índice (no se crean solas):
-//   STOCK_PRODUCCION | 2026 | <ID>   (Producción de empanadas y quiches)
-//   CAMBIO_TINTA     | 2026 | <ID>   (no es por año: si no hay fila de ese
-//                                     año, se usa la última que haya)
+// la pestaña "Archivos" del Índice (no se crean solas), y compartida como
+// editor con la cuenta que publica el Apps Script:
+//   STOCK_PRODUCCION          | 2026 | <ID>  (Producción de empanadas y quiches)
+//   COMPARATIVA_CARNE         | 2026 | <ID>  (kilos de pollería y carnicería)
+//   CAMBIO_TINTA              | 2026 | <ID>  (no es por año: si no hay fila de
+//   ARREGLO_ELECTRODOMESTICOS | 2026 | <ID>   ese año, se usa la última)
 // ============================================================================
 
 // ID de la planilla de `tipo` para el año de `fechaISO`; si no hay fila de
@@ -27,10 +29,13 @@ function respuestaJSON_(obj) {
 // Lo que pide la app desde el menú (ver doPost). null si no es de acá.
 function accionDelMenu_(data) {
   var fn = null;
-  if (data.accionProduccionLeer) fn = function () { return leerProduccion_(data.fecha); };
-  else if (data.accionProduccionGuardar) fn = function () { return guardarProduccion_(data.fecha, data.valores || {}); };
+  var diaria = PLANILLAS_DIARIAS_[data.planilla];
+  if (data.accionDiariaLeer && diaria) fn = function () { return leerDiaria_(diaria, data.fecha); };
+  else if (data.accionDiariaGuardar && diaria) fn = function () { return guardarDiaria_(diaria, data.fecha, data.valores || {}); };
   else if (data.accionTintaLeer) fn = function () { return leerTinta_(); };
   else if (data.accionTintaGuardar) fn = function () { return guardarTinta_(data.impresora, data.tinta, data.fecha); };
+  else if (data.accionArreglosLeer) fn = function () { return leerArreglos_(); };
+  else if (data.accionArreglosGuardar) fn = function () { return guardarArreglo_(data.arreglo || {}); };
   if (!fn) return null;
   try {
     return respuestaJSON_(fn());
@@ -39,82 +44,177 @@ function accionDelMenu_(data) {
   }
 }
 
-// ---------- Producción de empanadas y quiches ----------
-// Una pestaña por mes (enero, febrero... en minúsculas). Columna A: los
-// sabores; fila 6: los días del mes (B = 1 ... AF = 31). Arriba van las
-// empanadas (debajo de la fila "EMPANADAS") y abajo las quiches (debajo de
-// "QUICHES"). AG y AH son fórmulas de totales: no se tocan. Los sabores se
-// leen de la propia pestaña, así que si se agrega uno nuevo, sale solo.
-
-function pestanaProduccion_(ss, fechaISO) {
-  var mes = parseInt(String(fechaISO).split('-')[1], 10);
-  var buscado = MESES_MAYUS_[mes - 1];
-  var hojas = ss.getSheets();
-  for (var i = 0; i < hojas.length; i++) {
-    if (normalizarClave_(hojas[i].getName()) === buscado) return hojas[i];
+// ---------- Planillas "por día": Producción y Comparativa carnicería ----------
+// Las dos tienen una pestaña por mes y, en cada una, bloques de filas (los
+// sabores o los productos, en la columna A) con una columna por día del
+// mes (B = 1 ... AF = 31). Cada bloque empieza debajo de una fila título y
+// termina en la primera fila vacía después de sus filas. Las columnas de
+// totales (AG, AH) son fórmulas: no se tocan. Las filas se leen de la propia
+// pestaña, así que si se agrega un sabor o un producto nuevo, sale solo.
+//   Producción: pestañas "enero"... ; bloques "EMPANADAS" y "QUICHES".
+//   Carnicería: pestañas "ENE"... "SEPT"...; dos bloques que empiezan con
+//   "GÉNERO": el primero es la pollería y el segundo la carnicería.
+var PLANILLAS_DIARIAS_ = {
+  produccion: {
+    tipo: 'STOCK_PRODUCCION', nombre: 'Stock producción',
+    titulos: { EMPANADAS: 'empanadas', QUICHES: 'quiches', QUICHE: 'quiches' }
+  },
+  carniceria: {
+    tipo: 'COMPARATIVA_CARNE', nombre: 'Comparativa carnicería',
+    titulos: { GENERO: ['polleria', 'carniceria'] } // el mismo título dos veces, en orden
   }
-  throw new Error('La planilla de Producción no tiene la pestaña de ' + buscado.toLowerCase() + '.');
+};
+
+// La pestaña del mes: con el nombre entero ("octubre") o abreviado ("OCT",
+// "SEPT").
+function pestanaDelMes_(ss, fechaISO, nombre) {
+  var mes = MESES_MAYUS_[parseInt(String(fechaISO).split('-')[1], 10) - 1];
+  var hojas = ss.getSheets();
+  for (var i = 0; i < hojas.length; i++) if (normalizarClave_(hojas[i].getName()) === mes) return hojas[i];
+  for (var j = 0; j < hojas.length; j++) {
+    var n = normalizarClave_(hojas[j].getName());
+    if (n.length >= 3 && n.length <= 4 && mes.indexOf(n) === 0) return hojas[j];
+  }
+  throw new Error('La planilla de ' + nombre + ' no tiene la pestaña de ' + mes.toLowerCase() + '.');
 }
 
-// { empanadas: [{nombre, fila}], quiches: [...], filaDias }
-function filasProduccion_(hoja) {
-  var alto = Math.min(hoja.getLastRow(), 80);
-  var colA = hoja.getRange(1, 1, alto, 2).getValues();
-  var grupos = { empanadas: [], quiches: [] };
-  var actual = null, filaDias = 6;
+// { grupos: { empanadas: [{nombre, fila}], ... }, orden: ['empanadas', ...] }
+function filasDiarias_(hoja, cfg) {
+  var alto = Math.min(hoja.getLastRow(), 120);
+  var colA = hoja.getRange(1, 1, Math.max(alto, 1), 1).getValues();
+  var grupos = {}, orden = [], vecesTitulo = {};
+  var actual = null;
   for (var i = 0; i < alto; i++) {
     var texto = normalizarTexto_(colA[i][0]);
-    var clave = normalizarClave_(texto);
-    if (!texto && Number(colA[i][1]) === 1) filaDias = i + 1;
-    if (clave === 'EMPANADAS') { actual = 'empanadas'; continue; }
-    if (clave === 'QUICHES' || clave === 'QUICHE') { actual = 'quiches'; continue; }
-    if (!actual) continue;
-    if (!texto) {
-      if (grupos[actual].length) actual = actual === 'empanadas' ? 'esperandoQuiches' : null;
+    var titulo = cfg.titulos[normalizarClave_(texto)];
+    if (titulo) {
+      var n = vecesTitulo[texto] = (vecesTitulo[texto] || 0) + 1;
+      actual = Array.isArray(titulo) ? titulo[n - 1] : titulo;
+      if (actual && !grupos[actual]) { grupos[actual] = []; orden.push(actual); }
       continue;
     }
-    if (actual === 'esperandoQuiches') continue;
+    if (!actual) continue;
+    if (!texto) {
+      if (grupos[actual].length) actual = null; // fin del bloque
+      continue;
+    }
     grupos[actual].push({ nombre: texto, fila: i + 1 });
   }
-  return { empanadas: grupos.empanadas, quiches: grupos.quiches, filaDias: filaDias };
+  return { grupos: grupos, orden: orden };
 }
 
-// Columna (1-based) del día en la fila de los días; si no se encuentra,
-// la de siempre (B = día 1).
-function columnaDiaProduccion_(hoja, filaDias, dia) {
-  var fila = hoja.getRange(filaDias, 1, 1, 40).getValues()[0];
-  for (var c = 1; c < fila.length; c++) {
-    if (Number(fila[c]) === dia) return c + 1;
+// Columna (1-based) del día: se busca la fila con los días (la que tiene
+// 1 y 2 en B y C) y en ella el número; si no, la de siempre (B = día 1).
+function columnaDelDia_(hoja, dia) {
+  var alto = Math.min(hoja.getLastRow(), 20);
+  var filas = hoja.getRange(1, 1, Math.max(alto, 1), 40).getValues();
+  for (var r = 0; r < filas.length; r++) {
+    if (Number(filas[r][1]) === 1 && Number(filas[r][2]) === 2) {
+      for (var c = 1; c < filas[r].length; c++) if (Number(filas[r][c]) === dia) return c + 1;
+    }
   }
   return dia + 1;
 }
 
-function leerProduccion_(fechaISO) {
-  var ss = planillaDelMenu_('STOCK_PRODUCCION', fechaISO, 'Stock producción');
-  var hoja = pestanaProduccion_(ss, fechaISO);
-  var f = filasProduccion_(hoja);
-  var col = columnaDiaProduccion_(hoja, f.filaDias, parseInt(String(fechaISO).split('-')[2], 10));
+function leerDiaria_(cfg, fechaISO) {
+  var hoja = pestanaDelMes_(planillaDelMenu_(cfg.tipo, fechaISO, cfg.nombre), fechaISO, cfg.nombre);
+  var f = filasDiarias_(hoja, cfg);
+  var col = columnaDelDia_(hoja, parseInt(String(fechaISO).split('-')[2], 10));
   var valores = hoja.getRange(1, col, Math.max(hoja.getLastRow(), 1), 1).getValues();
-  function conValor(s) { return { nombre: s.nombre, valor: Number(valores[s.fila - 1][0]) || 0 }; }
-  return { ok: true, fecha: fechaISO, pestana: hoja.getName(), empanadas: f.empanadas.map(conValor), quiches: f.quiches.map(conValor) };
+  var grupos = {};
+  f.orden.forEach(function (g) {
+    grupos[g] = f.grupos[g].map(function (s) { return { nombre: s.nombre, valor: Number(valores[s.fila - 1][0]) || 0 }; });
+  });
+  return { ok: true, fecha: fechaISO, pestana: hoja.getName(), orden: f.orden, grupos: grupos };
 }
 
-// `valores`: { empanadas: {CARNE: 8, ...}, quiches: {POLLO: 2, ...} }. Un 0
-// deja la celda vacía (como se hacía a mano).
-function guardarProduccion_(fechaISO, valores) {
-  var ss = planillaDelMenu_('STOCK_PRODUCCION', fechaISO, 'Stock producción');
-  var hoja = pestanaProduccion_(ss, fechaISO);
-  var f = filasProduccion_(hoja);
-  var col = columnaDiaProduccion_(hoja, f.filaDias, parseInt(String(fechaISO).split('-')[2], 10));
-  ['empanadas', 'quiches'].forEach(function (grupo) {
-    var delGrupo = valores[grupo] || {};
-    f[grupo].forEach(function (s) {
+// `valores`: { empanadas: {CARNE: 8, ...}, quiches: {...} }. Un 0 deja la
+// celda vacía (como se hacía a mano).
+function guardarDiaria_(cfg, fechaISO, valores) {
+  var hoja = pestanaDelMes_(planillaDelMenu_(cfg.tipo, fechaISO, cfg.nombre), fechaISO, cfg.nombre);
+  var f = filasDiarias_(hoja, cfg);
+  var col = columnaDelDia_(hoja, parseInt(String(fechaISO).split('-')[2], 10));
+  f.orden.forEach(function (g) {
+    var delGrupo = valores[g] || {};
+    f.grupos[g].forEach(function (s) {
       if (!(s.nombre in delGrupo)) return;
-      var v = Number(delGrupo[s.nombre]) || 0;
+      var v = Math.round((Number(delGrupo[s.nombre]) || 0) * 1000) / 1000;
       hoja.getRange(s.fila, col).setValue(v > 0 ? v : '');
     });
   });
-  return leerProduccion_(fechaISO);
+  return leerDiaria_(cfg, fechaISO);
+}
+
+// ---------- Arreglo electrodomésticos ----------
+// Pestaña "arreglos": una fila de títulos (FECHA, ELECTRODOMESTICO,
+// PROVEEDOR, PROBLEMA, ARREGLO, €) y debajo un arreglo por fila. Las
+// columnas se buscan por su título. Los nuevos van debajo del último.
+var CAMPOS_ARREGLO_ = {
+  FECHA: 'fecha', ELECTRODOMESTICO: 'electrodomestico', PROVEEDOR: 'proveedor',
+  PROBLEMA: 'problema', ARREGLO: 'arreglo', '€': 'importe', IMPORTE: 'importe'
+};
+
+function hojaArreglos_() {
+  var ss = planillaDelMenu_('ARREGLO_ELECTRODOMESTICOS', hoyISO_(), 'Arreglo electrodomésticos');
+  var hojas = ss.getSheets();
+  var hoja = null;
+  for (var i = 0; i < hojas.length; i++) if (normalizarClave_(hojas[i].getName()) === 'ARREGLOS') hoja = hojas[i];
+  hoja = hoja || hojas.filter(function (h) { return h.getLastRow() > 1; })[0] || hojas[0];
+  var alto = Math.min(Math.max(hoja.getLastRow(), 1), 10);
+  var arriba = hoja.getRange(1, 1, alto, 15).getValues();
+  for (var r = 0; r < arriba.length; r++) {
+    var cols = {};
+    arriba[r].forEach(function (v, c) { var k = CAMPOS_ARREGLO_[normalizarClave_(v)]; if (k) cols[k] = c + 1; });
+    if (cols.fecha && cols.electrodomestico) return { hoja: hoja, filaTitulos: r + 1, cols: cols };
+  }
+  throw new Error('No encontré la fila de títulos (FECHA, ELECTRODOMESTICO...) en Arreglo electrodomésticos.');
+}
+
+function leerArreglos_() {
+  var a = hojaArreglos_();
+  var ultima = a.hoja.getLastRow();
+  var lista = [];
+  if (ultima > a.filaTitulos) {
+    var vals = a.hoja.getRange(a.filaTitulos + 1, 1, ultima - a.filaTitulos, 15).getValues();
+    var tz = Session.getScriptTimeZone();
+    vals.forEach(function (fila, i) {
+      var item = { fila: a.filaTitulos + 1 + i };
+      var algo = false;
+      Object.keys(a.cols).forEach(function (k) {
+        var v = fila[a.cols[k] - 1];
+        if (v instanceof Date) v = Utilities.formatDate(v, tz, 'yyyy-MM-dd');
+        item[k] = v === '' || v == null ? '' : v;
+        if (item[k] !== '') algo = true;
+      });
+      if (algo) lista.push(item);
+    });
+  }
+  return { ok: true, arreglos: lista.reverse() };
+}
+
+function guardarArreglo_(arr) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(arr.fecha || ''))) throw new Error('Pon la fecha del arreglo');
+  if (!String(arr.electrodomestico || '').trim()) throw new Error('Pon qué electrodoméstico se arregló');
+  var a = hojaArreglos_();
+  var ultima = a.filaTitulos;
+  var lr = a.hoja.getLastRow();
+  if (lr > a.filaTitulos) {
+    var vals = a.hoja.getRange(a.filaTitulos + 1, 1, lr - a.filaTitulos, 15).getValues();
+    vals.forEach(function (fila, i) {
+      if (Object.keys(a.cols).some(function (k) { return fila[a.cols[k] - 1] !== ''; })) ultima = a.filaTitulos + 1 + i;
+    });
+  }
+  var fila = ultima + 1;
+  Object.keys(a.cols).forEach(function (k) {
+    var celda = a.hoja.getRange(fila, a.cols[k]);
+    if (ultima > a.filaTitulos) celda.setNumberFormat(a.hoja.getRange(ultima, a.cols[k]).getNumberFormat());
+    var v = arr[k];
+    if (k === 'fecha') v = fechaComoDate_(arr.fecha);
+    else if (k === 'importe') v = (v === '' || v == null) ? '' : Number(v) || 0;
+    else v = String(v || '').trim();
+    celda.setValue(v);
+  });
+  return leerArreglos_();
 }
 
 // ---------- Cambio de tinta ----------

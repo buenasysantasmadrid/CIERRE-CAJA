@@ -436,6 +436,13 @@
   .menu-guardar{background:var(--green);}
   .prod-row{grid-template-columns:minmax(0,1fr) auto;}
   .prod-row .denom-lbl{font-weight:600;}
+  .prod-row .kilos-input{width:110px;text-align:center;font-weight:700;font-size:1.05rem;padding:8px 4px;}
+  .arreglos-buscar{width:100%;margin-bottom:6px;}
+  .arreglo-item{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-top:8px;}
+  .arreglo-top{display:flex;justify-content:space-between;gap:10px;}
+  .arreglo-top span{font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .arreglo-sub{font-size:.86rem;margin-top:2px;}
+  .arreglo-det{font-size:.88rem;margin-top:6px;}
   .tinta-card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-top:14px;}
   .tinta-card h3{font-family:var(--serif);font-weight:400;font-size:1.3rem;margin:0 0 8px;}
   .tinta-fila{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--line);}
@@ -506,9 +513,9 @@
       <img src="logo_buenasysantas.jpg" alt="Buenas y Santas" class="header-logo">
       <nav class="menu-popup" id="menuPopup">
         <button type="button" data-menu-archivo="produccion">Producción empanadas y quiche</button>
-        <button type="button" data-menu-archivo>Comparativa carnicería</button>
+        <button type="button" data-menu-archivo="carniceria">Comparativa carnicería</button>
         <button type="button" data-menu-archivo="tinta">Cambio de tinta</button>
-        <button type="button" data-menu-archivo>Arreglo electrodomésticos</button>
+        <button type="button" data-menu-archivo="arreglos">Arreglo electrodomésticos</button>
       </nav>
     </div>
     <div class="header-actions">
@@ -624,6 +631,63 @@
   <div class="cierre-bar"><div class="cierre-bar-inner">
     <button type="button" class="btn-big menu-guardar" id="produccionGuardar">Guardar producción</button>
   </div></div>
+</div>
+
+<!-- Comparativa carnicería: kilos por día (menú de tres rayas) -->
+<div class="screen" id="carniceriaScreen">
+  <div class="screen-head">
+    <div class="screen-head-inner">
+      <div>
+        <div class="eyebrow">Comparativa</div>
+        <h2>Carnicería y pollería</h2>
+      </div>
+      <button type="button" class="x-btn" data-cerrar-menu-screen aria-label="Cerrar" data-icon="x"></button>
+    </div>
+  </div>
+  <div class="screen-body">
+    <div class="screen-inner">
+      <div class="field" style="margin-top:14px;">
+        <label for="carniceriaFecha">Día</label>
+        <input type="date" id="carniceriaFecha">
+      </div>
+      <div id="carniceriaEstado" class="menu-estado"></div>
+      <div id="carniceriaCuerpo"></div>
+    </div>
+  </div>
+  <div class="cierre-bar"><div class="cierre-bar-inner">
+    <button type="button" class="btn-big menu-guardar" id="carniceriaGuardar">Guardar</button>
+  </div></div>
+</div>
+
+<!-- Arreglo electrodomésticos (menú de tres rayas) -->
+<div class="screen" id="arreglosScreen">
+  <div class="screen-head">
+    <div class="screen-head-inner">
+      <div>
+        <div class="eyebrow">Mantenimiento</div>
+        <h2>Arreglo electrodomésticos</h2>
+      </div>
+      <button type="button" class="x-btn" data-cerrar-menu-screen aria-label="Cerrar" data-icon="x"></button>
+    </div>
+  </div>
+  <div class="screen-body">
+    <div class="screen-inner">
+      <div class="menu-grupo">Nuevo arreglo</div>
+      <div class="form-grid">
+        <div class="field"><label for="arregloFecha">Fecha</label><input type="date" id="arregloFecha"></div>
+        <div class="field"><label for="arregloImporte">Importe (€)</label><input type="number" inputmode="decimal" step="0.01" id="arregloImporte" placeholder="0,00"></div>
+        <div class="field span-2"><label for="arregloElectro">Electrodoméstico</label><input type="text" id="arregloElectro" placeholder="Ej. Nevera empanadas"></div>
+        <div class="field span-2"><label for="arregloProveedor">Técnico / proveedor</label><input type="text" id="arregloProveedor" list="arregloProveedores" placeholder="Nombre y teléfono"><datalist id="arregloProveedores"></datalist></div>
+        <div class="field span-2"><label for="arregloProblema">Problema</label><input type="text" id="arregloProblema" placeholder="Qué le pasaba"></div>
+        <div class="field span-2"><label for="arregloArreglo">Arreglo</label><input type="text" id="arregloArreglo" placeholder="Qué se hizo"></div>
+      </div>
+      <div class="scan-actions" style="margin-top:12px;"><button type="button" class="btn-primary" id="arregloGuardar">Guardar arreglo</button></div>
+      <div id="arreglosEstado" class="menu-estado"></div>
+      <div class="menu-grupo">Arreglos anteriores</div>
+      <input type="search" id="arreglosBuscar" placeholder="Buscar: nevera, Elias, freidora…" class="arreglos-buscar">
+      <div id="arreglosLista"></div>
+    </div>
+  </div>
 </div>
 
 <!-- Cambio de tinta (menú de tres rayas) -->
@@ -3625,9 +3689,8 @@
     if(pop.classList.contains('open')) cerrarCalendario();
     else abrirCalendario();
   });
-  // Menú (las tres rayas al lado del logo): los archivos del negocio.
-  // Producción y Cambio de tinta abren su pantalla; los que todavía no
-  // están hechos solo avisan.
+  // Menú (las tres rayas al lado del logo): los archivos del negocio, cada
+  // uno con su pantalla.
   var menuPopup = document.getElementById('menuPopup');
   var btnMenu = document.getElementById('btnMenu');
   function cerrarMenu(){ menuPopup.classList.remove('open'); btnMenu.setAttribute('aria-expanded', 'false'); }
@@ -3642,9 +3705,9 @@
     if(!item) return;
     cerrarMenu();
     var cual = item.getAttribute('data-menu-archivo');
-    if(cual === 'produccion') abrirProduccion();
+    if(PANTALLAS_DIARIAS[cual]) abrirDiaria(cual);
     else if(cual === 'tinta') abrirTinta();
-    else toast(item.textContent + ': todavía no está en la app');
+    else if(cual === 'arreglos') abrirArreglos();
   });
 
   // ---------- pantallas del menú ----------
@@ -3685,71 +3748,163 @@
   });
   function fechaCorta(iso){ var p = String(iso).split('-'); return p[2] + '/' + p[1] + '/' + p[0]; }
 
-  // Producción: lo que se hizo de cada sabor el día elegido. Los sabores
-  // vienen de la planilla, con lo que ya tenga cargado ese día.
-  var produccionDatos = null;
-  function abrirProduccion(){
-    var f = document.getElementById('produccionFecha');
-    if(!f.value) f.value = todayISO();
-    abrirPantallaMenu('produccionScreen');
-    cargarProduccion();
-  }
-  function cargarProduccion(){
-    var fecha = document.getElementById('produccionFecha').value;
-    if(!fecha) return;
-    produccionDatos = null;
-    document.getElementById('produccionCuerpo').innerHTML = '';
-    estadoMenu('produccionEstado', 'Cargando…', true);
-    pedirAlSheet({ accionProduccionLeer: true, fecha: fecha }).then(function(d){
-      if(document.getElementById('produccionFecha').value !== fecha) return;
-      estadoMenu('produccionEstado', '');
-      pintarProduccion(d);
-    }).catch(function(err){
-      estadoMenu('produccionEstado', 'No se pudo abrir la planilla de producción. (' + err.message + ')', false, true);
-    });
-  }
-  function nombreSabor(n){ var s = String(n).toLowerCase(); return s.charAt(0).toUpperCase() + s.slice(1); }
-  function pintarProduccion(d){
-    produccionDatos = d;
-    function grupo(titulo, clave){
-      return '<div class="menu-grupo">' + titulo + '</div>' + (d[clave] || []).map(function(s){
-        return '<div class="denom-row prod-row">' +
-          '<span class="denom-lbl">' + escapeHtml(nombreSabor(s.nombre)) + '</span>' +
-          '<div class="stepper">' +
-            '<button type="button" data-step="-1" aria-label="Uno menos">'+icon('minus')+'</button>' +
-            '<input type="number" inputmode="numeric" min="0" step="1" data-prod-grupo="' + clave + '" data-prod-sabor="' + escapeHtml(s.nombre) + '" value="' + (s.valor || 0) + '">' +
-            '<button type="button" data-step="1" aria-label="Uno más">'+icon('plus')+'</button>' +
-          '</div></div>';
-      }).join('');
+  // Planillas "por día" (Producción y Comparativa carnicería): para el día
+  // elegido, cuánto hubo de cada sabor o producto. Las filas vienen de la
+  // planilla, con lo que ya tenga cargado ese día. Producción va en
+  // unidades enteras con − / +; carnicería en kilos, con decimales.
+  var PANTALLAS_DIARIAS = {
+    produccion: {
+      titulos: { empanadas: 'Empanadas', quiches: 'Quiches' },
+      decimales: false, nombre: 'Producción'
+    },
+    carniceria: {
+      titulos: { polleria: 'Pollería', carniceria: 'Carnicería' },
+      decimales: true, nombre: 'Carnicería'
     }
-    document.getElementById('produccionCuerpo').innerHTML = grupo('Empanadas', 'empanadas') + grupo('Quiches', 'quiches');
+  };
+  var datosDiarios = {};
+  function idDiaria(p, parte){ return p + parte; } // produccionFecha, carniceriaCuerpo...
+  function abrirDiaria(p){
+    var f = document.getElementById(idDiaria(p, 'Fecha'));
+    if(!f.value) f.value = todayISO();
+    abrirPantallaMenu(idDiaria(p, 'Screen'));
+    cargarDiaria(p);
   }
-  document.getElementById('produccionFecha').addEventListener('change', cargarProduccion);
-  document.getElementById('produccionCuerpo').addEventListener('click', function(e){
-    var btn = e.target.closest('[data-step]');
-    if(!btn) return;
-    var inp = btn.parentNode.querySelector('input');
-    inp.value = Math.max(0, num(inp.value) + Number(btn.getAttribute('data-step')));
-  });
-  document.getElementById('produccionCuerpo').addEventListener('focusin', function(e){
-    if(e.target.tagName === 'INPUT') try{ e.target.select(); }catch(err){}
-  });
-  document.getElementById('produccionGuardar').addEventListener('click', function(){
-    if(!produccionDatos){ toast('Espera a que cargue'); return; }
-    var fecha = document.getElementById('produccionFecha').value;
-    var valores = { empanadas: {}, quiches: {} };
-    document.querySelectorAll('#produccionCuerpo [data-prod-sabor]').forEach(function(inp){
-      valores[inp.getAttribute('data-prod-grupo')][inp.getAttribute('data-prod-sabor')] = Math.max(0, Math.round(num(inp.value)));
+  function cargarDiaria(p){
+    var fecha = document.getElementById(idDiaria(p, 'Fecha')).value;
+    if(!fecha) return;
+    datosDiarios[p] = null;
+    document.getElementById(idDiaria(p, 'Cuerpo')).innerHTML = '';
+    estadoMenu(idDiaria(p, 'Estado'), 'Cargando…', true);
+    pedirAlSheet({ accionDiariaLeer: true, planilla: p, fecha: fecha }).then(function(d){
+      if(document.getElementById(idDiaria(p, 'Fecha')).value !== fecha) return;
+      estadoMenu(idDiaria(p, 'Estado'), '');
+      pintarDiaria(p, d);
+    }).catch(function(err){
+      estadoMenu(idDiaria(p, 'Estado'), 'No se pudo abrir la planilla de ' + PANTALLAS_DIARIAS[p].nombre.toLowerCase() + '. (' + err.message + ')', false, true);
     });
+  }
+  function nombreFila(n){ var s = String(n); return s === s.toUpperCase() ? s.charAt(0) + s.slice(1).toLowerCase() : s; }
+  function pintarDiaria(p, d){
+    datosDiarios[p] = d;
+    var cfg = PANTALLAS_DIARIAS[p];
+    document.getElementById(idDiaria(p, 'Cuerpo')).innerHTML = (d.orden || []).map(function(g){
+      return '<div class="menu-grupo">' + escapeHtml(cfg.titulos[g] || g) + '</div>' + (d.grupos[g] || []).map(function(s){
+        var input = '<input type="number" min="0" data-diaria-grupo="' + escapeHtml(g) + '" data-diaria-fila="' + escapeHtml(s.nombre) + '" value="' + (s.valor || (cfg.decimales ? '' : 0)) + '"' +
+          (cfg.decimales ? ' inputmode="decimal" step="0.01" placeholder="0" class="kilos-input"' : ' inputmode="numeric" step="1"') + '>';
+        return '<div class="denom-row prod-row">' +
+          '<span class="denom-lbl">' + escapeHtml(nombreFila(s.nombre)) + '</span>' +
+          (cfg.decimales ? input :
+            '<div class="stepper">' +
+              '<button type="button" data-step="-1" aria-label="Uno menos">'+icon('minus')+'</button>' + input +
+              '<button type="button" data-step="1" aria-label="Uno más">'+icon('plus')+'</button>' +
+            '</div>') +
+        '</div>';
+      }).join('');
+    }).join('');
+  }
+  Object.keys(PANTALLAS_DIARIAS).forEach(function(p){
+    var cfg = PANTALLAS_DIARIAS[p];
+    var cuerpo = document.getElementById(idDiaria(p, 'Cuerpo'));
+    document.getElementById(idDiaria(p, 'Fecha')).addEventListener('change', function(){ cargarDiaria(p); });
+    cuerpo.addEventListener('click', function(e){
+      var btn = e.target.closest('[data-step]');
+      if(!btn) return;
+      var inp = btn.parentNode.querySelector('input');
+      inp.value = Math.max(0, num(inp.value) + Number(btn.getAttribute('data-step')));
+    });
+    cuerpo.addEventListener('focusin', function(e){
+      if(e.target.tagName === 'INPUT') try{ e.target.select(); }catch(err){}
+    });
+    document.getElementById(idDiaria(p, 'Guardar')).addEventListener('click', function(){
+      if(!datosDiarios[p]){ toast('Espera a que cargue'); return; }
+      var fecha = document.getElementById(idDiaria(p, 'Fecha')).value;
+      var valores = {};
+      cuerpo.querySelectorAll('[data-diaria-fila]').forEach(function(inp){
+        var g = inp.getAttribute('data-diaria-grupo');
+        var v = Math.max(0, num(inp.value));
+        (valores[g] = valores[g] || {})[inp.getAttribute('data-diaria-fila')] = cfg.decimales ? Math.round(v * 1000) / 1000 : Math.round(v);
+      });
+      var btn = this;
+      btn.disabled = true;
+      estadoMenu(idDiaria(p, 'Estado'), 'Guardando…', true);
+      pedirAlSheet({ accionDiariaGuardar: true, planilla: p, fecha: fecha, valores: valores }).then(function(d){
+        estadoMenu(idDiaria(p, 'Estado'), '');
+        if(document.getElementById(idDiaria(p, 'Fecha')).value === fecha) pintarDiaria(p, d);
+        toast(cfg.nombre + ' del ' + fechaCorta(fecha) + ' guardada');
+      }).catch(function(err){
+        estadoMenu(idDiaria(p, 'Estado'), 'No se pudo guardar. (' + err.message + ')', false, true);
+      }).finally(function(){ btn.disabled = false; });
+    });
+  });
+
+  // Arreglo electrodomésticos: arriba el formulario para apuntar uno nuevo,
+  // abajo todos los anteriores (el más nuevo primero), con buscador para
+  // encontrar, por ejemplo, el teléfono de un técnico.
+  var arreglosLista = [];
+  function abrirArreglos(){
+    document.getElementById('arregloFecha').value = todayISO();
+    abrirPantallaMenu('arreglosScreen');
+    estadoMenu('arreglosEstado', 'Cargando…', true);
+    pedirAlSheet({ accionArreglosLeer: true }).then(function(d){
+      estadoMenu('arreglosEstado', '');
+      pintarArreglos(d.arreglos || []);
+    }).catch(function(err){
+      estadoMenu('arreglosEstado', 'No se pudo abrir la planilla de arreglos. (' + err.message + ')', false, true);
+    });
+  }
+  function textoImporteArreglo(v){
+    if(v === '' || v == null) return '';
+    return typeof v === 'number' ? fmt(v) : String(v);
+  }
+  function pintarArreglos(lista){
+    arreglosLista = lista;
+    // Proveedores ya usados, para elegirlos al escribir.
+    var vistos = {};
+    document.getElementById('arregloProveedores').innerHTML = lista.map(function(a){ return String(a.proveedor || '').trim(); })
+      .filter(function(p){ if(!p || vistos[p.toLowerCase()]) return false; vistos[p.toLowerCase()] = true; return true; })
+      .map(function(p){ return '<option value="' + escapeHtml(p) + '">'; }).join('');
+    filtrarArreglos();
+  }
+  function filtrarArreglos(){
+    var q = normalizarNombreProveedor(document.getElementById('arreglosBuscar').value);
+    var lista = arreglosLista.filter(function(a){
+      if(!q) return true;
+      return normalizarNombreProveedor([a.electrodomestico, a.proveedor, a.problema, a.arreglo].join(' ')).indexOf(q) > -1;
+    });
+    document.getElementById('arreglosLista').innerHTML = lista.length ? lista.map(function(a){
+      var fecha = /^\d{4}-\d{2}-\d{2}$/.test(a.fecha) ? fechaCorta(a.fecha) : String(a.fecha || '');
+      var detalle = [a.problema, a.arreglo].filter(function(x){ return String(x || '').trim(); }).map(function(x){ return escapeHtml(x); }).join(' → ');
+      return '<div class="arreglo-item">' +
+        '<div class="arreglo-top"><b>' + escapeHtml(a.electrodomestico || '') + '</b><span>' + escapeHtml(textoImporteArreglo(a.importe)) + '</span></div>' +
+        '<div class="arreglo-sub">' + escapeHtml(fecha) + (a.proveedor ? ' · ' + escapeHtml(a.proveedor) : '') + '</div>' +
+        (detalle ? '<div class="arreglo-det">' + detalle + '</div>' : '') +
+      '</div>';
+    }).join('') : '<div class="empty-row">' + (arreglosLista.length ? 'Nada coincide con la búsqueda.' : 'Todavía no hay arreglos apuntados.') + '</div>';
+  }
+  document.getElementById('arreglosBuscar').addEventListener('input', filtrarArreglos);
+  document.getElementById('arregloGuardar').addEventListener('click', function(){
+    var arreglo = {
+      fecha: document.getElementById('arregloFecha').value,
+      electrodomestico: document.getElementById('arregloElectro').value.trim(),
+      proveedor: document.getElementById('arregloProveedor').value.trim(),
+      problema: document.getElementById('arregloProblema').value.trim(),
+      arreglo: document.getElementById('arregloArreglo').value.trim(),
+      importe: document.getElementById('arregloImporte').value
+    };
+    if(!arreglo.fecha){ toast('Pon la fecha'); return; }
+    if(!arreglo.electrodomestico){ toast('Pon qué electrodoméstico se arregló'); return; }
     var btn = this;
     btn.disabled = true;
-    estadoMenu('produccionEstado', 'Guardando…', true);
-    pedirAlSheet({ accionProduccionGuardar: true, fecha: fecha, valores: valores }).then(function(d){
-      estadoMenu('produccionEstado', '');
-      if(document.getElementById('produccionFecha').value === fecha) pintarProduccion(d);
-      toast('Producción del ' + fechaCorta(fecha) + ' guardada');
+    estadoMenu('arreglosEstado', 'Guardando…', true);
+    pedirAlSheet({ accionArreglosGuardar: true, arreglo: arreglo }).then(function(d){
+      estadoMenu('arreglosEstado', '');
+      ['arregloElectro', 'arregloProveedor', 'arregloProblema', 'arregloArreglo', 'arregloImporte'].forEach(function(id){ document.getElementById(id).value = ''; });
+      document.getElementById('arreglosBuscar').value = '';
+      pintarArreglos(d.arreglos || []);
+      toast('Arreglo apuntado');
     }).catch(function(err){
-      estadoMenu('produccionEstado', 'No se pudo guardar. (' + err.message + ')', false, true);
+      estadoMenu('arreglosEstado', 'No se pudo guardar. (' + err.message + ')', false, true);
     }).finally(function(){ btn.disabled = false; });
   });
 
