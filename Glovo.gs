@@ -33,7 +33,8 @@ function ticketsGlovoDelDia_(dia) {
     var t = dia && dia[k];
     if (!t) return;
     (t.glovo || []).forEach(function (g) {
-      if (g && g.id) tickets.push(g);
+      // Una línea con nº de pedido pero sin importe todavía no es un ticket.
+      if (g && g.id && Number(g.importe) > 0) tickets.push(g);
     });
   });
   return tickets;

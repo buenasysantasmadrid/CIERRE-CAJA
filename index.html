@@ -367,13 +367,12 @@
   .desglose-line{display:flex;justify-content:space-between;padding:5px 0;font-size:.86rem;font-variant-numeric:tabular-nums;}
   .desglose-line.total{border-top:1px solid var(--line);margin-top:4px;padding-top:8px;font-weight:700;}
   .btn-big{width:100%;min-height:44px;border-radius:12px;color:#fff;font-size:.95rem;margin-top:8px;padding:8px 14px;}
-  .glovo-row{display:grid;grid-template-columns:1fr auto 40px;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);}
-  .glovo-pedido{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .glovo-importe{font-variant-numeric:tabular-nums;}
+  .glovo-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 40px;align-items:center;gap:8px;padding:5px 0;}
+  .glovo-row.head{padding:8px 0 0;font-size:.72rem;color:var(--ink-soft);font-weight:600;}
+  .glovo-row input{min-width:0;padding:9px 10px;}
+  .glovo-row.repetido input[data-glovo-pedido]{border-color:var(--red);color:var(--red);}
   .glovo-row button{width:36px;height:36px;border-radius:50%;padding:0;display:inline-flex;align-items:center;justify-content:center;background:#fff;border:1px solid var(--line);}
-  .glovo-vacio{font-size:.86rem;color:var(--ink-soft);padding:4px 0 2px;}
-  .glovo-add{margin-top:12px;}
-  .glovo-add .scan-actions{margin-top:10px;}
+  .glovo-add{margin-top:10px;}
   .glovo-estado{font-size:.84rem;margin-top:8px;display:flex;align-items:center;gap:8px;}
   .glovo-estado:empty{display:none;}
   .glovo-estado.error{color:var(--red);}
@@ -977,23 +976,15 @@
 
         '<div class="paso">' +
           '<div class="paso-head"><span class="paso-num">3</span>Glovo</div>' +
-          '<div class="field-note">Un ticket por pedido. No cuenta para la diferencia de caja.</div>' +
+          '<div class="field-note">Una línea por pedido. Se guarda solo al escribir. No cuenta para la diferencia de caja.</div>' +
+          '<div class="glovo-row head"><span>Nº pedido</span><span>Importe</span><span></span></div>' +
           '<div id="glovoLista_'+t+'"></div>' +
           '<div class="glovo-add">' +
-            '<div class="form-grid">' +
-              '<div class="field"><label for="glovoPedido_'+t+'">Nº pedido</label>' +
-                '<input type="text" id="glovoPedido_'+t+'" autocomplete="off" autocapitalize="characters" placeholder="Ej. 965"></div>' +
-              '<div class="field"><label for="glovoImporte_'+t+'">Importe</label>' +
-                '<input type="number" inputmode="decimal" step="0.01" id="glovoImporte_'+t+'" placeholder="0,00"></div>' +
-            '</div>' +
             '<div class="scan-actions">' +
-              '<button type="button" data-glovo-camara>'+icon('camera')+'Sacar foto</button>' +
-              '<button type="button" data-glovo-subir>'+icon('photo')+'Subir imagen</button>' +
+              '<button type="button" data-glovo-camara>'+icon('camera')+'Sacar foto del ticket</button>' +
             '</div>' +
             '<input type="file" data-glovo-file-camara accept="image/*" capture="environment" style="display:none;">' +
-            '<input type="file" data-glovo-file-subir accept="image/*" style="display:none;">' +
             '<div class="glovo-estado" id="glovoEstado_'+t+'"></div>' +
-            '<div class="scan-actions"><button type="button" class="btn-primary" data-glovo-anadir>'+icon('plus')+'Añadir ticket</button></div>' +
           '</div>' +
           '<div class="total-contado"><span>Total Glovo</span><span id="glovoTotal_'+t+'">0,00 €</span></div>' +
         '</div>' +
@@ -3550,15 +3541,19 @@
       });
     });
     var pantalla = document.getElementById('cierreScreen_'+t);
-    pantalla.querySelector('[data-cerrar-cierre]').addEventListener('click', function(){ cerrarCierre(t); });
+    pantalla.querySelector('[data-cerrar-cierre]').addEventListener('click', function(){
+      preguntarGlovoAntesDeCerrar(t, function(){ cerrarCierre(t); });
+    });
     // "Guardar cierre": todo se va guardando solo mientras se escribe; esto
     // asegura el último cálculo, lo guarda y vuelve a la pantalla principal.
     pantalla.querySelector('[data-guardar-cierre]').addEventListener('click', function(){
       recalc(t);
       if(t === 'mediodia') recalc('noche');
       saveDraft();
-      cerrarCierre(t);
-      toast(turnoCerrado(t) ? 'Cierre de ' + TURNO_LABEL[t] + ' guardado' : 'Guardado. Falta completar los pasos 1 y 2 de ' + TURNO_LABEL[t]);
+      preguntarGlovoAntesDeCerrar(t, function(){
+        cerrarCierre(t);
+        toast(turnoCerrado(t) ? 'Cierre de ' + TURNO_LABEL[t] + ' guardado' : 'Guardado. Falta completar los pasos 1 y 2 de ' + TURNO_LABEL[t]);
+      });
     });
     wireGlovo(t);
     // Botones − / + de los billetes: cambian la cantidad y disparan el
@@ -3584,44 +3579,106 @@
   // el resto del turno y el Sheet los copia a la planilla de Glovo (pestaña
   // del mes) y pone el total del día en la columna GLOVO de Contabilidad.
   // No entran en el cálculo de la caja: Glovo no se cobra en efectivo.
+  // Hay siempre al menos GLOVO_LINEAS líneas para escribir, y una vacía de
+  // más al final para seguir cargando. Cada línea se guarda sola al
+  // escribir (no hay botón de añadir); una línea vacía no es un ticket.
+  var GLOVO_LINEAS = 5;
+
+  function lineaGlovoHTML(g){
+    return '<div class="glovo-row" data-glovo-id="'+(g ? escapeHtml(g.id) : '')+'">' +
+      '<input type="text" data-glovo-pedido autocomplete="off" autocapitalize="characters" placeholder="Nº pedido" value="'+(g ? escapeHtml(g.pedido || '') : '')+'">' +
+      '<input type="number" inputmode="decimal" step="0.01" data-glovo-importe placeholder="0,00" value="'+(g && g.importe ? g.importe : '')+'">' +
+      '<button type="button" data-glovo-borrar aria-label="Vaciar la línea">'+icon('x')+'</button>' +
+    '</div>';
+  }
+
   function renderGlovo(t){
     var lista = state[t].glovo || [];
+    var vacias = Math.max(1, GLOVO_LINEAS - lista.length);
+    var html = lista.map(lineaGlovoHTML).join('');
+    for(var i = 0; i < vacias; i++) html += lineaGlovoHTML(null);
+    document.getElementById('glovoLista_'+t).innerHTML = html;
+    actualizarTotalGlovo(t);
+  }
+
+  // Total del turno y marca en rojo los pedidos repetidos en el día.
+  function actualizarTotalGlovo(t){
     var total = 0;
-    document.getElementById('glovoLista_'+t).innerHTML = lista.length
-      ? lista.map(function(g){
-          total += num(g.importe);
-          return '<div class="glovo-row">' +
-            '<span class="glovo-pedido">'+(g.pedido ? 'Nº '+escapeHtml(g.pedido) : 'Sin nº de pedido')+'</span>' +
-            '<span class="glovo-importe">'+fmt(g.importe)+'</span>' +
-            '<button type="button" data-glovo-borrar="'+escapeHtml(g.id)+'" aria-label="Borrar ticket">'+icon('x')+'</button>' +
-          '</div>';
-        }).join('')
-      : '<div class="glovo-vacio">Todavía no hay tickets de Glovo en este turno.</div>';
+    (state[t].glovo || []).forEach(function(g){ total += num(g.importe); });
     document.getElementById('glovoTotal_'+t).textContent = fmt(total);
-  }
-
-  function pedidoGlovoNormalizado(p){ return String(p || '').replace(/^#/, '').replace(/s+/g, '').toUpperCase(); }
-
-  // Busca el pedido en los dos turnos del día, para no cargarlo dos veces.
-  function pedidoGlovoRepetido(pedido){
-    var buscado = pedidoGlovoNormalizado(pedido);
-    if(!buscado) return false;
-    return TURNOS.some(function(t){
-      return (state[t].glovo || []).some(function(g){ return pedidoGlovoNormalizado(g.pedido) === buscado; });
+    var cuenta = {};
+    TURNOS.forEach(function(tt){
+      (state[tt].glovo || []).forEach(function(g){
+        var p = pedidoGlovoNormalizado(g.pedido);
+        if(p) cuenta[p] = (cuenta[p] || 0) + 1;
+      });
     });
+    var repetidos = [];
+    document.querySelectorAll('#glovoLista_'+t+' .glovo-row').forEach(function(row){
+      var p = pedidoGlovoNormalizado(row.querySelector('[data-glovo-pedido]').value);
+      var rep = !!(p && cuenta[p] > 1);
+      row.classList.toggle('repetido', rep);
+      if(rep && repetidos.indexOf(p) === -1) repetidos.push(p);
+    });
+    if(repetidos.length) estadoGlovo(t, 'Pedido repetido hoy: ' + repetidos.join(', '), false, true);
+    else if(document.getElementById('glovoEstado_'+t).classList.contains('error')) estadoGlovo(t, '');
   }
 
-  // Devuelve false si no se agregó (importe vacío o pedido repetido).
-  function agregarTicketGlovo(t, pedido, importe){
-    pedido = pedidoGlovoNormalizado(pedido);
-    importe = Math.round(num(importe) * 100) / 100;
-    if(!(importe > 0)){ toast('Pon el importe del ticket'); return false; }
-    if(pedidoGlovoRepetido(pedido)){ toast('El pedido ' + pedido + ' ya está cargado hoy'); return false; }
-    if(!state[t].glovo) state[t].glovo = [];
-    state[t].glovo.push({ id: uid(), pedido: pedido, importe: importe });
-    renderGlovo(t);
+  function pedidoGlovoNormalizado(p){ return String(p || '').replace(/^#/, '').replace(/\s+/g, '').toUpperCase(); }
+
+  // Pasa lo escrito en una línea al turno: crea, cambia o quita el ticket.
+  function guardarLineaGlovo(t, row){
+    var pedido = pedidoGlovoNormalizado(row.querySelector('[data-glovo-pedido]').value);
+    var importe = Math.round(num(row.querySelector('[data-glovo-importe]').value) * 100) / 100;
+    var id = row.getAttribute('data-glovo-id');
+    var lista = state[t].glovo = state[t].glovo || [];
+    if(!pedido && !(importe > 0)){
+      if(id) state[t].glovo = lista.filter(function(g){ return g.id !== id; });
+      row.setAttribute('data-glovo-id', '');
+    } else if(id){
+      lista.forEach(function(g){ if(g.id === id){ g.pedido = pedido; g.importe = importe; } });
+    } else {
+      id = uid();
+      lista.push({ id: id, pedido: pedido, importe: importe });
+      row.setAttribute('data-glovo-id', id);
+    }
+    // Si ya no queda ninguna línea vacía, se agrega otra al final.
+    var cont = document.getElementById('glovoLista_'+t);
+    var hayVacia = Array.prototype.some.call(cont.querySelectorAll('.glovo-row'), function(r){ return !r.getAttribute('data-glovo-id'); });
+    if(!hayVacia) cont.insertAdjacentHTML('beforeend', lineaGlovoHTML(null));
+    actualizarTotalGlovo(t);
     saveDraft();
-    return true;
+  }
+
+  // Tickets leídos de una foto: van a las primeras líneas vacías (los
+  // pedidos que ya están cargados hoy no se repiten).
+  function cargarTicketsLeidosGlovo(t, leidos){
+    var yaEstan = {};
+    TURNOS.forEach(function(tt){
+      (state[tt].glovo || []).forEach(function(g){ var p = pedidoGlovoNormalizado(g.pedido); if(p) yaEstan[p] = true; });
+    });
+    var cargados = 0, repetidos = 0;
+    leidos.forEach(function(x){
+      var pedido = pedidoGlovoNormalizado(x.pedido);
+      if(pedido && yaEstan[pedido]){ repetidos++; return; }
+      var importe = Math.round(num(x.importe) * 100) / 100;
+      state[t].glovo = state[t].glovo || [];
+      state[t].glovo.push({ id: uid(), pedido: pedido, importe: importe > 0 ? importe : 0 });
+      if(pedido) yaEstan[pedido] = true;
+      cargados++;
+    });
+    renderGlovo(t);
+    if(cargados) saveDraft();
+    return { cargados: cargados, repetidos: repetidos };
+  }
+
+  // Al tocar "Guardar cierre" o la cruz: se pregunta por Glovo. OK cierra;
+  // Cancelar se queda en la pantalla, en el paso de Glovo.
+  function preguntarGlovoAntesDeCerrar(t, cerrar){
+    preguntar('¿Glovo? ¿Están cargados todos los tickets de Glovo de ' + TURNO_LABEL[t] + '?', 'OK', 'Cancelar', cerrar, function(){
+      var lista = document.getElementById('glovoLista_'+t);
+      if(lista) lista.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
   }
 
   function estadoGlovo(t, texto, cargando, error){
@@ -3631,8 +3688,7 @@
   }
 
   // Achica la foto (como al escanear facturas) y la manda al Sheet, que la
-  // lee con Claude. Un solo ticket: se rellenan los campos para revisarlo y
-  // tocar "Añadir ticket". Varios en la misma foto: se añaden todos.
+  // lee con Claude. Lo leído se pone en las líneas para revisarlo.
   function leerFotoGlovo(t, file){
     if(!file || !file.type.startsWith('image/')) return;
     estadoGlovo(t, 'Leyendo el ticket…', true);
@@ -3660,15 +3716,10 @@
           if(!d || d.ok === false) throw new Error((d && d.error) || 'error desconocido');
           var leidos = (d.tickets || []).filter(function(x){ return x && (x.pedido || x.importe); });
           if(!leidos.length) throw new Error('no se ve ningún ticket de Glovo en la foto');
-          if(leidos.length === 1){
-            document.getElementById('glovoPedido_'+t).value = pedidoGlovoNormalizado(leidos[0].pedido);
-            document.getElementById('glovoImporte_'+t).value = num(leidos[0].importe) || '';
-            estadoGlovo(t, 'Revisa los datos y toca "Añadir ticket"');
-            return;
-          }
-          var agregados = 0;
-          leidos.forEach(function(x){ if(agregarTicketGlovo(t, x.pedido, x.importe)) agregados++; });
-          estadoGlovo(t, 'Se añadieron ' + agregados + ' de ' + leidos.length + ' tickets. Revísalos en la lista.');
+          var r = cargarTicketsLeidosGlovo(t, leidos);
+          var texto = r.cargados ? (r.cargados === 1 ? 'Ticket cargado' : r.cargados + ' tickets cargados') + ', revisa que esté bien.' : '';
+          if(r.repetidos) texto += (texto ? ' ' : '') + (r.repetidos === 1 ? 'Un pedido ya estaba cargado hoy.' : r.repetidos + ' pedidos ya estaban cargados hoy.');
+          estadoGlovo(t, texto);
         })
         .catch(function(err){
           estadoGlovo(t, 'No se pudo leer el ticket. Escríbelo a mano. (' + (err.message || 'error') + ')', false, true);
@@ -3682,31 +3733,28 @@
   function wireGlovo(t){
     var pantalla = document.getElementById('cierreScreen_'+t);
     var fileCamara = pantalla.querySelector('[data-glovo-file-camara]');
-    var fileSubir = pantalla.querySelector('[data-glovo-file-subir]');
     pantalla.querySelector('[data-glovo-camara]').addEventListener('click', function(){ fileCamara.click(); });
-    pantalla.querySelector('[data-glovo-subir]').addEventListener('click', function(){ fileSubir.click(); });
-    [fileCamara, fileSubir].forEach(function(inp){
-      inp.addEventListener('change', function(){ leerFotoGlovo(t, inp.files[0]); inp.value = ''; });
+    fileCamara.addEventListener('change', function(){ leerFotoGlovo(t, fileCamara.files[0]); fileCamara.value = ''; });
+    var lista = document.getElementById('glovoLista_'+t);
+    lista.addEventListener('input', function(e){
+      var row = e.target.closest('.glovo-row');
+      if(row) guardarLineaGlovo(t, row);
     });
-    pantalla.querySelector('[data-glovo-anadir]').addEventListener('click', function(){
-      var pedidoEl = document.getElementById('glovoPedido_'+t);
-      var importeEl = document.getElementById('glovoImporte_'+t);
-      if(!agregarTicketGlovo(t, pedidoEl.value, importeEl.value)) return;
-      pedidoEl.value = ''; importeEl.value = '';
-      estadoGlovo(t, '');
-      toast('Ticket de Glovo añadido');
-    });
-    document.getElementById('glovoLista_'+t).addEventListener('click', function(e){
+    // La cruz vacía la línea (pregunta antes si tenía algo escrito).
+    lista.addEventListener('click', function(e){
       var btn = e.target.closest('[data-glovo-borrar]');
       if(!btn) return;
-      var id = btn.getAttribute('data-glovo-borrar');
-      var g = (state[t].glovo || []).filter(function(x){ return x.id === id; })[0];
-      if(!g) return;
-      preguntar('¿Borrar el ticket de Glovo ' + (g.pedido ? 'nº ' + g.pedido + ' ' : '') + 'de ' + fmt(g.importe) + '?', 'Borrar', 'Cancelar', function(){
-        state[t].glovo = (state[t].glovo || []).filter(function(x){ return x.id !== id; });
+      var row = btn.closest('.glovo-row');
+      var pedido = row.querySelector('[data-glovo-pedido]').value.trim();
+      var importe = num(row.querySelector('[data-glovo-importe]').value);
+      function vaciar(){
+        row.querySelector('[data-glovo-pedido]').value = '';
+        row.querySelector('[data-glovo-importe]').value = '';
+        guardarLineaGlovo(t, row);
         renderGlovo(t);
-        saveDraft();
-      });
+      }
+      if(!pedido && !importe) return;
+      preguntar('¿Borrar el ticket de Glovo ' + (pedido ? 'nº ' + pedido + ' ' : '') + 'de ' + fmt(importe) + '?', 'Borrar', 'Cancelar', vaciar);
     });
   }
 
