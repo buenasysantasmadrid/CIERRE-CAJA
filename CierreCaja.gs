@@ -33,6 +33,14 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // Leer uno o varios tickets de Glovo desde una foto (paso 3 del cierre).
+    // Tampoco guarda nada: devuelve nº de pedido e importe de cada uno.
+    if (data.accionEscanearGlovo) {
+      return ContentService
+        .createTextOutput(JSON.stringify(escanearTicketGlovo_(data)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // Lo mismo para un ingreso, un retiro o unas empanadas dictados.
     if (data.accionDictarMovimiento) {
       return ContentService
@@ -100,9 +108,10 @@ function doPost(e) {
 
     var contabilidad = escribirContabilidad_(data);
     var albaranes = escribirAlbaranes_(data); // ver Albaranes.gs
+    var glovo = escribirGlovo_(data); // ver Glovo.gs
 
     return ContentService
-      .createTextOutput(JSON.stringify({ ok: true, actualizadoEn: ahora.toISOString(), hojaDia: hojaDia, contabilidad: contabilidad, albaranes: albaranes }))
+      .createTextOutput(JSON.stringify({ ok: true, actualizadoEn: ahora.toISOString(), hojaDia: hojaDia, contabilidad: contabilidad, albaranes: albaranes, glovo: glovo }))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
@@ -303,6 +312,7 @@ function escribirRegistroYMovimientos_(registro, mov, data, t, turnoLabel, ahora
     escritoPor: data.dispositivo || '',
     denom: t.denom,
     movimientos: t.movimientosRaw || t.movimientos,
+    glovo: t.glovo || [],
     calc: t.calc
   });
 
@@ -1473,14 +1483,15 @@ function listarDiasConDatos_() {
 // mismo día sincronizado varias veces siempre pisa la misma fila (nunca
 // duplica), sin importar qué haya quedado antes ahí.
 //
-// Columnas de cada día (fila 2 = encabezados). El resto (F GLOVO a mano,
-// P-U, V, X-AG a mano o vinculadas a otro Sheet) no se toca:
+// Columnas de cada día (fila 2 = encabezados). El resto (P-U, V, X-AG a mano o vinculadas a otro Sheet) no se toca:
 //   A  días trabajados de ese día (0 / 0,5 / 1 — ver turnoTieneActividad_)
 //   B  DIA — fecha
 //   C  TOTAL SIST — total facturado del día (Mediodía + Noche)
 //   D  MEDIO DIA — total facturado de Mediodía
 //   E  NOCHE — la parte propia de Noche (total del día completo - Mediodía)
-//   F  GLOVO — a mano
+//   F  GLOVO — suma de los tickets de Glovo del día (paso 3 del cierre). Si
+//      el día no tiene tickets cargados en la app, no se toca (puede estar
+//      puesto a mano).
 //   G  EMPANADAS — Mediodía + Noche
 //   H  TOTAL — fórmula GLOVO + EMPANADAS
 //   I  TPV 1 — acumulado del día completo (el que ya carga Noche)
@@ -1573,7 +1584,7 @@ function adaptarContabilidadTresTpvDesdeMenu() {
 function turnoTieneActividad_(t) {
   var c = t.calc || {};
   var movs = t.movimientosRaw || t.movimientos || [];
-  return movs.length > 0 || (c.totalContado || 0) !== 0 ||
+  return movs.length > 0 || (t.glovo || []).length > 0 || (c.totalContado || 0) !== 0 ||
     (t.totalFacturado || 0) !== 0 || (t.tpv1 || 0) !== 0 || (t.tpv2 || 0) !== 0 || (t.tpv3 || 0) !== 0;
 }
 
@@ -1658,6 +1669,7 @@ function escribirContabilidad_(data) {
     // de cualquier límite de huso horario real.
     hoja.getRange('B' + fila).setValue(new Date(anio, mes - 1, diaDelMes, 12));
     hoja.getRange('C' + fila + ':E' + fila).setValues([[mediodiaTotal + nochePropio, mediodiaTotal, nochePropio]]);
+    if (ticketsGlovoDelDia_(data).length) hoja.getRange('F' + fila).setValue(totalGlovoDelDia_(data));
     hoja.getRange('G' + fila + ':H' + fila).setValues([[empanadasDia, '=F' + fila + '+G' + fila]]);
     hoja.getRange('I' + fila + ':O' + fila).setValues([[
       tpv1Dia, tpv2Dia, tpv3Dia, '=I' + fila + '+J' + fila + '+K' + fila,
@@ -1910,6 +1922,14 @@ function borrarDiaEnTodosLados_(fecha) {
     resumen.albaranes = rAlb.ok ? 'listo' : 'error: ' + rAlb.error;
   } catch (errAlb) {
     resumen.albaranes = 'error: ' + errAlb;
+  }
+
+  // Glovo: sacar los tickets de ese día (solo los que cargó la app).
+  try {
+    var rGlovo = sincronizarGlovoDelDia_(fecha, []);
+    resumen.glovo = rGlovo.ok ? 'listo' : 'error: ' + rGlovo.error;
+  } catch (errGlovo) {
+    resumen.glovo = 'error: ' + errGlovo;
   }
 
   return resumen;

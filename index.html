@@ -367,6 +367,16 @@
   .desglose-line{display:flex;justify-content:space-between;padding:5px 0;font-size:.86rem;font-variant-numeric:tabular-nums;}
   .desglose-line.total{border-top:1px solid var(--line);margin-top:4px;padding-top:8px;font-weight:700;}
   .btn-big{width:100%;min-height:44px;border-radius:12px;color:#fff;font-size:.95rem;margin-top:8px;padding:8px 14px;}
+  .glovo-row{display:grid;grid-template-columns:1fr auto 40px;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);}
+  .glovo-pedido{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .glovo-importe{font-variant-numeric:tabular-nums;}
+  .glovo-row button{width:36px;height:36px;border-radius:50%;padding:0;display:inline-flex;align-items:center;justify-content:center;background:#fff;border:1px solid var(--line);}
+  .glovo-vacio{font-size:.86rem;color:var(--ink-soft);padding:4px 0 2px;}
+  .glovo-add{margin-top:12px;}
+  .glovo-add .scan-actions{margin-top:10px;}
+  .glovo-estado{font-size:.84rem;margin-top:8px;display:flex;align-items:center;gap:8px;}
+  .glovo-estado:empty{display:none;}
+  .glovo-estado.error{color:var(--red);}
   .mediodia .btn-big{background:var(--md-ink);}
   .noche .btn-big{background:var(--nc-ink);}
 
@@ -743,6 +753,7 @@
       tpv2: 0,
       tpv3: 0,
       fondoConteo: null,
+      glovo: [], // tickets de Glovo: [{id, pedido, importe}]
       actualizadoEn: null
     };
   }
@@ -761,7 +772,7 @@
       var s = dia && dia[t];
       if(!s) return false;
       var c = s._calc || {};
-      return !!((s.movimientos && s.movimientos.length) || s.totalFacturado || s.tpv1 || s.tpv2 || s.tpv3 || c.totalContado);
+      return !!((s.movimientos && s.movimientos.length) || (s.glovo && s.glovo.length) || s.totalFacturado || s.tpv1 || s.tpv2 || s.tpv3 || c.totalContado);
     });
   }
 
@@ -915,8 +926,8 @@
 
   // ---------- pantalla de cierre (una por turno) ----------
   // Cada turno tiene su pantalla completa de cierre, en tres pasos: lo que
-  // marca la caja, el conteo del efectivo y la diferencia (barra fija
-  // abajo). Los campos conservan sus IDs de siempre (fondoFijo_<turno>,
+  // marca la caja, el conteo del efectivo y los tickets de Glovo, con la
+  // diferencia en una barra fija abajo. Los campos conservan sus IDs de siempre (fondoFijo_<turno>,
   // totalFacturado_<turno>, etc.) porque el cálculo los lee de ahí.
   function turnoSectionHTML(t){
     var label = TURNO_LABEL[t];
@@ -962,6 +973,29 @@
           '<div class="monedas-row head"><span></span><span style="text-align:center;">Sueltas</span><span style="text-align:center;">Rollos</span><span style="text-align:right;">Subtotal</span></div>' +
           '<div id="monedasBody_'+t+'"></div>' +
           '<div class="total-contado"><span>Total contado</span><span id="totalContadoLbl_'+t+'">0,00 €</span></div>' +
+        '</div>' +
+
+        '<div class="paso">' +
+          '<div class="paso-head"><span class="paso-num">3</span>Glovo</div>' +
+          '<div class="field-note">Un ticket por pedido. No cuenta para la diferencia de caja.</div>' +
+          '<div id="glovoLista_'+t+'"></div>' +
+          '<div class="glovo-add">' +
+            '<div class="form-grid">' +
+              '<div class="field"><label for="glovoPedido_'+t+'">Nº pedido</label>' +
+                '<input type="text" id="glovoPedido_'+t+'" autocomplete="off" autocapitalize="characters" placeholder="Ej. 965"></div>' +
+              '<div class="field"><label for="glovoImporte_'+t+'">Importe</label>' +
+                '<input type="number" inputmode="decimal" step="0.01" id="glovoImporte_'+t+'" placeholder="0,00"></div>' +
+            '</div>' +
+            '<div class="scan-actions">' +
+              '<button type="button" data-glovo-camara>'+icon('camera')+'Sacar foto</button>' +
+              '<button type="button" data-glovo-subir>'+icon('photo')+'Subir imagen</button>' +
+            '</div>' +
+            '<input type="file" data-glovo-file-camara accept="image/*" capture="environment" style="display:none;">' +
+            '<input type="file" data-glovo-file-subir accept="image/*" style="display:none;">' +
+            '<div class="glovo-estado" id="glovoEstado_'+t+'"></div>' +
+            '<div class="scan-actions"><button type="button" class="btn-primary" data-glovo-anadir>'+icon('plus')+'Añadir ticket</button></div>' +
+          '</div>' +
+          '<div class="total-contado"><span>Total Glovo</span><span id="glovoTotal_'+t+'">0,00 €</span></div>' +
         '</div>' +
       '</div></div>' +
 
@@ -3271,6 +3305,7 @@
       document.getElementById('tpv3_'+t).value = state[t].tpv3 || 0;
       buildDenomTables(t);
       renderMovimientos(t);
+      renderGlovo(t);
       recalc(t);
     });
     buildFondoConteo();
@@ -3525,6 +3560,7 @@
       cerrarCierre(t);
       toast(turnoCerrado(t) ? 'Cierre de ' + TURNO_LABEL[t] + ' guardado' : 'Guardado. Falta completar los pasos 1 y 2 de ' + TURNO_LABEL[t]);
     });
+    wireGlovo(t);
     // Botones − / + de los billetes: cambian la cantidad y disparan el
     // mismo evento que si se escribiera a mano.
     document.getElementById('billetesBody_'+t).addEventListener('click', function(e){
@@ -3540,6 +3576,137 @@
       if(e.target.tagName === 'INPUT' && !e.target.readOnly){
         try{ e.target.select(); }catch(err){}
       }
+    });
+  }
+
+  // ---------- Glovo (paso 3 del cierre) ----------
+  // Cada ticket de Glovo del turno (nº de pedido e importe). Se guardan con
+  // el resto del turno y el Sheet los copia a la planilla de Glovo (pestaña
+  // del mes) y pone el total del día en la columna GLOVO de Contabilidad.
+  // No entran en el cálculo de la caja: Glovo no se cobra en efectivo.
+  function renderGlovo(t){
+    var lista = state[t].glovo || [];
+    var total = 0;
+    document.getElementById('glovoLista_'+t).innerHTML = lista.length
+      ? lista.map(function(g){
+          total += num(g.importe);
+          return '<div class="glovo-row">' +
+            '<span class="glovo-pedido">'+(g.pedido ? 'Nº '+escapeHtml(g.pedido) : 'Sin nº de pedido')+'</span>' +
+            '<span class="glovo-importe">'+fmt(g.importe)+'</span>' +
+            '<button type="button" data-glovo-borrar="'+escapeHtml(g.id)+'" aria-label="Borrar ticket">'+icon('x')+'</button>' +
+          '</div>';
+        }).join('')
+      : '<div class="glovo-vacio">Todavía no hay tickets de Glovo en este turno.</div>';
+    document.getElementById('glovoTotal_'+t).textContent = fmt(total);
+  }
+
+  function pedidoGlovoNormalizado(p){ return String(p || '').replace(/^#/, '').replace(/s+/g, '').toUpperCase(); }
+
+  // Busca el pedido en los dos turnos del día, para no cargarlo dos veces.
+  function pedidoGlovoRepetido(pedido){
+    var buscado = pedidoGlovoNormalizado(pedido);
+    if(!buscado) return false;
+    return TURNOS.some(function(t){
+      return (state[t].glovo || []).some(function(g){ return pedidoGlovoNormalizado(g.pedido) === buscado; });
+    });
+  }
+
+  // Devuelve false si no se agregó (importe vacío o pedido repetido).
+  function agregarTicketGlovo(t, pedido, importe){
+    pedido = pedidoGlovoNormalizado(pedido);
+    importe = Math.round(num(importe) * 100) / 100;
+    if(!(importe > 0)){ toast('Pon el importe del ticket'); return false; }
+    if(pedidoGlovoRepetido(pedido)){ toast('El pedido ' + pedido + ' ya está cargado hoy'); return false; }
+    if(!state[t].glovo) state[t].glovo = [];
+    state[t].glovo.push({ id: uid(), pedido: pedido, importe: importe });
+    renderGlovo(t);
+    saveDraft();
+    return true;
+  }
+
+  function estadoGlovo(t, texto, cargando, error){
+    var el = document.getElementById('glovoEstado_'+t);
+    el.className = 'glovo-estado' + (error ? ' error' : '');
+    el.innerHTML = texto ? (cargando ? '<span class="scan-spinner"></span>' : '') + '<span>' + escapeHtml(texto) + '</span>' : '';
+  }
+
+  // Achica la foto (como al escanear facturas) y la manda al Sheet, que la
+  // lee con Claude. Un solo ticket: se rellenan los campos para revisarlo y
+  // tocar "Añadir ticket". Varios en la misma foto: se añaden todos.
+  function leerFotoGlovo(t, file){
+    if(!file || !file.type.startsWith('image/')) return;
+    estadoGlovo(t, 'Leyendo el ticket…', true);
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var img = new Image();
+      img.onload = function(){
+        var MAX_DIM = 1600;
+        var w = img.width, h = img.height;
+        if(w > MAX_DIM || h > MAX_DIM){
+          if(w > h){ h = Math.round(h * (MAX_DIM/w)); w = MAX_DIM; }
+          else{ w = Math.round(w * (MAX_DIM/h)); h = MAX_DIM; }
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        var base64 = canvas.toDataURL('image/jpeg', 0.82).split(',')[1];
+        fetch(loadSheetUrl(), {
+          method: 'POST',
+          headers: {'Content-Type':'text/plain;charset=utf-8'},
+          body: JSON.stringify({ accionEscanearGlovo: true, imageBase64: base64, mediaType: 'image/jpeg' })
+        })
+        .then(function(resp){ return resp.json(); })
+        .then(function(d){
+          if(!d || d.ok === false) throw new Error((d && d.error) || 'error desconocido');
+          var leidos = (d.tickets || []).filter(function(x){ return x && (x.pedido || x.importe); });
+          if(!leidos.length) throw new Error('no se ve ningún ticket de Glovo en la foto');
+          if(leidos.length === 1){
+            document.getElementById('glovoPedido_'+t).value = pedidoGlovoNormalizado(leidos[0].pedido);
+            document.getElementById('glovoImporte_'+t).value = num(leidos[0].importe) || '';
+            estadoGlovo(t, 'Revisa los datos y toca "Añadir ticket"');
+            return;
+          }
+          var agregados = 0;
+          leidos.forEach(function(x){ if(agregarTicketGlovo(t, x.pedido, x.importe)) agregados++; });
+          estadoGlovo(t, 'Se añadieron ' + agregados + ' de ' + leidos.length + ' tickets. Revísalos en la lista.');
+        })
+        .catch(function(err){
+          estadoGlovo(t, 'No se pudo leer el ticket. Escríbelo a mano. (' + (err.message || 'error') + ')', false, true);
+        });
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function wireGlovo(t){
+    var pantalla = document.getElementById('cierreScreen_'+t);
+    var fileCamara = pantalla.querySelector('[data-glovo-file-camara]');
+    var fileSubir = pantalla.querySelector('[data-glovo-file-subir]');
+    pantalla.querySelector('[data-glovo-camara]').addEventListener('click', function(){ fileCamara.click(); });
+    pantalla.querySelector('[data-glovo-subir]').addEventListener('click', function(){ fileSubir.click(); });
+    [fileCamara, fileSubir].forEach(function(inp){
+      inp.addEventListener('change', function(){ leerFotoGlovo(t, inp.files[0]); inp.value = ''; });
+    });
+    pantalla.querySelector('[data-glovo-anadir]').addEventListener('click', function(){
+      var pedidoEl = document.getElementById('glovoPedido_'+t);
+      var importeEl = document.getElementById('glovoImporte_'+t);
+      if(!agregarTicketGlovo(t, pedidoEl.value, importeEl.value)) return;
+      pedidoEl.value = ''; importeEl.value = '';
+      estadoGlovo(t, '');
+      toast('Ticket de Glovo añadido');
+    });
+    document.getElementById('glovoLista_'+t).addEventListener('click', function(e){
+      var btn = e.target.closest('[data-glovo-borrar]');
+      if(!btn) return;
+      var id = btn.getAttribute('data-glovo-borrar');
+      var g = (state[t].glovo || []).filter(function(x){ return x.id === id; })[0];
+      if(!g) return;
+      preguntar('¿Borrar el ticket de Glovo ' + (g.pedido ? 'nº ' + g.pedido + ' ' : '') + 'de ' + fmt(g.importe) + '?', 'Borrar', 'Cancelar', function(){
+        state[t].glovo = (state[t].glovo || []).filter(function(x){ return x.id !== id; });
+        renderGlovo(t);
+        saveDraft();
+      });
     });
   }
 
@@ -3592,6 +3759,7 @@
       // "Datos JSON (uso interno)" para poder reconstruir el día tal cual
       // si se abre desde otro dispositivo.
       movimientosRaw: s.movimientos||[],
+      glovo: s.glovo||[],
       calc: {
         empanadas: c.empanadas, facturadoNeto: c.facturadoNeto, ventasEfectivo: c.ventasEfectivo,
         ingresoEfectivo: c.ingresoEfectivo, gastoEfectivo: c.gastoEfectivo, egreso: c.egreso,
@@ -3808,7 +3976,7 @@
 
           var yaHayDatosLocales = TURNOS.some(function(t){
             var s = state[t];
-            return (s.movimientos && s.movimientos.length) || s.totalFacturado || s.tpv1 || s.tpv2 || s.tpv3;
+            return (s.movimientos && s.movimientos.length) || (s.glovo && s.glovo.length) || s.totalFacturado || s.tpv1 || s.tpv2 || s.tpv3;
           });
           if(yaHayDatosLocales){
             logSheetStatus('Se encontraron datos de ' + fecha + ' en el Sheet, pero este dispositivo ya tenía algo cargado — no se pisa.');
