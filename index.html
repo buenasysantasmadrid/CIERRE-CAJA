@@ -1030,6 +1030,7 @@
       };
       if(!dia.mediodia.id) dia.mediodia.id = uid();
       if(!dia.noche.id) dia.noche.id = uid();
+      if(d._sinSubir) dia._sinSubir = true; // cambios de ese día que todavía no llegaron al Sheet
       return dia;
     }
     return crearDiaVacio(fecha, state.negocio);
@@ -3466,7 +3467,10 @@
     document.getElementById('fechaCierre').value = state.fecha;
     aplicarEstadoATurnos();
     guardarDiaActual(); // asegura que el día nuevo (si no existía) quede creado
-    scheduleAutoSync();
+    // Solo se manda si este dispositivo tiene cambios de ese día sin subir.
+    // Antes se mandaba siempre al abrir un día, y una copia vieja de este
+    // dispositivo podía pisar en el Sheet lo que se guardó desde otro.
+    if(state._sinSubir) scheduleAutoSync();
     if(esNuevo) intentarCargarDesdeSheet(nuevaFecha);
   }
 
@@ -4523,7 +4527,7 @@
   }
 
   // Si se pierde y vuelve la conexión, reintenta mandar el día actual.
-  window.addEventListener('online', function(){ scheduleAutoSync(); });
+  window.addEventListener('online', function(){ if(state._sinSubir) scheduleAutoSync(); });
 
   // En el celular, si se cambia de app o se bloquea la pantalla justo
   // después de cargar algo, el temporizador de espera (AUTOSYNC_DELAY)
@@ -4676,6 +4680,27 @@
     actualizarAvisoCajaAntigua();
   }
 
+  // Lo que se carga a mano en un turno, para comparar dos copias (el fondo
+  // fijo y los cálculos no, porque salen solos).
+  function resumenTurno(s){
+    s = s || {};
+    function n(v){ return Math.round(num(v) * 100) / 100; }
+    function conteo(d){
+      d = d || {};
+      var r = {};
+      ['billetes', 'monedasSueltas', 'monedasBlister'].forEach(function(k){
+        r[k] = {};
+        Object.keys(d[k] || {}).sort().forEach(function(v){ if(num(d[k][v])) r[k][v] = n(d[k][v]); });
+      });
+      return r;
+    }
+    return JSON.stringify([
+      n(s.totalFacturado), n(s.tpv1), n(s.tpv2), n(s.tpv3), conteo(s.denom),
+      (s.movimientos || []).map(function(m){ return [m.id, n(m.importe)]; }),
+      (s.glovo || []).map(function(g){ return [g.id, g.pedido, n(g.importe)]; })
+    ]);
+  }
+
   function revisarActualizacionesDesdeSheet(){
     var url = loadSheetUrl();
     if(!hasValidSheetUrl(url)) return;
@@ -4699,7 +4724,11 @@
             if(!remoto || !remoto.actualizadoEn) return;
             var remotoMs = new Date(remoto.actualizadoEn).getTime();
             var localMs = state[t].actualizadoEn ? new Date(state[t].actualizadoEn).getTime() : 0;
-            if(isFinite(remotoMs) && remotoMs > localMs){
+            // También si es la misma versión pero lo de acá no coincide con
+            // el Sheet (y acá no hay nada sin subir): el Sheet manda. Así se
+            // arregla una copia que quedó mal en este dispositivo.
+            var distinto = remotoMs === localMs && resumenTurno(remoto) !== resumenTurno(state[t]);
+            if(isFinite(remotoMs) && (remotoMs > localMs || distinto)){
               var idPrevio = state[t].id;
               state[t] = Object.assign(crearTurnoVacio(), remoto);
               if(!state[t].id) state[t].id = idPrevio || uid();
