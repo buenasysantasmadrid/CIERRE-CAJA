@@ -170,7 +170,7 @@ function buscarEnIndice_(tipo, periodo) {
 function limpiarCacheIndice() {
   var cache = CacheService.getScriptCache();
   var claves = [];
-  ['CIERRE_CAJA', 'CONTABILIDAD', 'ALBARANES', 'GLOVO'].forEach(function (tipo) {
+  ['CIERRE_CAJA', 'CONTABILIDAD', 'ALBARANES', 'GLOVO', 'STOCK_PRODUCCION', 'CAMBIO_TINTA'].forEach(function (tipo) {
     planillasDelTipo_(tipo).forEach(function (p) { claves.push('indice_' + tipo + '_' + p.periodo); });
   });
   cache.removeAll(claves);

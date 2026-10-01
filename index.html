@@ -428,6 +428,20 @@
   .alb-nopagado .ico-circle{background:#fff;}
   .alb-resumen{background:var(--red-soft);color:var(--red);font-weight:700;font-size:.9rem;border-radius:12px;padding:10px 12px;margin:4px 0 8px;}
   .empty-row{color:var(--ink-soft);text-align:center;padding:24px 0;font-size:.9rem;}
+  /* ---------- pantallas del menú (producción, tinta) ---------- */
+  .menu-estado{font-size:.88rem;margin:12px 0 4px;display:flex;align-items:center;gap:8px;}
+  .menu-estado:empty{display:none;}
+  .menu-estado.error{color:var(--red);}
+  .menu-grupo{font-family:var(--serif);font-size:1.25rem;margin:20px 0 6px;}
+  .menu-guardar{background:var(--green);}
+  .prod-row{grid-template-columns:minmax(0,1fr) auto;}
+  .prod-row .denom-lbl{font-weight:600;}
+  .tinta-card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-top:14px;}
+  .tinta-card h3{font-family:var(--serif);font-weight:400;font-size:1.3rem;margin:0 0 8px;}
+  .tinta-fila{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--line);}
+  .tinta-fila b{display:block;}
+  .tinta-fila span{font-size:.88rem;}
+  .tinta-fila button{flex-shrink:0;background:var(--green);color:#fff;border-radius:12px;padding:10px 14px;font-size:.9rem;min-height:44px;}
 
   /* ---------- marcar como pagado ---------- */
   .center-overlay{align-items:center;justify-content:center;padding:16px;z-index:120;}
@@ -491,9 +505,9 @@
       <button type="button" class="pill-btn icon-only" id="btnMenu" aria-label="Menú" aria-expanded="false"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none;"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg></button>
       <img src="logo_buenasysantas.jpg" alt="Buenas y Santas" class="header-logo">
       <nav class="menu-popup" id="menuPopup">
-        <button type="button" data-menu-archivo>Producción empanadas y quiche</button>
+        <button type="button" data-menu-archivo="produccion">Producción empanadas y quiche</button>
         <button type="button" data-menu-archivo>Comparativa carnicería</button>
-        <button type="button" data-menu-archivo>Cambio de tinta</button>
+        <button type="button" data-menu-archivo="tinta">Cambio de tinta</button>
         <button type="button" data-menu-archivo>Arreglo electrodomésticos</button>
       </nav>
     </div>
@@ -582,6 +596,55 @@
       <div id="albaranesStatus" class="alb-status"></div>
       <div id="albaranesBody" class="alb-list"></div>
       <div id="albaranesEmpty" class="empty-row" style="display:none;">No hay facturas ni albaranes cargados para este filtro.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Producción de empanadas y quiches (menú de tres rayas) -->
+<div class="screen" id="produccionScreen">
+  <div class="screen-head">
+    <div class="screen-head-inner">
+      <div>
+        <div class="eyebrow">Producción</div>
+        <h2>Empanadas y quiches</h2>
+      </div>
+      <button type="button" class="x-btn" data-cerrar-menu-screen aria-label="Cerrar" data-icon="x"></button>
+    </div>
+  </div>
+  <div class="screen-body">
+    <div class="screen-inner">
+      <div class="field" style="margin-top:14px;">
+        <label for="produccionFecha">Día</label>
+        <input type="date" id="produccionFecha">
+      </div>
+      <div id="produccionEstado" class="menu-estado"></div>
+      <div id="produccionCuerpo"></div>
+    </div>
+  </div>
+  <div class="cierre-bar"><div class="cierre-bar-inner">
+    <button type="button" class="btn-big menu-guardar" id="produccionGuardar">Guardar producción</button>
+  </div></div>
+</div>
+
+<!-- Cambio de tinta (menú de tres rayas) -->
+<div class="screen" id="tintaScreen">
+  <div class="screen-head">
+    <div class="screen-head-inner">
+      <div>
+        <div class="eyebrow">Impresoras</div>
+        <h2>Cambio de tinta</h2>
+      </div>
+      <button type="button" class="x-btn" data-cerrar-menu-screen aria-label="Cerrar" data-icon="x"></button>
+    </div>
+  </div>
+  <div class="screen-body">
+    <div class="screen-inner">
+      <div class="field" style="margin-top:14px;">
+        <label for="tintaFecha">Fecha del cambio</label>
+        <input type="date" id="tintaFecha">
+      </div>
+      <div id="tintaEstado" class="menu-estado"></div>
+      <div id="tintaCuerpo"></div>
     </div>
   </div>
 </div>
@@ -3562,8 +3625,9 @@
     if(pop.classList.contains('open')) cerrarCalendario();
     else abrirCalendario();
   });
-  // Menú (las tres rayas al lado del logo): los archivos del negocio que
-  // todavía no están en la app. Por ahora solo avisan que faltan.
+  // Menú (las tres rayas al lado del logo): los archivos del negocio.
+  // Producción y Cambio de tinta abren su pantalla; los que todavía no
+  // están hechos solo avisan.
   var menuPopup = document.getElementById('menuPopup');
   var btnMenu = document.getElementById('btnMenu');
   function cerrarMenu(){ menuPopup.classList.remove('open'); btnMenu.setAttribute('aria-expanded', 'false'); }
@@ -3577,7 +3641,155 @@
     var item = e.target.closest('[data-menu-archivo]');
     if(!item) return;
     cerrarMenu();
-    toast(item.textContent + ': todavía no está en la app');
+    var cual = item.getAttribute('data-menu-archivo');
+    if(cual === 'produccion') abrirProduccion();
+    else if(cual === 'tinta') abrirTinta();
+    else toast(item.textContent + ': todavía no está en la app');
+  });
+
+  // ---------- pantallas del menú ----------
+  function pedirAlSheet(datos){
+    return fetch(loadSheetUrl(), {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify(datos)
+    }).then(function(resp){ return resp.json(); }).then(function(d){
+      if(!d || d.ok === false) throw new Error((d && d.error) || 'error desconocido');
+      return d;
+    });
+  }
+  function estadoMenu(id, texto, cargando, error){
+    var el = document.getElementById(id);
+    el.className = 'menu-estado' + (error ? ' error' : '');
+    el.innerHTML = texto ? (cargando ? '<span class="scan-spinner"></span>' : '') + '<span>' + escapeHtml(texto) + '</span>' : '';
+  }
+  function abrirPantallaMenu(id){
+    document.getElementById(id).classList.add('open');
+    document.body.classList.add('no-scroll');
+    detenerSondeoSheet(); // como en Albaranes: que no se crucen pedidos al Sheet
+  }
+  document.querySelectorAll('[data-cerrar-menu-screen]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      btn.closest('.screen').classList.remove('open');
+      document.body.classList.remove('no-scroll');
+      iniciarSondeoSheet();
+    });
+  });
+  function fechaCorta(iso){ var p = String(iso).split('-'); return p[2] + '/' + p[1] + '/' + p[0]; }
+
+  // Producción: lo que se hizo de cada sabor el día elegido. Los sabores
+  // vienen de la planilla, con lo que ya tenga cargado ese día.
+  var produccionDatos = null;
+  function abrirProduccion(){
+    var f = document.getElementById('produccionFecha');
+    if(!f.value) f.value = todayISO();
+    abrirPantallaMenu('produccionScreen');
+    cargarProduccion();
+  }
+  function cargarProduccion(){
+    var fecha = document.getElementById('produccionFecha').value;
+    if(!fecha) return;
+    produccionDatos = null;
+    document.getElementById('produccionCuerpo').innerHTML = '';
+    estadoMenu('produccionEstado', 'Cargando…', true);
+    pedirAlSheet({ accionProduccionLeer: true, fecha: fecha }).then(function(d){
+      if(document.getElementById('produccionFecha').value !== fecha) return;
+      estadoMenu('produccionEstado', '');
+      pintarProduccion(d);
+    }).catch(function(err){
+      estadoMenu('produccionEstado', 'No se pudo abrir la planilla de producción. (' + err.message + ')', false, true);
+    });
+  }
+  function nombreSabor(n){ var s = String(n).toLowerCase(); return s.charAt(0).toUpperCase() + s.slice(1); }
+  function pintarProduccion(d){
+    produccionDatos = d;
+    function grupo(titulo, clave){
+      return '<div class="menu-grupo">' + titulo + '</div>' + (d[clave] || []).map(function(s){
+        return '<div class="denom-row prod-row">' +
+          '<span class="denom-lbl">' + escapeHtml(nombreSabor(s.nombre)) + '</span>' +
+          '<div class="stepper">' +
+            '<button type="button" data-step="-1" aria-label="Uno menos">'+icon('minus')+'</button>' +
+            '<input type="number" inputmode="numeric" min="0" step="1" data-prod-grupo="' + clave + '" data-prod-sabor="' + escapeHtml(s.nombre) + '" value="' + (s.valor || 0) + '">' +
+            '<button type="button" data-step="1" aria-label="Uno más">'+icon('plus')+'</button>' +
+          '</div></div>';
+      }).join('');
+    }
+    document.getElementById('produccionCuerpo').innerHTML = grupo('Empanadas', 'empanadas') + grupo('Quiches', 'quiches');
+  }
+  document.getElementById('produccionFecha').addEventListener('change', cargarProduccion);
+  document.getElementById('produccionCuerpo').addEventListener('click', function(e){
+    var btn = e.target.closest('[data-step]');
+    if(!btn) return;
+    var inp = btn.parentNode.querySelector('input');
+    inp.value = Math.max(0, num(inp.value) + Number(btn.getAttribute('data-step')));
+  });
+  document.getElementById('produccionCuerpo').addEventListener('focusin', function(e){
+    if(e.target.tagName === 'INPUT') try{ e.target.select(); }catch(err){}
+  });
+  document.getElementById('produccionGuardar').addEventListener('click', function(){
+    if(!produccionDatos){ toast('Espera a que cargue'); return; }
+    var fecha = document.getElementById('produccionFecha').value;
+    var valores = { empanadas: {}, quiches: {} };
+    document.querySelectorAll('#produccionCuerpo [data-prod-sabor]').forEach(function(inp){
+      valores[inp.getAttribute('data-prod-grupo')][inp.getAttribute('data-prod-sabor')] = Math.max(0, Math.round(num(inp.value)));
+    });
+    var btn = this;
+    btn.disabled = true;
+    estadoMenu('produccionEstado', 'Guardando…', true);
+    pedirAlSheet({ accionProduccionGuardar: true, fecha: fecha, valores: valores }).then(function(d){
+      estadoMenu('produccionEstado', '');
+      if(document.getElementById('produccionFecha').value === fecha) pintarProduccion(d);
+      toast('Producción del ' + fechaCorta(fecha) + ' guardada');
+    }).catch(function(err){
+      estadoMenu('produccionEstado', 'No se pudo guardar. (' + err.message + ')', false, true);
+    }).finally(function(){ btn.disabled = false; });
+  });
+
+  // Cambio de tinta: cada impresora con su último cambio de negra y de
+  // color, y un botón para apuntar uno nuevo con la fecha de arriba.
+  var TINTA_NOMBRE = { negra: 'Tinta negra', color: 'Tinta de color' };
+  function abrirTinta(){
+    document.getElementById('tintaFecha').value = todayISO();
+    abrirPantallaMenu('tintaScreen');
+    document.getElementById('tintaCuerpo').innerHTML = '';
+    estadoMenu('tintaEstado', 'Cargando…', true);
+    pedirAlSheet({ accionTintaLeer: true }).then(function(d){
+      estadoMenu('tintaEstado', '');
+      pintarTinta(d);
+    }).catch(function(err){
+      estadoMenu('tintaEstado', 'No se pudo abrir la planilla de tinta. (' + err.message + ')', false, true);
+    });
+  }
+  function textoUltimoCambio(u){
+    if(!u) return 'Sin cambios apuntados';
+    var hace = u.dias === 0 ? 'hoy' : (u.dias === 1 ? 'hace 1 día' : 'hace ' + u.dias + ' días');
+    return 'Último: ' + fechaCorta(u.fecha) + ' · ' + hace;
+  }
+  function pintarTinta(d){
+    document.getElementById('tintaCuerpo').innerHTML = (d.impresoras || []).map(function(imp){
+      return '<div class="tinta-card"><h3>' + escapeHtml(imp.nombre) + '</h3>' +
+        ['negra', 'color'].map(function(t){
+          return '<div class="tinta-fila"><div><b>' + TINTA_NOMBRE[t] + '</b><span>' + textoUltimoCambio(imp[t]) + '</span></div>' +
+            '<button type="button" data-tinta-imp="' + escapeHtml(imp.clave) + '" data-tinta-nombre="' + escapeHtml(imp.nombre) + '" data-tinta="' + t + '">Apuntar cambio</button></div>';
+        }).join('') + '</div>';
+    }).join('');
+  }
+  document.getElementById('tintaCuerpo').addEventListener('click', function(e){
+    var btn = e.target.closest('[data-tinta]');
+    if(!btn) return;
+    var fecha = document.getElementById('tintaFecha').value || todayISO();
+    var tinta = btn.getAttribute('data-tinta');
+    var texto = '¿Apuntar cambio de ' + TINTA_NOMBRE[tinta].toLowerCase() + ' en ' + btn.getAttribute('data-tinta-nombre') + ' el ' + fechaCorta(fecha) + '?';
+    preguntar(texto, 'Apuntar', 'Cancelar', function(){
+      estadoMenu('tintaEstado', 'Guardando…', true);
+      pedirAlSheet({ accionTintaGuardar: true, impresora: btn.getAttribute('data-tinta-imp'), tinta: tinta, fecha: fecha }).then(function(d){
+        estadoMenu('tintaEstado', '');
+        pintarTinta(d);
+        toast('Cambio de tinta apuntado');
+      }).catch(function(err){
+        estadoMenu('tintaEstado', 'No se pudo guardar. (' + err.message + ')', false, true);
+      });
+    });
   });
   document.addEventListener('click', function(e){
     if(menuPopup.classList.contains('open') && !menuPopup.contains(e.target) && e.target !== btnMenu) cerrarMenu();

@@ -41,6 +41,11 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // Los archivos del menú de tres rayas (Producción, Cambio de tinta...):
+    // ver Menu.gs. No tocan los días ni los albaranes.
+    var delMenu = accionDelMenu_(data);
+    if (delMenu) return delMenu;
+
     // Lo mismo para un ingreso, un retiro o unas empanadas dictados.
     if (data.accionDictarMovimiento) {
       return ContentService
