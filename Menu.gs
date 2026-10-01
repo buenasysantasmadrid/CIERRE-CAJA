@@ -36,6 +36,7 @@ function accionDelMenu_(data) {
   else if (data.accionTintaGuardar) fn = function () { return guardarTinta_(data.impresora, data.tinta, data.fecha); };
   else if (data.accionArreglosLeer) fn = function () { return leerArreglos_(); };
   else if (data.accionArreglosGuardar) fn = function () { return guardarArreglo_(data.arreglo || {}); };
+  else if (data.accionDictarMenu) fn = function () { return dictarMenu_(data); };
   if (!fn) return null;
   try {
     return respuestaJSON_(fn());
@@ -315,4 +316,98 @@ function guardarTinta_(clave, tinta, fechaISO) {
   var letra = letraColumna_(cols.fecha);
   if (ultima >= b.desde) hoja.getRange(fila, cols.fecha + 2).setFormula('=' + letra + fila + '-' + letra + ultima);
   return leerTinta_();
+}
+
+// ---------- Dictar por voz en las pantallas del menú ----------
+// Igual que "Dictar gasto": la app manda lo dicho (o escrito) y lo que hay
+// en la pantalla (sabores, productos, técnicos...), Claude devuelve los
+// campos y la app los pone en la pantalla para revisar. No guarda nada.
+var ESQUEMAS_DICTADO_MENU_ = {
+  diaria: {
+    type: 'object',
+    properties: {
+      fecha: { type: 'string' },
+      valores: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: { grupo: { type: 'string' }, fila: { type: 'string' }, cantidad: { type: 'string' } },
+          required: ['grupo', 'fila', 'cantidad'],
+          additionalProperties: false
+        }
+      }
+    },
+    required: ['fecha', 'valores'],
+    additionalProperties: false
+  },
+  tinta: {
+    type: 'object',
+    properties: {
+      fecha: { type: 'string' },
+      cambios: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: { impresora: { type: 'string', enum: ['BYS', 'CLARA'] }, tinta: { type: 'string', enum: ['negra', 'color'] } },
+          required: ['impresora', 'tinta'],
+          additionalProperties: false
+        }
+      }
+    },
+    required: ['fecha', 'cambios'],
+    additionalProperties: false
+  },
+  arreglos: {
+    type: 'object',
+    properties: {
+      fecha: { type: 'string' }, electrodomestico: { type: 'string' }, proveedor: { type: 'string' },
+      problema: { type: 'string' }, arreglo: { type: 'string' }, importe: { type: 'string' }
+    },
+    required: ['fecha', 'electrodomestico', 'proveedor', 'problema', 'arreglo', 'importe'],
+    additionalProperties: false
+  }
+};
+
+function dictarMenu_(data) {
+  var texto = String(data.texto || '').trim();
+  if (!texto) return { ok: false, error: 'No llegó el texto' };
+  var ctx = data.contexto || {};
+  var comun = 'Hoy es ' + (data.fechaHoy || hoyISO_()) + ' (YYYY-MM-DD). "hoy", "ayer", "el lunes"... se calculan a partir de hoy; ' +
+    'la fecha va en formato YYYY-MM-DD, o vacía si no se dijo.\n' +
+    'El texto viene de un reconocimiento de voz y puede tener errores. Si un dato no se dijo, déjalo vacío en vez de inventarlo.\n';
+  var instrucciones, esquema;
+  if (data.pantalla === 'produccion' || data.pantalla === 'carniceria') {
+    esquema = ESQUEMAS_DICTADO_MENU_.diaria;
+    var lineas = Object.keys(ctx.grupos || {}).map(function (g) {
+      return '- grupo "' + g + '": ' + (ctx.grupos[g] || []).map(function (f) { return '"' + f + '"'; }).join(', ');
+    }).join('\n');
+    instrucciones = (data.pantalla === 'produccion'
+      ? 'En un restaurante dictaron por voz cuánto se produjo de empanadas y quiches (cantidades enteras, como se cuentan en la planilla).\n'
+      : 'En un restaurante dictaron por voz cuánto se compró en la pollería y en la carnicería (en kilos, con decimales; los huevos en cartones).\n') +
+      'Filas de la planilla, por grupo:\n' + lineas + '\n' + comun +
+      'Extrae:\n' +
+      '- fecha: el día al que corresponde, si se dijo.\n' +
+      '- valores: una entrada por cada fila de la que se dijo una cantidad, con "grupo" y "fila" escritos EXACTAMENTE como en la lista ' +
+      '(elige el grupo correcto: por ejemplo "quiche de pollo" es del grupo de las quiches y "empanadas de pollo" del de las empanadas; ' +
+      'si se dice solo "pollo" sin más, entiende empanadas o pollería) y "cantidad" con punto decimal (ej. 5.2). ' +
+      'Las filas que no se nombran no van.\n';
+  } else if (data.pantalla === 'tinta') {
+    esquema = ESQUEMAS_DICTADO_MENU_.tinta;
+    instrucciones = 'En un restaurante dictaron por voz que cambiaron la tinta de una impresora. Hay dos impresoras: ' +
+      'BYS (la de "Buenas y Santas", la del restaurante) y CLARA (la de "Clarita" o "Clara"). Cada una tiene tinta negra y tinta de color.\n' + comun +
+      'Extrae:\n- fecha: el día del cambio, si se dijo.\n' +
+      '- cambios: una entrada por cada tinta cambiada (impresora BYS o CLARA, tinta negra o color). Si se dicen las dos tintas, dos entradas.\n';
+  } else if (data.pantalla === 'arreglos') {
+    esquema = ESQUEMAS_DICTADO_MENU_.arreglos;
+    instrucciones = 'En un restaurante dictaron por voz un arreglo de un electrodoméstico o de la instalación.\n' +
+      'Técnicos ya conocidos (nombre y teléfono): ' + (ctx.tecnicos || []).join(' | ') + '.\n' + comun +
+      'Extrae:\n- fecha: el día del arreglo, si se dijo.\n' +
+      '- electrodomestico: qué se arregló (ej. "Nevera empanadas", "Freidora").\n' +
+      '- proveedor: el técnico; si es uno de los conocidos, escríbelo EXACTAMENTE como en la lista (con su teléfono); si no, como se dijo.\n' +
+      '- problema: qué le pasaba.\n- arreglo: qué se hizo.\n' +
+      '- importe: lo que costó en euros (con punto decimal, sin símbolo, ej. 120.50).\n';
+  } else {
+    return { ok: false, error: 'Pantalla desconocida' };
+  }
+  return pedirJsonAClaude_([{ type: 'text', text: instrucciones + '\nDictado: """' + texto + '"""' }], esquema);
 }

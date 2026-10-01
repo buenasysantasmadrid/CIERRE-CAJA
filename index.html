@@ -438,6 +438,8 @@
   .prod-row .denom-lbl{font-weight:600;}
   .prod-row .kilos-input{width:110px;text-align:center;font-weight:700;font-size:1.05rem;padding:8px 4px;}
   .arreglos-buscar{width:100%;margin-bottom:6px;}
+  .dictar-menu{margin-top:14px;}
+  .prod-row input.dictado{border-color:var(--green);}
   .arreglo-item{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-top:8px;}
   .arreglo-top{display:flex;justify-content:space-between;gap:10px;}
   .arreglo-top span{font-variant-numeric:tabular-nums;white-space:nowrap;}
@@ -2091,10 +2093,14 @@
     });
     document.getElementById('dictarBtnCargar').addEventListener('click', cargarDictado);
 
+    activarMicrofono(document.getElementById('dictarBtnMic'), texto);
+  }
+
+  // Botón "Hablar": va escribiendo en el cuadro de texto lo que se dice.
+  function activarMicrofono(micBtn, texto){
+    if(!micBtn) return;
     // Micrófono del navegador (Chrome/Android, Safari). Si no está, igual
     // se puede usar el micrófono del teclado del móvil en el cuadro de texto.
-    var micBtn = document.getElementById('dictarBtnMic');
-    if(!micBtn) return;
     // En Android el modo "continuo" repite frases y se corta en cada pausa.
     // Por eso se escucha de a una frase (continuous = false) y, al terminar
     // cada una, se vuelve a arrancar solo hasta que se toca "parar" o pasan
@@ -3783,7 +3789,7 @@
     datosDiarios[p] = null;
     document.getElementById(idDiaria(p, 'Cuerpo')).innerHTML = '';
     estadoMenu(idDiaria(p, 'Estado'), 'Cargando…', true);
-    pedirAlSheet({ accionDiariaLeer: true, planilla: p, fecha: fecha }).then(function(d){
+    return pedirAlSheet({ accionDiariaLeer: true, planilla: p, fecha: fecha }).then(function(d){
       if(document.getElementById(idDiaria(p, 'Fecha')).value !== fecha) return;
       estadoMenu(idDiaria(p, 'Estado'), '');
       pintarDiaria(p, d);
@@ -3844,6 +3850,117 @@
       }).finally(function(){ btn.disabled = false; });
     });
   });
+
+  // Dictar por voz en las pantallas del menú: mismo recuadro que "Dictar
+  // gasto". La IA (en el Sheet) recibe lo dicho y lo que hay en la pantalla,
+  // y lo que devuelve se pone en la pantalla para revisar; no guarda solo
+  // (salvo Tinta, que pregunta antes de apuntar, como el botón).
+  var DICTAR_MENU = {
+    produccion: { titulo: 'Dictar producción', ejemplo: 'Ej: hoy 8 de carne, 6 de pollo y 4 de jamón y queso; quiches 2 de calabaza' },
+    carniceria: { titulo: 'Dictar carnicería', ejemplo: 'Ej: 5,2 kilos de pollo picado, 3 cartones de huevos y 7 de picada de vacuno' },
+    tinta: { titulo: 'Dictar cambio de tinta', ejemplo: 'Ej: hoy cambié la tinta negra de Clarita' },
+    arreglos: { titulo: 'Dictar arreglo', ejemplo: 'Ej: vino Elias por la nevera de empanadas, no enfriaba, le puso gas, 100 euros' }
+  };
+  function dictarMenuHTML(p){
+    var txt = DICTAR_MENU[p];
+    return '<div class="scan-box dictar-menu" data-dictar-menu="' + p + '">' +
+        '<div class="scan-head">' +
+          '<span class="ttl">'+icon('mic')+txt.titulo+'</span>' +
+          '<button type="button" data-dm-toggle>Usar voz</button>' +
+        '</div>' +
+        '<div class="collapse" data-dm-contenido>' +
+          '<textarea class="dictar-texto" data-dm-texto placeholder="'+escapeHtml(txt.ejemplo)+'"></textarea>' +
+          '<div class="scan-actions">' +
+            (SpeechRec ? '<button type="button" data-dm-mic>'+icon('mic')+'Hablar</button>' : '') +
+            '<button type="button" class="btn-primary" data-dm-cargar>Cargar datos</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+  Object.keys(DICTAR_MENU).forEach(function(p){
+    var inner = document.querySelector('#' + p + 'Screen .screen-inner');
+    inner.insertAdjacentHTML('afterbegin', dictarMenuHTML(p));
+    var caja = inner.querySelector('[data-dictar-menu]');
+    var contenido = caja.querySelector('[data-dm-contenido]');
+    var texto = caja.querySelector('[data-dm-texto]');
+    caja.querySelector('[data-dm-toggle]').addEventListener('click', function(){
+      var abrir = !contenido.classList.contains('open');
+      contenido.classList.toggle('open', abrir);
+      this.textContent = abrir ? 'Ocultar' : 'Usar voz';
+    });
+    activarMicrofono(caja.querySelector('[data-dm-mic]'), texto);
+    caja.querySelector('[data-dm-cargar]').addEventListener('click', function(){ cargarDictadoMenu(p, texto, this); });
+  });
+  function estadoDeLaPantalla(p){ return p === 'tinta' ? 'tintaEstado' : (p === 'arreglos' ? 'arreglosEstado' : idDiaria(p, 'Estado')); }
+
+  function cargarDictadoMenu(p, textoEl, btn){
+    var texto = textoEl.value.trim();
+    if(!texto){ toast('Dicta o escribe los datos primero'); return; }
+    var contexto = {};
+    if(PANTALLAS_DIARIAS[p]){
+      var d = datosDiarios[p];
+      if(!d){ toast('Espera a que cargue'); return; }
+      contexto.grupos = {};
+      (d.orden || []).forEach(function(g){ contexto.grupos[g] = (d.grupos[g] || []).map(function(s){ return s.nombre; }); });
+    } else if(p === 'arreglos'){
+      contexto.tecnicos = Array.prototype.map.call(document.querySelectorAll('#arregloProveedores option'), function(o){ return o.value; });
+    }
+    var estado = estadoDeLaPantalla(p);
+    btn.disabled = true;
+    estadoMenu(estado, 'Entendiendo…', true);
+    pedirAlSheet({ accionDictarMenu: true, pantalla: p, texto: texto, fechaHoy: todayISO(), contexto: contexto }).then(function(r){
+      estadoMenu(estado, '');
+      if(PANTALLAS_DIARIAS[p]) return aplicarDictadoDiaria(p, r);
+      if(p === 'tinta') return aplicarDictadoTinta(r);
+      if(p === 'arreglos') return aplicarDictadoArreglo(r);
+    }).catch(function(err){
+      estadoMenu(estado, 'No se pudo entender el dictado. Complétalo a mano. (' + err.message + ')', false, true);
+    }).finally(function(){ btn.disabled = false; });
+  }
+  function fechaDictada(f){ return /^\d{4}-\d{2}-\d{2}$/.test(String(f || '')) ? f : ''; }
+
+  function aplicarDictadoDiaria(p, r){
+    var valores = r.valores || [];
+    function poner(){
+      var puestos = 0, sinFila = [];
+      valores.forEach(function(v){
+        var inp = Array.prototype.filter.call(document.querySelectorAll('#' + idDiaria(p, 'Cuerpo') + ' [data-diaria-fila]'), function(i){
+          return i.getAttribute('data-diaria-grupo') === v.grupo && i.getAttribute('data-diaria-fila') === v.fila;
+        })[0];
+        if(!inp){ sinFila.push(v.fila); return; }
+        var n = num(String(v.cantidad).replace(',', '.'));
+        inp.value = PANTALLAS_DIARIAS[p].decimales ? n : Math.round(n);
+        inp.classList.add('dictado');
+        puestos++;
+      });
+      var msg = puestos ? 'Cargado lo dictado (' + puestos + (puestos === 1 ? ' fila' : ' filas') + '). Revísalo y toca Guardar.' : 'No entendí ninguna cantidad.';
+      if(sinFila.length) msg += ' No encontré: ' + sinFila.join(', ') + '.';
+      estadoMenu(idDiaria(p, 'Estado'), msg, false, !puestos);
+    }
+    var f = fechaDictada(r.fecha);
+    var fechaEl = document.getElementById(idDiaria(p, 'Fecha'));
+    if(f && f !== fechaEl.value){
+      fechaEl.value = f;
+      return cargarDiaria(p).then(poner);
+    }
+    poner();
+  }
+  function aplicarDictadoTinta(r){
+    var f = fechaDictada(r.fecha);
+    if(f) document.getElementById('tintaFecha').value = f;
+    var cambios = (r.cambios || []).filter(function(c){ return NOMBRE_IMPRESORA[c.impresora] && TINTA_NOMBRE[c.tinta]; });
+    if(!cambios.length){ estadoMenu('tintaEstado', 'No entendí qué tinta ni qué impresora.', false, true); return; }
+    preguntarCambiosTinta(cambios);
+  }
+  function aplicarDictadoArreglo(r){
+    var f = fechaDictada(r.fecha);
+    if(f) document.getElementById('arregloFecha').value = f;
+    var campos = { arregloElectro: r.electrodomestico, arregloProveedor: r.proveedor, arregloProblema: r.problema, arregloArreglo: r.arreglo };
+    Object.keys(campos).forEach(function(id){ if(campos[id]) document.getElementById(id).value = campos[id]; });
+    var imp = num(String(r.importe || '').replace(',', '.'));
+    if(imp) document.getElementById('arregloImporte').value = imp;
+    estadoMenu('arreglosEstado', 'Cargado lo dictado. Revísalo y toca Guardar arreglo.');
+  }
 
   // Arreglo electrodomésticos: arriba el formulario para apuntar uno nuevo,
   // abajo todos los anteriores (el más nuevo primero), con buscador para
@@ -3947,20 +4064,30 @@
   document.getElementById('tintaCuerpo').addEventListener('click', function(e){
     var btn = e.target.closest('[data-tinta]');
     if(!btn) return;
+    preguntarCambiosTinta([{ impresora: btn.getAttribute('data-tinta-imp'), tinta: btn.getAttribute('data-tinta') }]);
+  });
+  // Pregunta y apunta uno o varios cambios de tinta con la fecha de arriba.
+  var NOMBRE_IMPRESORA = { BYS: 'Buenas y Santas', CLARA: 'Clarita' };
+  function preguntarCambiosTinta(cambios){
     var fecha = document.getElementById('tintaFecha').value || todayISO();
-    var tinta = btn.getAttribute('data-tinta');
-    var texto = '¿Apuntar cambio de ' + TINTA_NOMBRE[tinta].toLowerCase() + ' en ' + btn.getAttribute('data-tinta-nombre') + ' el ' + fechaCorta(fecha) + '?';
+    var texto = '¿Apuntar cambio de ' + cambios.map(function(c){
+      return TINTA_NOMBRE[c.tinta].toLowerCase() + ' en ' + (NOMBRE_IMPRESORA[c.impresora] || c.impresora);
+    }).join(' y ') + ' el ' + fechaCorta(fecha) + '?';
     preguntar(texto, 'Apuntar', 'Cancelar', function(){
       estadoMenu('tintaEstado', 'Guardando…', true);
-      pedirAlSheet({ accionTintaGuardar: true, impresora: btn.getAttribute('data-tinta-imp'), tinta: tinta, fecha: fecha }).then(function(d){
+      var cadena = Promise.resolve(null);
+      cambios.forEach(function(c){
+        cadena = cadena.then(function(){ return pedirAlSheet({ accionTintaGuardar: true, impresora: c.impresora, tinta: c.tinta, fecha: fecha }); });
+      });
+      cadena.then(function(d){
         estadoMenu('tintaEstado', '');
         pintarTinta(d);
-        toast('Cambio de tinta apuntado');
+        toast(cambios.length > 1 ? 'Cambios de tinta apuntados' : 'Cambio de tinta apuntado');
       }).catch(function(err){
         estadoMenu('tintaEstado', 'No se pudo guardar. (' + err.message + ')', false, true);
       });
     });
-  });
+  }
   document.addEventListener('click', function(e){
     if(menuPopup.classList.contains('open') && !menuPopup.contains(e.target) && e.target !== btnMenu) cerrarMenu();
   });
