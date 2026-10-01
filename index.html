@@ -2044,7 +2044,7 @@
     var esGasto = currentTipo === 'gasto';
     var tipoDictado = currentTipo;
     var pedido = esGasto
-      ? { accionDictarGasto: true, texto: texto, fechaHoy: todayISO(), proveedores: PROVEEDORES_CONOCIDOS, responsables: responsables }
+      ? { accionDictarGasto: true, texto: texto, fechaHoy: todayISO(), proveedores: proveedoresParaIA(), responsables: responsables }
       : { accionDictarMovimiento: true, tipo: currentTipo, texto: texto, responsables: responsables, clientesEmpanadas: CLIENTES_EMPANADAS };
     fetch(url, {
       method: 'POST',
@@ -2218,7 +2218,7 @@
     fetch(url, {
       method: 'POST',
       headers: {'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({ accionEscanearFactura: true, imageBase64: scanImageBase64, mediaType: scanMediaType })
+      body: JSON.stringify({ accionEscanearFactura: true, imageBase64: scanImageBase64, mediaType: scanMediaType, proveedores: proveedoresParaIA() })
     })
     .then(function(resp){
       return resp.json().then(function(parsed){
@@ -2281,6 +2281,28 @@
   //      ("Mercandalucia" / "Mercadalucia").
   // Varios, Super y Extras son genéricos: solo cuentan si coinciden igual.
   var PROVEEDORES_SIN_COINCIDENCIA_TOLERANTE = ['Varios', 'Super', 'Extras'];
+
+  // Lista que se manda a la IA al escanear o dictar: cada proveedor con los
+  // nombres con que puede salir en la factura, para que diga cuál es.
+  function proveedoresParaIA(){
+    return PROVEEDORES_CONOCIDOS.filter(function(p){
+      return PROVEEDORES_SIN_COINCIDENCIA_TOLERANTE.indexOf(p) === -1;
+    }).map(function(p){
+      var legales = NOMBRES_LEGALES_PROVEEDORES[p];
+      return legales ? p + ' (en la factura: ' + legales.join(', ') + ')' : p;
+    });
+  }
+
+  // El proveedor de la lista que eligió la IA (escrito como en la lista,
+  // sin importar mayúsculas), o null.
+  function proveedorDeLaLista(nombre){
+    var n = normalizarNombreProveedor(nombre);
+    if(!n) return null;
+    return PROVEEDORES_CONOCIDOS.filter(function(p){
+      return PROVEEDORES_SIN_COINCIDENCIA_TOLERANTE.indexOf(p) === -1 && normalizarNombreProveedor(p) === n;
+    })[0] || null;
+  }
+
   function buscarProveedorPorNombre(nombre){
     var n = normalizarNombreProveedor(nombre);
     if(!n) return null;
@@ -2358,7 +2380,9 @@
       }
     };
     if(nombreExtraido && sel){
-      var match = buscarProveedorPorNombre(nombreExtraido);
+      // Primero lo que dijo la IA comparando con la lista; si no dijo
+      // ninguno, se compara el nombre leído aquí.
+      var match = proveedorDeLaLista(data.proveedor_lista) || buscarProveedorPorNombre(nombreExtraido);
       if(match){
         ponerProveedor(match);
         aplicarRestoFactura(data);

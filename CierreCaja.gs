@@ -2030,9 +2030,10 @@ var ESQUEMA_FACTURA = {
     importe_total: { type: 'string' },
     importe_iva: { type: 'string' },
     base_imponible: { type: 'string' },
-    tipo_iva: { type: 'string' }
+    tipo_iva: { type: 'string' },
+    proveedor_lista: { type: 'string' }
   },
-  required: ['proveedor', 'numero_factura', 'fecha', 'importe_total', 'importe_iva', 'base_imponible', 'tipo_iva'],
+  required: ['proveedor', 'numero_factura', 'fecha', 'importe_total', 'importe_iva', 'base_imponible', 'tipo_iva', 'proveedor_lista'],
   additionalProperties: false
 };
 
@@ -2046,14 +2047,21 @@ var INSTRUCCIONES_FACTURA =
   '- importe_iva: suma de todas las cuotas de IVA (si hay varios tipos, súmalas).\n' +
   '- base_imponible: suma de las bases imponibles.\n' +
   '- tipo_iva: porcentaje o porcentajes de IVA, por ejemplo "10" o "4, 10, 21".\n' +
+  '- proveedor_lista: a cuál de los proveedores habituales (lista de abajo) corresponde el emisor, escrito EXACTAMENTE como el nombre de la lista. ' +
+  'Vale aunque en la factura salga con otra razón social, abreviado, con el nombre del grupo o de la marca, o mal escrito. ' +
+  'Si no es ninguno de la lista, o no estás seguro, déjalo vacío.\n' +
   'Los importes con punto como separador decimal y sin símbolo de euro (ejemplo: 1234.56). ' +
   'Si un dato no aparece o no se lee con seguridad, deja el campo vacío ("") en vez de inventarlo.';
 
+// La app manda sus proveedores habituales, cada uno con los nombres con que
+// puede salir en la factura: "Disbesa (en la factura: INICIATIVAS SODEXO
+// S.L., SODEXO)". Así la IA dice directamente cuál es.
 function escanearFactura_(data) {
   if (!data.imageBase64) return { ok: false, error: 'No llegó la foto' };
+  var lista = (data.proveedores || []).join('\n');
   return pedirJsonAClaude_([
     { type: 'image', source: { type: 'base64', media_type: data.mediaType || 'image/jpeg', data: data.imageBase64 } },
-    { type: 'text', text: INSTRUCCIONES_FACTURA }
+    { type: 'text', text: INSTRUCCIONES_FACTURA + '\n\nProveedores habituales:\n' + (lista || '(no hay lista)') }
   ], ESQUEMA_FACTURA);
 }
 
@@ -2080,10 +2088,10 @@ function dictarGasto_(data) {
   if (!texto) return { ok: false, error: 'No llegó el texto' };
   var instrucciones =
     'Un empleado de un restaurante dictó por voz un gasto a un proveedor. Hoy es ' + (data.fechaHoy || '') + ' (YYYY-MM-DD).\n' +
-    'Proveedores de la lista: ' + (data.proveedores || []).join(', ') + '.\n' +
+    'Proveedores de la lista:\n' + (data.proveedores || []).join('\n') + '\n' +
     'Empleados: ' + (data.responsables || []).join(', ') + '.\n' +
     'Extrae:\n' +
-    '- proveedor: si coincide con uno de la lista (aunque el dictado lo diga un poco distinto), escríbelo exactamente como en la lista; si no, el nombre tal como se dijo.\n' +
+    '- proveedor: si coincide con uno de la lista (aunque el dictado lo diga un poco distinto, o diga el nombre que sale en la factura), escribe exactamente el nombre de la lista, sin lo que va entre paréntesis; si no, el nombre tal como se dijo.\n' +
     '- numero_factura: número de factura o albarán.\n' +
     '- fecha: en formato YYYY-MM-DD. "hoy", "ayer", "el lunes"... se calculan a partir de hoy.\n' +
     '- importe_total: importe total (con punto decimal, sin símbolo, ej. 99.50).\n' +
