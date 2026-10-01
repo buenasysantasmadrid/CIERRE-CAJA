@@ -3656,6 +3656,14 @@
     }).then(function(resp){ return resp.json(); }).then(function(d){
       if(!d || d.ok === false) throw new Error((d && d.error) || 'error desconocido');
       return d;
+    }, function(err){
+      // Cuando la cuenta de la app no tiene permiso sobre la hoja, Google
+      // contesta con una página de error y el navegador solo dice "Failed
+      // to fetch".
+      if(/failed to fetch|load failed|networkerror/i.test(err.message || '')){
+        throw new Error('Google no dejó abrir la hoja: revisa que esté compartida con lfisbein@gmail.com como editor, y que haya internet');
+      }
+      throw err;
     });
   }
   function estadoMenu(id, texto, cargando, error){

@@ -146,6 +146,13 @@ function valoresArchivos_() {
 // hora en notarse (o se puede correr limpiarCacheIndice desde el editor).
 var CACHE_INDICE_SEGUNDOS_ = 3600;
 
+// El tipo tal como está escrito en "Archivos", sin el año si se escribió
+// pegado al nombre ("GLOVO_2026" o "COMPARATIVA_CARNE2026" valen como
+// "GLOVO" y "COMPARATIVA_CARNE"; el año va en la columna Periodo).
+function tipoDeArchivos_(v) {
+  return normalizarTexto_(v).toUpperCase().replace(/[\s_-]*\d{4}$/, '');
+}
+
 function buscarEnIndice_(tipo, periodo) {
   var cache = CacheService.getScriptCache();
   var clave = 'indice_' + tipo + '_' + periodo;
@@ -154,7 +161,7 @@ function buscarEnIndice_(tipo, periodo) {
 
   var valores = valoresArchivos_();
   for (var i = 1; i < valores.length; i++) {
-    if (normalizarTexto_(valores[i][0]) === tipo && coincidePeriodo_(valores[i][1], periodo)) {
+    if (tipoDeArchivos_(valores[i][0]) === tipo && coincidePeriodo_(valores[i][1], periodo)) {
       var id = valores[i][2] || null; // ID Planilla
       if (id) {
         try { cache.put(clave, String(id), CACHE_INDICE_SEGUNDOS_); } catch (e) {}
@@ -185,7 +192,7 @@ function planillasDelTipo_(tipo) {
   var valores = valoresArchivos_();
   var resultado = [];
   for (var i = 1; i < valores.length; i++) {
-    if (normalizarTexto_(valores[i][0]) !== tipo) continue;
+    if (tipoDeArchivos_(valores[i][0]) !== tipo) continue;
     var id = normalizarTexto_(valores[i][2]);
     var periodo = valores[i][1] instanceof Date
       ? Utilities.formatDate(valores[i][1], Session.getScriptTimeZone(), 'yyyy-MM')
