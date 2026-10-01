@@ -65,7 +65,16 @@ function sincronizarGlovoDelDia_(fechaISO, tickets) {
 
   var cantidad = GLOVO_FILA_HASTA_ - GLOVO_FILA_DESDE_ + 1;
   var datos = hoja.getRange(GLOVO_FILA_DESDE_, 2, cantidad, 3).getValues(); // B:D
+  var formulas = hoja.getRange(GLOVO_FILA_DESDE_, 2, cantidad, 3).getFormulas();
   var ids = hoja.getRange(GLOVO_FILA_DESDE_, GLOVO_COL_ID_, cantidad, 1).getValues();
+
+  // Los pedidos van solo hasta antes de la primera fila con una fórmula en
+  // B:D (ej. la suma "=SUM(C5:C204)" de la fila 205): esa fila y las de
+  // abajo no son para pedidos.
+  var libres = cantidad;
+  for (var f = 0; f < cantidad; f++) {
+    if (formulas[f][0] || formulas[f][1] || formulas[f][2]) { libres = f; break; }
+  }
 
   // Qué fila tiene cada ticket que la app ya había escrito de este día.
   var filaDeId = {};
@@ -80,10 +89,13 @@ function sincronizarGlovoDelDia_(fechaISO, tickets) {
   // Solo se escriben las filas que cambian: las cargadas a mano quedan tal cual.
   var cambiadas = {};
 
-  // Los que ya no están en la app: se vacía su fila.
+  // Los que ya no están en la app, o que quedaron fuera de la zona de
+  // pedidos (debajo de la suma): se vacía su fila (y los segundos se vuelven
+  // a escribir en su sitio).
   Object.keys(filaDeId).forEach(function (id) {
-    if (actuales[id]) return;
+    if (actuales[id] && filaDeId[id] < libres) return;
     var i = filaDeId[id];
+    if (actuales[id]) delete filaDeId[id]; // se vuelve a escribir más abajo, como nuevo
     datos[i] = ['', '', ''];
     ids[i] = [''];
     cambiadas[i] = true;
@@ -91,7 +103,7 @@ function sincronizarGlovoDelDia_(fechaISO, tickets) {
 
   // La primera fila libre es la de debajo del último pedido cargado.
   var ultima = -1;
-  for (var j = 0; j < cantidad; j++) {
+  for (var j = 0; j < libres; j++) {
     if (datos[j][0] !== '' || datos[j][1] !== '' || datos[j][2] !== '' || ids[j][0] !== '') ultima = j;
   }
 
@@ -101,7 +113,7 @@ function sincronizarGlovoDelDia_(fechaISO, tickets) {
     var fila = [fecha, String(g.pedido || ''), Number(g.importe) || 0];
     var i = filaDeId[g.id];
     if (i == null) {
-      if (ultima + 1 >= cantidad) { sinLugar++; return; }
+      if (ultima + 1 >= libres) { sinLugar++; return; }
       i = ++ultima;
     }
     datos[i] = fila;
