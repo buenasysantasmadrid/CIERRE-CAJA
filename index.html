@@ -100,6 +100,15 @@
   .header-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
   .header-logo{height:52px;width:auto;display:block;mix-blend-mode:multiply;}
   .app-header .eyebrow{display:block;margin-top:14px;}
+  .header-marca{display:flex;align-items:center;gap:10px;position:relative;}
+  .menu-popup{
+    display:none;position:absolute;top:100%;left:0;margin-top:8px;z-index:85;
+    background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:6px;
+    box-shadow:0 12px 32px rgba(20,22,28,.16);width:min(290px,calc(100vw - 32px));
+  }
+  .menu-popup.open{display:block;}
+  .menu-popup button{display:block;width:100%;text-align:left;background:none;padding:13px 12px;border-radius:10px;font-size:.95rem;}
+  .menu-popup button:active{background:var(--panel);}
   .header-actions{display:flex;gap:8px;}
   .pill-btn{
     display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid var(--line);
@@ -478,7 +487,16 @@
 
 <header class="app-header">
   <div class="header-top">
-    <img src="logo_buenasysantas.jpg" alt="Buenas y Santas" class="header-logo">
+    <div class="header-marca">
+      <button type="button" class="pill-btn icon-only" id="btnMenu" aria-label="Menú" aria-expanded="false"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none;"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg></button>
+      <img src="logo_buenasysantas.jpg" alt="Buenas y Santas" class="header-logo">
+      <nav class="menu-popup" id="menuPopup">
+        <button type="button" data-menu-archivo>Producción empanadas y quiche</button>
+        <button type="button" data-menu-archivo>Comparativa carnicería</button>
+        <button type="button" data-menu-archivo>Cambio de tinta</button>
+        <button type="button" data-menu-archivo>Arreglo electrodomésticos</button>
+      </nav>
+    </div>
     <div class="header-actions">
       <button type="button" class="pill-btn" id="btnAlbaranes"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1-2-2v-14a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 7h1"/><path d="M9 13h6"/><path d="M13 17h2"/></svg>Albaranes</button>
     </div>
@@ -3520,6 +3538,27 @@
     if(pop.classList.contains('open')) cerrarCalendario();
     else abrirCalendario();
   });
+  // Menú (las tres rayas al lado del logo): los archivos del negocio que
+  // todavía no están en la app. Por ahora solo avisan que faltan.
+  var menuPopup = document.getElementById('menuPopup');
+  var btnMenu = document.getElementById('btnMenu');
+  function cerrarMenu(){ menuPopup.classList.remove('open'); btnMenu.setAttribute('aria-expanded', 'false'); }
+  btnMenu.addEventListener('click', function(e){
+    e.stopPropagation();
+    var abrir = !menuPopup.classList.contains('open');
+    menuPopup.classList.toggle('open', abrir);
+    btnMenu.setAttribute('aria-expanded', abrir ? 'true' : 'false');
+  });
+  menuPopup.addEventListener('click', function(e){
+    var item = e.target.closest('[data-menu-archivo]');
+    if(!item) return;
+    cerrarMenu();
+    toast(item.textContent + ': todavía no está en la app');
+  });
+  document.addEventListener('click', function(e){
+    if(menuPopup.classList.contains('open') && !menuPopup.contains(e.target) && e.target !== btnMenu) cerrarMenu();
+  });
+
   document.addEventListener('click', function(e){
     var pop = document.getElementById('calendarioPopup');
     if(pop.classList.contains('open') && !pop.contains(e.target) && e.target.id !== 'fechaCierreBtn'){
