@@ -2201,6 +2201,9 @@
       if(esGasto) aplicarDictado(d);
       else aplicarDictadoOtros(d);
       document.getElementById('dictarOkLine').style.display = 'flex';
+      // Ya se cargó: el cuadro queda vacío para el próximo dictado.
+      var cuadro = document.getElementById('dictarTexto');
+      if(cuadro) cuadro.value = '';
     })
     .catch(function(err){
       document.getElementById('dictarStatusLine').style.display = 'none';
@@ -3910,6 +3913,7 @@
     estadoMenu(estado, 'Entendiendo…', true);
     pedirAlSheet({ accionDictarMenu: true, pantalla: p, texto: texto, fechaHoy: todayISO(), contexto: contexto }).then(function(r){
       estadoMenu(estado, '');
+      textoEl.value = ''; // ya se cargó: el cuadro queda vacío para el próximo dictado
       if(PANTALLAS_DIARIAS[p]) return aplicarDictadoDiaria(p, r);
       if(p === 'tinta') return aplicarDictadoTinta(r);
       if(p === 'arreglos') return aplicarDictadoArreglo(r);
