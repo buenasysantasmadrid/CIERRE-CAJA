@@ -4119,13 +4119,14 @@
     return { cargados: cargados, repetidos: repetidos };
   }
 
-  // Al tocar "Guardar cierre" o la cruz: se pregunta por Glovo. OK cierra;
-  // Cancelar se queda en la pantalla, en el paso de Glovo.
+  // Al tocar "Guardar cierre" o la cruz: se pregunta por Glovo. SALIR cierra;
+  // VOLVER se queda en la pantalla, en el paso de Glovo.
   function preguntarGlovoAntesDeCerrar(t, cerrar){
-    preguntar('¿Has cargado Glovo?', 'OK', 'Cancelar', cerrar, function(){
+    // SALIR (a la izquierda) cierra; VOLVER (en verde) se queda en Glovo.
+    preguntar('¿Has cargado Glovo?', 'VOLVER', 'SALIR', function(){
       var lista = document.getElementById('glovoLista_'+t);
       if(lista) lista.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    });
+    }, cerrar);
     document.getElementById('preguntaOverlay').classList.add('pequena');
   }
 
