@@ -446,6 +446,10 @@
   .pregunta-acciones{display:flex;flex-direction:column;gap:10px;}
   .pregunta-acciones button{min-height:54px;border-radius:14px;font-size:1rem;}
   #preguntaNo{background:#fff;border:1.5px solid var(--line);}
+  #preguntaOverlay.pequena .modal{max-width:260px;padding:16px;}
+  #preguntaOverlay.pequena h3{font-size:1.15rem;margin:0 0 12px;text-align:center;}
+  #preguntaOverlay.pequena .pregunta-acciones{flex-direction:row;gap:8px;}
+  #preguntaOverlay.pequena .pregunta-acciones button{flex:1;min-height:42px;font-size:.92rem;}
   .toast{
     position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);
     background:var(--ink);color:#fff;padding:12px 18px;border-radius:12px;font-size:.88rem;max-width:calc(100vw - 32px);
@@ -1419,6 +1423,7 @@
   var ivaVacioConfirmado = false;
   function preguntar(texto, siTxt, noTxt, onSi, onNo){
     var ov = document.getElementById('preguntaOverlay');
+    ov.classList.remove('pequena'); // la versión chica es solo para la de Glovo
     document.getElementById('preguntaTexto').textContent = texto;
     var si = document.getElementById('preguntaSi');
     var no = document.getElementById('preguntaNo');
@@ -3675,10 +3680,11 @@
   // Al tocar "Guardar cierre" o la cruz: se pregunta por Glovo. OK cierra;
   // Cancelar se queda en la pantalla, en el paso de Glovo.
   function preguntarGlovoAntesDeCerrar(t, cerrar){
-    preguntar('¿Glovo? ¿Están cargados todos los tickets de Glovo de ' + TURNO_LABEL[t] + '?', 'OK', 'Cancelar', cerrar, function(){
+    preguntar('¿Has cargado Glovo?', 'OK', 'Cancelar', cerrar, function(){
       var lista = document.getElementById('glovoLista_'+t);
       if(lista) lista.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
+    document.getElementById('preguntaOverlay').classList.add('pequena');
   }
 
   function estadoGlovo(t, texto, cargando, error){
