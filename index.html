@@ -4493,6 +4493,10 @@
             logSheetStatus('La planilla de Contabilidad no se pudo actualizar: ' + res.contabilidad.error, true);
             avisarFalloSyncUnaVez('No se pudo actualizar la planilla de Contabilidad: ' + res.contabilidad.error);
           }
+          if(res.glovo && res.glovo.ok === false){
+            logSheetStatus('La planilla de Glovo no se pudo actualizar: ' + res.glovo.error, true);
+            avisarFalloSyncUnaVez('No se pudo actualizar la planilla de Glovo: ' + res.glovo.error);
+          }
           if(res.albaranes && res.albaranes.ok === false){
             logSheetStatus('La planilla de Albaranes no se pudo actualizar: ' + res.albaranes.error, true);
             avisarFalloSyncUnaVez('No se pudo actualizar la planilla de Albaranes: ' + res.albaranes.error);
