@@ -952,7 +952,13 @@
     if(!ultima) return 0;
     var contadoNoche, contadoMediodia;
     var dia = store[ultima];
-    if(dia && diaTieneActividad(dia)){
+    // Lo del Sheet manda: la copia de este aparato puede ser vieja (pasó con
+    // la caja del 2/10, que tomó el fondo de un 1/10 con la Noche en ceros).
+    // Solo se usa la copia de acá si tiene cambios sin subir, o si el Sheet
+    // no tiene ese día.
+    var delSheet = cierresSheet[ultima];
+    var usarLocal = dia && diaTieneActividad(dia) && (dia._sinSubir || !delSheet || !delSheet.actividad);
+    if(usarLocal){
       contadoNoche = ((dia.noche && dia.noche._calc) || {}).totalContado || 0;
       contadoMediodia = ((dia.mediodia && dia.mediodia._calc) || {}).totalContado || 0;
     } else {
@@ -3504,8 +3510,12 @@
 
   function aplicarEstadoATurnos(saltarAutoFondoFijo){
     document.getElementById('negocioNombre').value = state.negocio;
+    var fondoCorregido = false;
     if(!saltarAutoFondoFijo){
+      var fondoAntes = state.mediodia.fondoFijo;
       state.mediodia.fondoFijo = fondoFijoSugerido(state.fecha); // siempre del día anterior, no editable
+      // Solo cuenta como corrección si ya llegó la lista de cierres del Sheet.
+      fondoCorregido = Object.keys(cierresSheet).length > 0 && num(fondoAntes) !== num(state.mediodia.fondoFijo);
     }
     TURNOS.forEach(function(t){
       document.getElementById('fondoFijo_'+t).value = state[t].fondoFijo || 0;
@@ -3525,6 +3535,7 @@
     buildFondoConteo();
     updateFechaLabel();
     recalcDia();
+    if(fondoCorregido) guardarCorreccionFondo();
   }
 
   var DIAS_SEMANA = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
@@ -4891,6 +4902,13 @@
     var input = document.getElementById('fondoFijo_mediodia');
     if(input) input.value = nuevo || 0;
     recalc('mediodia');
+    guardarCorreccionFondo();
+  }
+  // El fondo fijo cambió solo (venía mal de la caja anterior): si el día ya
+  // tiene caja, se guarda en el Sheet para que la diferencia quede bien
+  // también allí y en Contabilidad.
+  function guardarCorreccionFondo(){
+    if(diaTieneActividad(state)) saveDraft();
   }
 
   document.addEventListener('visibilitychange', function(){
