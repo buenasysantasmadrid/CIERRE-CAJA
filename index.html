@@ -426,6 +426,9 @@
   .alb-nopagado .mov-amt{color:var(--red);}
   .alb-nopagado .tag-nopagado{background:#fff;}
   .alb-nopagado .ico-circle{background:#fff;}
+  .alb-filtro{display:flex;gap:8px;margin-top:12px;}
+  .alb-filtro button{flex:1;background:#fff;border:1.5px solid var(--line);border-radius:999px;min-height:42px;font-size:.92rem;}
+  .alb-filtro button.on{background:var(--ink);border-color:var(--ink);color:#fff;font-weight:700;}
   .alb-resumen{background:var(--red-soft);color:var(--red);font-weight:700;font-size:.9rem;border-radius:12px;padding:10px 12px;margin:4px 0 8px;}
   .empty-row{color:var(--ink-soft);text-align:center;padding:24px 0;font-size:.9rem;}
   /* ---------- pantallas del menú (producción, tinta) ---------- */
@@ -601,6 +604,10 @@
       <div class="field" style="margin-top:14px;">
         <label for="albaranesProveedor">Proveedor</label>
         <select id="albaranesProveedor"><option value="">Todos los proveedores</option></select>
+      </div>
+      <div class="alb-filtro" id="albaranesFiltro">
+        <button type="button" data-alb-filtro="todos" class="on">Todos</button>
+        <button type="button" data-alb-filtro="nopagados">No pagados</button>
       </div>
       <div id="albaranesStatus" class="alb-status"></div>
       <div id="albaranesBody" class="alb-list"></div>
@@ -2864,7 +2871,7 @@
     var guardadas = leerAlbaranesGuardados(proveedor);
     if(guardadas){
       renderAlbaranesTabla(guardadas);
-      statusEl.textContent = textoCantidadAlbaranes(guardadas.length) + ' · actualizando…';
+      statusEl.textContent = textoCantidadAlbaranes(guardadas) + ' · actualizando…';
     } else {
       statusEl.textContent = 'Buscando...';
       body.innerHTML = ''; empty.style.display = 'none';
@@ -2895,14 +2902,14 @@
         return;
       }
       var facturas = data.facturas || [];
-      statusEl.textContent = textoCantidadAlbaranes(facturas.length) + (data.error ? ' (' + data.error + ')' : '');
+      statusEl.textContent = textoCantidadAlbaranes(facturas) + (data.error ? ' (' + data.error + ')' : '');
       renderAlbaranesTabla(facturas);
       guardarAlbaranes(proveedor, facturas);
     }).catch(function(err){
       if(miBusquedaId !== albaranesBusquedaId) return;
       if(guardadas){
         // Sin conexión: se deja a la vista la última lista guardada.
-        statusEl.textContent = textoCantidadAlbaranes(guardadas.length) + ' · no se pudo actualizar (' + err.message + ')';
+        statusEl.textContent = textoCantidadAlbaranes(guardadas) + ' · no se pudo actualizar (' + err.message + ')';
         return;
       }
       statusEl.textContent = 'Error al buscar: ' + err.message;
@@ -2910,9 +2917,27 @@
     });
   }
 
-  function textoCantidadAlbaranes(n){
-    return n + (n === 1 ? ' movimiento encontrado' : ' movimientos encontrados');
+  // "Todos" o "No pagados" (botones de arriba de la lista).
+  var albaranesFiltro = 'todos';
+  var albaranesUltimos = [];
+  function esAlbaranNoPagado(f){ return f.subtipo === 'No pagado'; }
+  function textoCantidadAlbaranes(facturas){
+    if(albaranesFiltro === 'nopagados'){
+      var n = facturas.filter(esAlbaranNoPagado).length;
+      return n + (n === 1 ? ' albarán sin pagar' : ' albaranes sin pagar');
+    }
+    var t = facturas.length;
+    return t + (t === 1 ? ' movimiento encontrado' : ' movimientos encontrados');
   }
+  document.getElementById('albaranesFiltro').addEventListener('click', function(e){
+    var b = e.target.closest('[data-alb-filtro]');
+    if(!b) return;
+    albaranesFiltro = b.getAttribute('data-alb-filtro');
+    this.querySelectorAll('[data-alb-filtro]').forEach(function(x){ x.classList.toggle('on', x === b); });
+    var statusEl = document.getElementById('albaranesStatus');
+    statusEl.textContent = statusEl.textContent.replace(/^\d+ [^·(]*/, textoCantidadAlbaranes(albaranesUltimos) + ' ');
+    renderAlbaranesTabla(albaranesUltimos);
+  });
 
   // Última lista de albaranes vista en este dispositivo, por filtro de
   // proveedor. Es solo para mostrar algo al instante: la lista buena es
@@ -2935,7 +2960,10 @@
   function renderAlbaranesTabla(facturas){
     var body = document.getElementById('albaranesBody');
     var empty = document.getElementById('albaranesEmpty');
+    albaranesUltimos = facturas;
+    if(albaranesFiltro === 'nopagados') facturas = facturas.filter(esAlbaranNoPagado);
     body.innerHTML = '';
+    empty.textContent = albaranesFiltro === 'nopagados' ? 'No hay albaranes sin pagar para este filtro.' : 'No hay facturas ni albaranes cargados para este filtro.';
     if(!facturas.length){ empty.style.display = 'block'; return; }
     // Resumen de lo que falta pagar, arriba de la lista.
     var sinPagar = facturas.filter(function(f){ return f.subtipo === 'No pagado'; });
@@ -4258,9 +4286,11 @@
     return { cargados: cargados, repetidos: repetidos };
   }
 
-  // Al tocar "Guardar cierre" o la cruz: se pregunta por Glovo. SALIR cierra;
-  // VOLVER se queda en la pantalla, en el paso de Glovo.
+  // Al tocar "Guardar cierre" o la cruz: se pregunta por Glovo (solo en la
+  // caja de hoy). SALIR cierra; VOLVER se queda en la pantalla, en Glovo.
   function preguntarGlovoAntesDeCerrar(t, cerrar){
+    // En una caja de un día que ya pasó no se pregunta: se cierra directo.
+    if(state.fecha < todayISO()){ cerrar(); return; }
     // SALIR (a la izquierda) cierra; VOLVER (en verde) se queda en Glovo.
     preguntar('¿Has cargado Glovo?', 'VOLVER', 'SALIR', function(){
       var lista = document.getElementById('glovoLista_'+t);
