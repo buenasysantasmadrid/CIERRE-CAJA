@@ -1453,12 +1453,10 @@
         return !/^Base imponible:/.test(p) && !/^IVA [\d.,]+\s*%$/.test(p);
       }).join(' · ');
       if(info) partes.push(info);
-    } else if(m.tipo === 'empanadas'){
-      if(m.responsable) partes.push(m.responsable);
-    } else {
+    } else if(m.tipo !== 'empanadas'){
       if(m.motivo) partes.push(m.motivo);
-      if(m.responsable) partes.push(m.responsable);
     }
+    // El responsable no se muestra en las listas: solo al abrir el movimiento.
     return partes.join(' · ');
   }
 
