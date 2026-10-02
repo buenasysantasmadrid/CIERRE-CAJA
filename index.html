@@ -1548,6 +1548,11 @@
       var cerrado = turnoCerrado(t);
       var c = (state[t] && state[t]._calc) || {};
       var hayTotal = !!(state[t] && state[t].totalFacturado);
+      // En Noche, la diferencia del día entero (Mediodía + Noche), como en
+      // la barra del cierre de Noche.
+      var dif = c.diferencia || 0;
+      var delDia = t === 'noche' && turnoCerrado('mediodia');
+      if(delDia) dif += ((state.mediodia && state.mediodia._calc) || {}).diferencia || 0;
       cont.innerHTML =
         '<div class="tc-head"><span class="tc-name">'+icon(TURNO_ICON[t])+'Cierre '+TURNO_LABEL[t]+'</span>' +
           '<span class="tc-head-der">' +
@@ -1557,8 +1562,8 @@
         '<div class="tc-row">' +
           '<div><div class="tc-lbl tc-lbl-total">Total</div>' +
             '<div class="tc-total'+(hayTotal ? '' : ' none')+'">'+(hayTotal ? fmt(c.facturadoNeto) : '—')+'</div></div>' +
-          '<div class="tc-dif-mini"><div class="tc-lbl">Diferencia</div>' +
-            '<div class="tc-diff '+(cerrado ? claseSigno(c.diferencia) : 'none')+'">'+(cerrado ? fmtSigno(c.diferencia) : '—')+'</div></div>' +
+          '<div class="tc-dif-mini"><div class="tc-lbl">'+(delDia ? 'Diferencia del día' : 'Diferencia')+'</div>' +
+            '<div class="tc-diff '+(cerrado ? claseSigno(dif) : 'none')+'">'+(cerrado ? fmtSigno(dif) : '—')+'</div></div>' +
         '</div>' +
         '<button type="button" class="tc-btn outline" data-abrir-cierre="'+t+'">'+(cerrado ? 'Ver cierre' : 'Completar cierre')+'</button>';
     });
