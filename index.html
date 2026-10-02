@@ -1151,7 +1151,7 @@
 
       '<div class="cierre-bar" id="resultBox_'+t+'"><div class="cierre-bar-inner">' +
         '<div class="bar-top">' +
-          '<span class="bar-lbl">Diferencia</span>' +
+          '<span class="bar-lbl">'+(t==='noche' ? 'Diferencia del día' : 'Diferencia')+'</span>' +
           '<span class="diff none" id="resultDiff_'+t+'">—</span>' +
         '</div>' +
         // Estos datos se siguen calculando (los usa recalc) pero ya no se
@@ -3362,8 +3362,12 @@
     var diffEl = document.getElementById('resultDiff_'+t);
     var lblEl = document.getElementById('resultLbl_'+t);
     var completo = !!(totalFacturado && totalContado);
-    diffEl.textContent = completo ? fmtSigno(diferencia) : '—';
-    diffEl.className = 'diff ' + (completo ? claseSigno(diferencia) : 'none');
+    // En Noche la barra muestra la diferencia del día entero: la de Noche
+    // más la de Mediodía (si Mediodía está cerrado).
+    var diferenciaBarra = diferencia;
+    if(t === 'noche' && turnoCerrado('mediodia')) diferenciaBarra += ((state.mediodia && state.mediodia._calc) || {}).diferencia || 0;
+    diffEl.textContent = completo ? fmtSigno(diferenciaBarra) : '—';
+    diffEl.className = 'diff ' + (completo ? claseSigno(diferenciaBarra) : 'none');
     lblEl.textContent = completo ? '' : 'Completa los pasos 1 y 2';
     document.getElementById('cierreEsperado_'+t).textContent = fmt(esperado);
     document.getElementById('cierreContado_'+t).textContent = fmt(totalContado);
