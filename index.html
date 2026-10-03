@@ -429,6 +429,13 @@
   .alb-filtro{display:flex;gap:8px;margin-top:12px;}
   .alb-filtro button{flex:1;background:#fff;border:1.5px solid var(--line);border-radius:999px;min-height:42px;font-size:.92rem;}
   .alb-filtro button.on{background:var(--ink);border-color:var(--ink);color:#fff;font-weight:700;}
+  .alb-varios{display:flex;gap:8px;margin:4px 0 8px;}
+  .alb-varios button{flex:1;background:#fff;border:1.5px solid var(--line);border-radius:12px;min-height:42px;font-size:.92rem;font-weight:600;}
+  .alb-row .alb-check{width:26px;height:26px;border-radius:8px;border:2px solid var(--red);background:#fff;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;color:#fff;}
+  .alb-row.elegido .alb-check{background:var(--red);}
+  .alb-row.elegido{outline:2px solid var(--red);}
+  .alb-pagar-botones{display:flex;gap:8px;}
+  .alb-pagar-botones .btn-big{flex:1;font-size:.88rem;}
   .alb-resumen{background:var(--red-soft);color:var(--red);font-weight:700;font-size:.9rem;border-radius:12px;padding:10px 12px;margin:4px 0 8px;}
   .empty-row{color:var(--ink-soft);text-align:center;padding:24px 0;font-size:.9rem;}
   /* ---------- pantallas del menú (producción, tinta) ---------- */
@@ -610,10 +617,21 @@
         <button type="button" data-alb-filtro="nopagados">No pagados</button>
       </div>
       <div id="albaranesStatus" class="alb-status"></div>
+      <div class="alb-varios" id="albaranesVarios" style="display:none;">
+        <button type="button" id="albaranesVariosBtn">Pagar varios</button>
+        <button type="button" id="albaranesTodosBtn" style="display:none;">Seleccionar todos</button>
+      </div>
       <div id="albaranesBody" class="alb-list"></div>
       <div id="albaranesEmpty" class="empty-row" style="display:none;">No hay facturas ni albaranes cargados para este filtro.</div>
     </div>
   </div>
+  <div class="cierre-bar" id="albaranesBarra" style="display:none;"><div class="cierre-bar-inner">
+    <div class="bar-top"><span class="bar-lbl" id="albaranesSelTexto">Ninguno elegido</span><button type="button" class="link-btn" id="albaranesSelCancelar">Cancelar</button></div>
+    <div class="alb-pagar-botones">
+      <button type="button" class="btn-big menu-guardar" data-pagar-varios="tarjeta">Pagados con tarjeta</button>
+      <button type="button" class="btn-big menu-guardar" data-pagar-varios="transferencia">Pagados por transferencia</button>
+    </div>
+  </div></div>
 </div>
 
 <!-- Producción de empanadas y quiches (menú de tres rayas) -->
@@ -2854,6 +2872,7 @@
     buscarAlbaranes();
   }
   function cerrarAlbaranes(){
+    if(albaranesSeleccionando) salirDePagarVarios(true);
     document.getElementById('albaranesOverlay').classList.remove('open');
     document.body.classList.remove('no-scroll');
     iniciarSondeoSheet();
@@ -2973,6 +2992,10 @@
     if(albaranesFiltro === 'nopagados') facturas = facturas.filter(esAlbaranNoPagado);
     body.innerHTML = '';
     empty.textContent = albaranesFiltro === 'nopagados' ? 'No hay albaranes sin pagar para este filtro.' : 'No hay facturas ni albaranes cargados para este filtro.';
+    // "Pagar varios" solo con el filtro No pagados y si hay más de uno.
+    var hayVarios = albaranesFiltro === 'nopagados' && facturas.filter(esAlbaranNoPagado).length > 1;
+    if(!hayVarios && albaranesSeleccionando) salirDePagarVarios(true);
+    document.getElementById('albaranesVarios').style.display = hayVarios ? 'flex' : 'none';
     if(!facturas.length){ empty.style.display = 'block'; return; }
     // Resumen de lo que falta pagar, arriba de la lista.
     var sinPagar = facturas.filter(function(f){ return f.subtipo === 'No pagado'; });
@@ -2994,18 +3017,28 @@
       var fechaCorta = partesFecha.length === 3 ? partesFecha[2]+'/'+partesFecha[1] : String(fechaFactura);
       var tr = document.createElement('button');
       tr.type = 'button';
-      tr.className = 'alb-row' + (noPagado ? ' alb-nopagado' : '');
+      var claveSel = claveAlbaran(f);
+      var elegible = albaranesSeleccionando && noPagado;
+      tr.className = 'alb-row' + (noPagado ? ' alb-nopagado' : '') + (elegible && albaranesElegidos[claveSel] ? ' elegido' : '');
       tr.innerHTML =
+        (elegible ? '<span class="alb-check">'+icon('check')+'</span>' : '') +
         '<span class="ico-circle c-gasto">'+icon('truck')+'</span>' +
         '<span class="mov-main">' +
           '<span class="mov-name">'+escapeHtml(f.proveedorTexto||'(sin proveedor)')+(f.factura ? ' <span class="muted">· Fact. '+escapeHtml(f.factura)+'</span>' : '')+'</span>' +
           '<span class="mov-sub">'+escapeHtml(fechaCorta)+' · '+(turnoKey ? turnoTagHTML(turnoKey) : escapeHtml(f.turno||''))+
             (f.subtipo && !noPagado ? '<span>· '+escapeHtml(f.subtipo)+'</span>' : '')+'</span>' +
           (pagadoTexto ? '<span class="alb-pagado">Pagado '+escapeHtml(pagadoTexto)+'</span>' : '') +
-          (noPagado ? '<span class="tag-nopagado">No pagado · tocar para pagar</span>' : '') +
+          (noPagado ? '<span class="tag-nopagado">'+(elegible ? 'No pagado' : 'No pagado · tocar para pagar')+'</span>' : '') +
         '</span>' +
         '<span class="mov-amt">'+fmt(f.importe)+'</span>';
       tr.addEventListener('click', function(){
+        if(elegible){
+          if(albaranesElegidos[claveSel]) delete albaranesElegidos[claveSel];
+          else albaranesElegidos[claveSel] = f;
+          tr.classList.toggle('elegido', !!albaranesElegidos[claveSel]);
+          actualizarBarraVarios();
+          return;
+        }
         if(noPagado){
           abrirPagoAlbaran(f);
         } else {
@@ -3013,6 +3046,96 @@
         }
       });
       body.appendChild(tr);
+    });
+  }
+
+  // ---------- Albaranes: pagar varios a la vez ----------
+  // Con el filtro "No pagados": se eligen varios albaranes y se marcan todos
+  // como pagados con tarjeta o por transferencia (lo mismo que hacerlo de a
+  // uno: solo cambia la etiqueta, no toca la caja). Efectivo no, porque cada
+  // uno tiene que salir de la caja de un turno.
+  var albaranesSeleccionando = false;
+  var albaranesElegidos = {}; // clave -> albarán
+  function claveAlbaran(f){ return (f.idTurno || '') + '|' + (f.idMovimiento || ''); }
+  function entrarAPagarVarios(){
+    albaranesSeleccionando = true;
+    albaranesElegidos = {};
+    document.getElementById('albaranesVariosBtn').textContent = 'Terminar';
+    document.getElementById('albaranesTodosBtn').style.display = '';
+    document.getElementById('albaranesTodosBtn').textContent = 'Seleccionar todos';
+    document.getElementById('albaranesBarra').style.display = '';
+    renderAlbaranesTabla(albaranesUltimos);
+    actualizarBarraVarios();
+  }
+  function salirDePagarVarios(sinPintar){
+    albaranesSeleccionando = false;
+    albaranesElegidos = {};
+    document.getElementById('albaranesVariosBtn').textContent = 'Pagar varios';
+    document.getElementById('albaranesTodosBtn').style.display = 'none';
+    document.getElementById('albaranesBarra').style.display = 'none';
+    if(!sinPintar) renderAlbaranesTabla(albaranesUltimos);
+  }
+  function elegidosAlbaranes(){ return Object.keys(albaranesElegidos).map(function(k){ return albaranesElegidos[k]; }); }
+  function actualizarBarraVarios(){
+    var lista = elegidosAlbaranes();
+    var total = lista.reduce(function(s, f){ return s + num(f.importe); }, 0);
+    document.getElementById('albaranesSelTexto').textContent = lista.length
+      ? (lista.length === 1 ? '1 elegido' : lista.length + ' elegidos') + ' · ' + fmt(total)
+      : 'Toca los albaranes que se pagaron';
+    document.querySelectorAll('[data-pagar-varios]').forEach(function(b){ b.disabled = !lista.length; });
+  }
+  document.getElementById('albaranesVariosBtn').addEventListener('click', function(){
+    if(albaranesSeleccionando) salirDePagarVarios(); else entrarAPagarVarios();
+  });
+  document.getElementById('albaranesSelCancelar').addEventListener('click', function(){ salirDePagarVarios(); });
+  document.getElementById('albaranesTodosBtn').addEventListener('click', function(){
+    var visibles = albaranesUltimos.filter(esAlbaranNoPagado);
+    var todos = visibles.every(function(f){ return albaranesElegidos[claveAlbaran(f)]; });
+    albaranesElegidos = {};
+    if(!todos) visibles.forEach(function(f){ albaranesElegidos[claveAlbaran(f)] = f; });
+    this.textContent = todos ? 'Seleccionar todos' : 'Quitar todos';
+    renderAlbaranesTabla(albaranesUltimos);
+    actualizarBarraVarios();
+  });
+  document.querySelectorAll('[data-pagar-varios]').forEach(function(b){
+    b.addEventListener('click', function(){
+      var forma = b.getAttribute('data-pagar-varios');
+      var lista = elegidosAlbaranes();
+      if(!lista.length) return;
+      var total = lista.reduce(function(s, f){ return s + num(f.importe); }, 0);
+      preguntar('¿Marcar ' + (lista.length === 1 ? '1 albarán' : lista.length + ' albaranes') + ' (' + fmt(total) + ') como pagados ' +
+        (forma === 'tarjeta' ? 'con tarjeta' : 'por transferencia') + '?', 'Sí, marcar pagados', 'Cancelar', function(){
+        pagarVariosAlbaranes(lista, forma);
+      });
+    });
+  });
+  // De a uno (el Sheet los cambia en orden), mostrando cuántos van.
+  function pagarVariosAlbaranes(lista, forma){
+    var fechaPago = state.fecha;
+    var statusEl = document.getElementById('albaranesStatus');
+    var url = loadSheetUrl();
+    var bien = 0, mal = [];
+    salirDePagarVarios(true);
+    document.getElementById('albaranesVarios').style.display = 'none';
+    var cadena = Promise.resolve();
+    lista.forEach(function(f, i){
+      cadena = cadena.then(function(){
+        statusEl.textContent = 'Marcando como pagados… ' + (i + 1) + ' de ' + lista.length;
+        return fetch(url, {
+          method: 'POST',
+          headers: {'Content-Type':'text/plain;charset=utf-8'},
+          body: JSON.stringify({ accionCambiarFormaPago: true, idMovimiento: f.idMovimiento, idTurno: f.idTurno, fecha: f.fecha, nuevaFormaPago: forma, fechaPago: fechaPago })
+        }).then(function(resp){ return resp.json(); }).then(function(res){
+          if(res && res.ok){ bien++; actualizarSubtipoAlbaranLocal(f, forma, fechaPago); }
+          else mal.push((f.proveedorTexto || '') + ' ' + (f.factura || ''));
+        }).catch(function(){ mal.push((f.proveedorTexto || '') + ' ' + (f.factura || '')); });
+      });
+    });
+    cadena.then(function(){
+      var modo = forma === 'tarjeta' ? 'con tarjeta' : 'por transferencia';
+      if(mal.length) alert(bien + ' marcados como pagados ' + modo + '. No se pudieron cambiar: ' + mal.join(', ') + '. Vuelve a intentarlo con esos.');
+      else toast((bien === 1 ? '1 albarán pagado ' : bien + ' albaranes pagados ') + modo);
+      buscarAlbaranes();
     });
   }
 
