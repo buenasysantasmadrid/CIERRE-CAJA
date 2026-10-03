@@ -494,7 +494,7 @@
   #preguntaNo{background:#fff;border:1.5px solid var(--line);}
   #preguntaOverlay.pequena .modal{max-width:300px;padding:16px;}
   #preguntaOverlay.pequena h3{font-size:1.15rem;margin:0 0 12px;text-align:center;}
-  #preguntaOverlay.pequena .pregunta-acciones{flex-direction:row-reverse;gap:8px;}
+  #preguntaOverlay.pequena .pregunta-acciones{flex-direction:column-reverse;gap:8px;}
   #preguntaOverlay.pequena #preguntaSi:focus{outline:3px solid var(--ink);outline-offset:2px;}
   #preguntaOverlay.pequena .pregunta-acciones button{flex:1;min-height:42px;font-size:.92rem;}
   .toast{
@@ -4486,13 +4486,13 @@
   }
 
   // Al tocar "Guardar cierre" o la cruz: se pregunta por Glovo (solo en la
-  // caja de hoy). SÍ cierra; VOLVER se queda en la pantalla, en Glovo.
+  // caja de hoy). SÍ, SALIR cierra; VOLVER PARA CARGAR se queda en Glovo.
   function preguntarGlovoAntesDeCerrar(t, cerrar){
     // En una caja de un día que ya pasó no se pregunta: se cierra directo.
     if(state.fecha < todayISO()){ cerrar(); return; }
     // SÍ (primero, en verde y ya marcado: con Intro se elige) cierra;
-    // VOLVER se queda en el cierre, en el paso de Glovo.
-    preguntar('¿Has cargado Glovo?', 'SÍ', 'VOLVER', cerrar, function(){
+    // VOLVER PARA CARGAR se queda en el cierre, en el paso de Glovo.
+    preguntar('¿Has cargado Glovo?', 'SÍ, SALIR', 'VOLVER PARA CARGAR', cerrar, function(){
       var lista = document.getElementById('glovoLista_'+t);
       if(lista) lista.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
