@@ -3439,7 +3439,17 @@
   document.getElementById('fechaCierre').addEventListener('input', function(){
     var nuevaFecha = this.value;
     if(!nuevaFecha) return;
-
+    var input = this;
+    // Si este aparato no sabe que ese día tiene caja, se pregunta al Sheet
+    // (puede haberla abierto otro aparato después de que este arrancó).
+    var store0 = getDiasStore();
+    if(!store0[nuevaFecha] && !fechasConDatos[nuevaFecha]){
+      confirmarDiaEnSheet(nuevaFecha).then(function(){ elegirFecha(input, nuevaFecha); });
+      return;
+    }
+    elegirFecha(input, nuevaFecha);
+  });
+  function elegirFecha(inputFecha, nuevaFecha){
     var store = getDiasStore();
     var yaExiste = !!store[nuevaFecha] || !!fechasConDatos[nuevaFecha];
     var esMismoDia = nuevaFecha === state.fecha;
@@ -3451,19 +3461,27 @@
     // reintentar el día que ya se está viendo (por si antes se dijo que no).
     if(!yaExiste && !esMismoDia && nuevaFecha < todayISO()){
       alert('NO SE TRABAJO ESTE DIA');
-      this.value = state.fecha; // se queda en el día que ya estaba
+      inputFecha.value = state.fecha; // se queda en el día que ya estaba
       return;
     }
 
     if(!yaExiste){
-      var input = this;
-      preguntarAbrirCaja(nuevaFecha, function(){ cambiarDia(nuevaFecha); }, function(){
-        input.value = state.fecha; // se queda en el día que ya estaba
+      preguntarAbrirCaja(nuevaFecha, function(){ abrirCajaNueva(nuevaFecha); }, function(){
+        inputFecha.value = state.fecha; // se queda en el día que ya estaba
       });
       return;
     }
     cambiarDia(nuevaFecha);
-  });
+  }
+
+  // Abrir la caja de un día que no existía: además de crearla acá, se manda
+  // al Sheet en el momento (vacía), para que los otros aparatos sepan que
+  // ese día ya está abierto y no vuelvan a preguntar.
+  function abrirCajaNueva(fecha){
+    cambiarDia(fecha);
+    saveDraft();
+    iniciarSondeoSheet();
+  }
 
   // Pregunta antes de crear la caja de un día que todavía no existe (la
   // misma ventana que al abrir la app sin la caja de hoy).
@@ -3586,14 +3604,15 @@
   document.getElementById('btnVolverHoy').addEventListener('click', function(){
     var hoy = todayISO();
     if(state.fecha === hoy) return;
-    if(getDiasStore()[hoy] || fechasConDatos[hoy]){
-      cambiarDia(hoy);
-      return;
+    function seguir(){
+      if(getDiasStore()[hoy] || fechasConDatos[hoy]){
+        cambiarDia(hoy);
+        return;
+      }
+      preguntarAbrirCaja(hoy, function(){ abrirCajaNueva(hoy); }, null);
     }
-    preguntarAbrirCaja(hoy, function(){
-      cambiarDia(hoy);
-      iniciarSondeoSheet();
-    }, null);
+    if(getDiasStore()[hoy] || fechasConDatos[hoy]) seguir();
+    else confirmarDiaEnSheet(hoy).then(seguir);
   });
 
   // ---------- calendario propio (el nativo no se puede pintar ni siempre se puede navegar bien) ----------
@@ -4883,10 +4902,7 @@
       preguntar('NO ESTÁ CREADA LA CAJA DEL DÍA DE HOY, ¿LA QUIERES ABRIR?',
         'Sí, abrir la caja de hoy',
         ultimaFecha ? 'No, seguir en la del ' + p[2] + '/' + p[1] : 'Ahora no',
-        function(){
-          cambiarDia(hoy);
-          iniciarSondeoSheet();
-        }, null);
+        function(){ abrirCajaNueva(hoy); }, null);
     });
   }
 
