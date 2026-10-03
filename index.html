@@ -109,6 +109,11 @@
   .menu-popup.open{display:block;}
   .menu-popup button{display:block;width:100%;text-align:left;background:none;padding:12px 12px;border-radius:10px;font-family:var(--serif);font-weight:400;font-style:italic;font-size:1.12rem;}
   .menu-popup button:active{background:var(--panel);}
+  .menu-popup .menu-varios{display:flex;align-items:center;justify-content:space-between;}
+  .menu-flecha{display:inline-flex;transition:transform .15s;}
+  .menu-varios[aria-expanded="true"] .menu-flecha{transform:rotate(90deg);}
+  .menu-sub{display:none;margin-left:14px;border-left:2px solid var(--line);padding-left:4px;}
+  .menu-sub.open{display:block;}
   .header-actions{display:flex;gap:8px;}
   .pill-btn{
     display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid var(--line);
@@ -526,8 +531,11 @@
       <nav class="menu-popup" id="menuPopup">
         <button type="button" data-menu-archivo="produccion">Producción empanadas y quiche</button>
         <button type="button" data-menu-archivo="carniceria">Comparativa carnicería</button>
-        <button type="button" data-menu-archivo="tinta">Cambio de tinta</button>
-        <button type="button" data-menu-archivo="arreglos">Arreglo electrodomésticos</button>
+        <button type="button" id="menuVariosBtn" class="menu-varios" aria-expanded="false">Varios <span class="menu-flecha" data-icon="chevronRight"></span></button>
+        <div class="menu-sub" id="menuVarios">
+          <button type="button" data-menu-archivo="tinta">Cambio de tinta</button>
+          <button type="button" data-menu-archivo="arreglos">Arreglo electrodomésticos</button>
+        </div>
       </nav>
     </div>
     <div class="header-actions">
@@ -3922,7 +3930,20 @@
   // uno con su pantalla.
   var menuPopup = document.getElementById('menuPopup');
   var btnMenu = document.getElementById('btnMenu');
-  function cerrarMenu(){ menuPopup.classList.remove('open'); btnMenu.setAttribute('aria-expanded', 'false'); }
+  function cerrarMenu(){
+    menuPopup.classList.remove('open');
+    btnMenu.setAttribute('aria-expanded', 'false');
+    abrirSubmenuVarios(false); // el menú vuelve a abrirse con "Varios" cerrado
+  }
+  // "Varios": submenú con Cambio de tinta y Arreglo electrodomésticos.
+  function abrirSubmenuVarios(abrir){
+    document.getElementById('menuVarios').classList.toggle('open', abrir);
+    document.getElementById('menuVariosBtn').setAttribute('aria-expanded', abrir ? 'true' : 'false');
+  }
+  document.getElementById('menuVariosBtn').addEventListener('click', function(e){
+    e.stopPropagation();
+    abrirSubmenuVarios(this.getAttribute('aria-expanded') !== 'true');
+  });
   btnMenu.addEventListener('click', function(e){
     e.stopPropagation();
     var abrir = !menuPopup.classList.contains('open');
