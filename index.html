@@ -2870,8 +2870,23 @@
     // alguno de los dos vuelva con un error de cuota/concurrencia.
     detenerSondeoSheet();
     buscarAlbaranes();
+    // Mientras está abierta, la lista se vuelve a pedir cada 20 s: así se
+    // ve lo que se cargue o se pague desde otro aparato sin cerrarla.
+    clearInterval(albaranesRefrescoTimer);
+    albaranesRefrescoTimer = setInterval(refrescarAlbaranesAbiertos, POLL_INTERVAL_MS);
+  }
+  var albaranesRefrescoTimer = null;
+  var albaranesPagandoVarios = false;
+  function refrescarAlbaranesAbiertos(){
+    if(!document.getElementById('albaranesOverlay').classList.contains('open')) return;
+    if(document.visibilityState !== 'visible') return;
+    // No mientras se está pagando uno o varios.
+    if(albaranesPagandoVarios || document.getElementById('pagoAlbaranOverlay').classList.contains('open')) return;
+    buscarAlbaranes();
   }
   function cerrarAlbaranes(){
+    clearInterval(albaranesRefrescoTimer);
+    albaranesRefrescoTimer = null;
     if(albaranesSeleccionando) salirDePagarVarios(true);
     document.getElementById('albaranesOverlay').classList.remove('open');
     document.body.classList.remove('no-scroll');
@@ -3115,6 +3130,7 @@
     var statusEl = document.getElementById('albaranesStatus');
     var url = loadSheetUrl();
     var bien = 0, mal = [];
+    albaranesPagandoVarios = true;
     salirDePagarVarios(true);
     document.getElementById('albaranesVarios').style.display = 'none';
     var cadena = Promise.resolve();
@@ -3135,6 +3151,7 @@
       var modo = forma === 'tarjeta' ? 'con tarjeta' : 'por transferencia';
       if(mal.length) alert(bien + ' marcados como pagados ' + modo + '. No se pudieron cambiar: ' + mal.join(', ') + '. Vuelve a intentarlo con esos.');
       else toast((bien === 1 ? '1 albarán pagado ' : bien + ' albaranes pagados ') + modo);
+      albaranesPagandoVarios = false;
       buscarAlbaranes();
     });
   }
@@ -5061,6 +5078,7 @@
     if(document.visibilityState === 'visible'){
       revisarSiCambioElDia_();
       revisarActualizacionesDesdeSheet();
+      refrescarAlbaranesAbiertos();
       revisarAvisoTpv1();
     }
   });
