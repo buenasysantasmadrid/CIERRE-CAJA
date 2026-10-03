@@ -487,9 +487,9 @@
   .pregunta-acciones{display:flex;flex-direction:column;gap:10px;}
   .pregunta-acciones button{min-height:54px;border-radius:14px;font-size:1rem;}
   #preguntaNo{background:#fff;border:1.5px solid var(--line);}
-  #preguntaOverlay.pequena .modal{max-width:260px;padding:16px;}
+  #preguntaOverlay.pequena .modal{max-width:300px;padding:16px;}
   #preguntaOverlay.pequena h3{font-size:1.15rem;margin:0 0 12px;text-align:center;}
-  #preguntaOverlay.pequena .pregunta-acciones{flex-direction:row;gap:8px;}
+  #preguntaOverlay.pequena .pregunta-acciones{flex-direction:column-reverse;gap:8px;}
   #preguntaOverlay.pequena .pregunta-acciones button{flex:1;min-height:42px;font-size:.92rem;}
   .toast{
     position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);
@@ -4452,7 +4452,7 @@
     // En una caja de un día que ya pasó no se pregunta: se cierra directo.
     if(state.fecha < todayISO()){ cerrar(); return; }
     // SALIR (a la izquierda) cierra; VOLVER (en verde) se queda en Glovo.
-    preguntar('¿Has cargado Glovo?', 'VOLVER', 'SALIR', function(){
+    preguntar('¿Has cargado Glovo?', 'VOLVER PARA CARGAR GLOVO', 'SALIR', function(){
       var lista = document.getElementById('glovoLista_'+t);
       if(lista) lista.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, cerrar);
