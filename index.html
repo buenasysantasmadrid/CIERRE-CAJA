@@ -4486,13 +4486,13 @@
   }
 
   // Al tocar "Guardar cierre" o la cruz: se pregunta por Glovo (solo en la
-  // caja de hoy). SÍ cierra; VOLVEMOS se queda en la pantalla, en Glovo.
+  // caja de hoy). SÍ cierra; VOLVER se queda en la pantalla, en Glovo.
   function preguntarGlovoAntesDeCerrar(t, cerrar){
     // En una caja de un día que ya pasó no se pregunta: se cierra directo.
     if(state.fecha < todayISO()){ cerrar(); return; }
     // SÍ (primero, en verde y ya marcado: con Intro se elige) cierra;
-    // VOLVEMOS se queda en el cierre, en el paso de Glovo.
-    preguntar('¿Has cargado Glovo?', 'SÍ', 'VOLVEMOS', cerrar, function(){
+    // VOLVER se queda en el cierre, en el paso de Glovo.
+    preguntar('¿Has cargado Glovo?', 'SÍ', 'VOLVER', cerrar, function(){
       var lista = document.getElementById('glovoLista_'+t);
       if(lista) lista.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
