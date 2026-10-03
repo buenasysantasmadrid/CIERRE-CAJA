@@ -494,7 +494,8 @@
   #preguntaNo{background:#fff;border:1.5px solid var(--line);}
   #preguntaOverlay.pequena .modal{max-width:300px;padding:16px;}
   #preguntaOverlay.pequena h3{font-size:1.15rem;margin:0 0 12px;text-align:center;}
-  #preguntaOverlay.pequena .pregunta-acciones{flex-direction:column-reverse;gap:8px;}
+  #preguntaOverlay.pequena .pregunta-acciones{flex-direction:row-reverse;gap:8px;}
+  #preguntaOverlay.pequena #preguntaSi:focus{outline:3px solid var(--ink);outline-offset:2px;}
   #preguntaOverlay.pequena .pregunta-acciones button{flex:1;min-height:42px;font-size:.92rem;}
   .toast{
     position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);
@@ -1156,7 +1157,7 @@
           '<div class="sub-label">Billetes</div>' +
           '<div id="billetesBody_'+t+'"></div>' +
           '<div class="sub-label">Monedas</div>' +
-          '<div class="monedas-row head"><span></span><span style="text-align:center;">Sueltas</span><span style="text-align:center;">Rollos</span><span style="text-align:right;">Subtotal</span></div>' +
+          '<div class="monedas-row head"><span></span><span style="text-align:center;">Sueltas</span><span style="text-align:center;">Blister</span><span style="text-align:right;">Subtotal</span></div>' +
           '<div id="monedasBody_'+t+'"></div>' +
           '<div class="total-contado"><span>Total contado</span><span id="totalContadoLbl_'+t+'">0,00 €</span></div>' +
         '</div>' +
@@ -1200,7 +1201,7 @@
       '<div>' +
         '<div class="sub-label">Contar el fondo fijo · Billetes</div><div id="fondoBilletes_'+t+'"></div>' +
         '<div class="sub-label">Monedas</div>' +
-        '<div class="monedas-row head"><span></span><span style="text-align:center;">Sueltas</span><span style="text-align:center;">Rollos</span><span style="text-align:right;">Subtotal</span></div>' +
+        '<div class="monedas-row head"><span></span><span style="text-align:center;">Sueltas</span><span style="text-align:center;">Blister</span><span style="text-align:right;">Subtotal</span></div>' +
         '<div id="fondoMonedas_'+t+'"></div>' +
         '<div class="total-contado"><span>Fondo contado</span><span id="fondoContadoLbl_'+t+'">0,00 €</span></div>' +
       '</div>' +
@@ -1249,9 +1250,9 @@
     }).join('');
     document.getElementById('fondoMonedas_'+t).innerHTML = MONEDAS.map(function(v){
       return '<div class="monedas-row">' +
-        '<span class="denom-lbl">'+v.toLocaleString('es-ES')+' €<small>rollo '+fmt(ROLL_VALUE[v])+'</small></span>' +
+        '<span class="denom-lbl">'+v.toLocaleString('es-ES')+' €<small>blister '+fmt(ROLL_VALUE[v])+'</small></span>' +
         '<input type="number" inputmode="numeric" min="0" step="1" data-fondo-suelta="'+v+'" value="'+(d.monedasSueltas[v]||0)+'" aria-label="Sueltas de '+v+' €">' +
-        '<input type="number" inputmode="numeric" min="0" step="1" data-fondo-rollo="'+v+'" value="'+(d.monedasBlister[v]||0)+'" aria-label="Rollos de '+v+' €">' +
+        '<input type="number" inputmode="numeric" min="0" step="1" data-fondo-rollo="'+v+'" value="'+(d.monedasBlister[v]||0)+'" aria-label="Blister de '+v+' €">' +
         '<span class="denom-sub" id="fondoSub_'+t+'_m_'+v+'">0,00 €</span></div>';
     }).join('');
     compararFondo(t);
@@ -1386,9 +1387,9 @@
       var row = document.createElement('div');
       row.className = 'monedas-row';
       row.innerHTML =
-        '<span class="denom-lbl">'+v.toLocaleString('es-ES')+' €<small>rollo '+fmt(ROLL_VALUE[v])+'</small></span>' +
+        '<span class="denom-lbl">'+v.toLocaleString('es-ES')+' €<small>blister '+fmt(ROLL_VALUE[v])+'</small></span>' +
         '<input type="number" inputmode="numeric" min="0" step="1" data-moneda-suelta="'+v+'" value="'+(state[t].denom.monedasSueltas[v]||0)+'" aria-label="Sueltas de '+v+' €">' +
-        '<input type="number" inputmode="numeric" min="0" step="1" data-moneda-blister="'+v+'" value="'+(state[t].denom.monedasBlister[v]||0)+'" aria-label="Rollos de '+v+' €">' +
+        '<input type="number" inputmode="numeric" min="0" step="1" data-moneda-blister="'+v+'" value="'+(state[t].denom.monedasBlister[v]||0)+'" aria-label="Blister de '+v+' €">' +
         '<span class="denom-sub" id="monedaSub_'+t+'_'+v+'">0,00 €</span>';
       monedasBody.appendChild(row);
     });
@@ -4485,16 +4486,18 @@
   }
 
   // Al tocar "Guardar cierre" o la cruz: se pregunta por Glovo (solo en la
-  // caja de hoy). SALIR cierra; VOLVER se queda en la pantalla, en Glovo.
+  // caja de hoy). SÍ cierra; VOLVEMOS se queda en la pantalla, en Glovo.
   function preguntarGlovoAntesDeCerrar(t, cerrar){
     // En una caja de un día que ya pasó no se pregunta: se cierra directo.
     if(state.fecha < todayISO()){ cerrar(); return; }
-    // SALIR (a la izquierda) cierra; VOLVER (en verde) se queda en Glovo.
-    preguntar('¿Has cargado Glovo?', 'VOLVER PARA CARGAR GLOVO', 'SALIR', function(){
+    // SÍ (primero, en verde y ya marcado: con Intro se elige) cierra;
+    // VOLVEMOS se queda en el cierre, en el paso de Glovo.
+    preguntar('¿Has cargado Glovo?', 'SÍ', 'VOLVEMOS', cerrar, function(){
       var lista = document.getElementById('glovoLista_'+t);
       if(lista) lista.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, cerrar);
+    });
     document.getElementById('preguntaOverlay').classList.add('pequena');
+    setTimeout(function(){ try{ document.getElementById('preguntaSi').focus(); }catch(e){} }, 50);
   }
 
   function estadoGlovo(t, texto, cargando, error){
