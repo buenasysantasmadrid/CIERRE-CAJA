@@ -115,6 +115,11 @@ function gastosDelDia_(dia) {
     if (!t) return;
     (t.movimientosRaw || t.movimientos || []).forEach(function (m) {
       var tipo = String(m.tipo || '').toLowerCase();
+      // "Pago de factura ...": la línea que deja en la caja del día del pago
+      // una factura vieja que se paga (en efectivo, con tarjeta o por
+      // transferencia). No es un albarán nuevo: el original ya queda marcado
+      // como "PAGADO ...", así que no se escribe otra vez.
+      if (String(m.info || '').indexOf('Pago de factura ') === 0) return;
       if (tipo === 'gasto' && m.id && m.proveedor) gastos.push(m);
     });
   });

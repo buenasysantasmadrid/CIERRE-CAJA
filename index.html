@@ -3142,6 +3142,7 @@
     var statusEl = document.getElementById('albaranesStatus');
     var url = loadSheetUrl();
     var bien = 0, mal = [];
+    var turnosConPago = {};
     albaranesPagandoVarios = true;
     salirDePagarVarios(true);
     document.getElementById('albaranesVarios').style.display = 'none';
@@ -3154,7 +3155,12 @@
           headers: {'Content-Type':'text/plain;charset=utf-8'},
           body: JSON.stringify({ accionCambiarFormaPago: true, idMovimiento: f.idMovimiento, idTurno: f.idTurno, fecha: f.fecha, nuevaFormaPago: forma, fechaPago: fechaPago })
         }).then(function(resp){ return resp.json(); }).then(function(res){
-          if(res && res.ok){ bien++; actualizarSubtipoAlbaranLocal(f, forma, fechaPago); }
+          if(res && res.ok){
+            bien++;
+            actualizarSubtipoAlbaranLocal(f, forma, fechaPago);
+            var tp = anotarPagoEnCaja(f, forma);
+            if(tp) turnosConPago[tp] = true;
+          }
           else mal.push((f.proveedorTexto || '') + ' ' + (f.factura || ''));
         }).catch(function(){ mal.push((f.proveedorTexto || '') + ' ' + (f.factura || '')); });
       });
@@ -3164,6 +3170,7 @@
       if(mal.length) alert(bien + ' marcados como pagados ' + modo + '. No se pudieron cambiar: ' + mal.join(', ') + '. Vuelve a intentarlo con esos.');
       else toast((bien === 1 ? '1 albarán pagado ' : bien + ' albaranes pagados ') + modo);
       albaranesPagandoVarios = false;
+      guardarPagosEnCaja(turnosConPago);
       buscarAlbaranes();
     });
   }
@@ -3233,8 +3240,48 @@
     });
   }
 
-  // Cambia solo la etiqueta del albarán viejo (Tarjeta/Transferencia): no
-  // toca ninguna caja.
+  // Una factura vieja que se paga hoy con tarjeta o por transferencia deja
+  // una línea en la caja de hoy ("Pago de factura X del ..."), para saber en
+  // qué día se pagó. No afecta al efectivo, y en el Sheet no cuenta como un
+  // albarán nuevo (Albaranes la salta por el "Pago de factura"). Si la
+  // factura es de la misma caja, no hace falta: ya está ahí.
+  function anotarPagoEnCaja(f, forma){
+    if(!f || f.fecha === state.fecha) return false;
+    var turno = turnoPorHora();
+    var proveedorFinal = f.proveedorTexto || '';
+    var proveedorDetalle = '';
+    var prefijoLibre = PROVEEDORES_CON_DETALLE_LIBRE.filter(function(p){ return proveedorFinal.indexOf(p) === 0; })[0];
+    if(prefijoLibre){
+      var partes = proveedorFinal.split(' — ');
+      proveedorFinal = prefijoLibre;
+      proveedorDetalle = partes.slice(1).join(' — ');
+    }
+    state[turno].movimientos.push({
+      id: uid(),
+      tipo: 'gasto',
+      subtipo: forma,
+      importe: num(f.importe),
+      fecha: f.fechaFactura || f.fecha || state.fecha,
+      proveedor: proveedorFinal,
+      proveedorDetalle: proveedorDetalle,
+      factura: f.factura || '',
+      info: 'Pago de factura ' + (f.factura || '(s/n)') + ' del ' + fechaCorta(f.fechaFactura || f.fecha || state.fecha),
+      iva: null,
+      motivo: '',
+      responsable: ''
+    });
+    return turno;
+  }
+  function guardarPagosEnCaja(turnos){
+    var hubo = false;
+    TURNOS.forEach(function(t){ if(turnos[t]){ hubo = true; recalc(t); } });
+    if(!hubo) return;
+    renderMovimientos();
+    saveDraft();
+  }
+
+  // Cambia la etiqueta del albarán viejo (Tarjeta/Transferencia) y deja la
+  // línea del pago en la caja de hoy (ver anotarPagoEnCaja).
   function aplicarFormaPagoNoEfectivoAlbaran(forma){
     var f = pagoAlbaranActual;
     if(!f) return;
@@ -3251,6 +3298,8 @@
       if(res && res.ok){
         toast('Albarán marcado como pagado (' + (forma==='tarjeta'?'Tarjeta':'Transferencia') + ')');
         actualizarSubtipoAlbaranLocal(f, forma, fechaPago);
+        var t1 = anotarPagoEnCaja(f, forma);
+        if(t1){ var tt = {}; tt[t1] = true; guardarPagosEnCaja(tt); }
       } else {
         toast('No se pudo actualizar el albarán: ' + ((res&&res.error)||'error desconocido'));
       }
