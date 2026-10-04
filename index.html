@@ -762,7 +762,7 @@
       <div id="pagoAlbaranFormaRow"></div>
     </div>
     <div id="pagoAlbaranPasoTurno" style="display:none;">
-      <div class="ok-note"><span data-icon="check"></span>Se anota en Proveedores como Efectivo antiguo</div>
+      <div class="ok-note"><span data-icon="check"></span>Se anota en Gastos como Efectivo antiguo</div>
       <div class="field-label">¿De qué turno de hoy sale?</div>
       <div class="turno-big" id="pagoAlbaranTurnoRow"></div>
     </div>
@@ -914,7 +914,7 @@
   }
   // Tipos que se anotan desde la pantalla principal (fichas "Anotar").
   var ANOTAR_TIPOS = {
-    gasto:     {nombre:'Proveedor', hint:'Pagos y facturas', icon:'truck'},
+    gasto:     {nombre:'Gastos', editar:'Editar gasto', hint:'Pagos y facturas', icon:'truck'},
     ingreso:   {nombre:'Ingreso',   hint:'Entra dinero',     icon:'arrowDown'},
     egreso:    {nombre:'Retiro',    hint:'Sale dinero',      icon:'arrowUp'},
     empanadas: {nombre:'Empanadas', hint:'Bakea, Lombay…',   icon:'empanada'}
@@ -1560,7 +1560,7 @@
         }).join('') +
       '</div>' +
       '<div class="section-label">Movimientos de '+TURNO_LABEL[t]+'</div>' +
-      '<div class="mov-box"><div class="mov-box-title">Proveedores</div><div id="movProvList_'+t+'"></div></div>' +
+      '<div class="mov-box"><div class="mov-box-title">Gastos</div><div id="movProvList_'+t+'"></div></div>' +
       '<div class="mov-box"><div class="mov-box-title">Otros movimientos</div><div id="movOtrosList_'+t+'"></div></div>' +
     '</section>';
   }
@@ -1707,7 +1707,7 @@
   // Cabecera de la hoja: icono, nombre y frase de ayuda del tipo.
   function renderCategoryButtons(){
     var info = ANOTAR_TIPOS[currentTipo] || {nombre:'Movimiento', hint:'', icon:'plus'};
-    document.getElementById('modalTitle').textContent = editingId ? 'Editar ' + info.nombre.toLowerCase() : info.nombre;
+    document.getElementById('modalTitle').textContent = editingId ? (info.editar || 'Editar ' + info.nombre.toLowerCase()) : info.nombre;
     document.getElementById('sheetHint').textContent = info.hint;
     var ic = document.getElementById('sheetIcon');
     ic.className = 'ico-circle big c-' + currentTipo;
