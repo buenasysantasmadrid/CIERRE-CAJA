@@ -1680,7 +1680,10 @@ function escribirContabilidad_(data) {
     var tpv2Dia = Math.max(md.tpv2 || 0, nc.tpv2 || 0);
     var tpv3Dia = Math.max(md.tpv3 || 0, nc.tpv3 || 0);
     var efevoDia = ncActivo ? (cNc.totalContado || 0) : (cMd.totalContado || 0);
-    var diferenciaDia = (cMd.diferencia || 0) + (cNc.diferencia || 0);
+    // Solo los turnos que se trabajaron: un turno sin nada cargado tiene
+    // igual un fondo fijo (el de Noche sale de lo contado en Mediodía), y su
+    // "diferencia" sería ese fondo entero en negativo.
+    var diferenciaDia = (mdActivo ? (cMd.diferencia || 0) : 0) + (ncActivo ? (cNc.diferencia || 0) : 0);
     var retiraDia = (cMd.egreso || 0) + (cNc.egreso || 0);
 
     hoja.getRange('A' + fila).setValue(diasHoy);
