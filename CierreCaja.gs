@@ -1491,9 +1491,12 @@ function listarDiasConDatos_() {
 // Columnas de cada día (fila 2 = encabezados). El resto (P-U, V, X-AG a mano o vinculadas a otro Sheet) no se toca:
 //   A  días trabajados de ese día (0 / 0,5 / 1 — ver turnoTieneActividad_)
 //   B  DIA — fecha
-//   C  TOTAL SIST — total facturado del día (Mediodía + Noche)
-//   D  MEDIO DIA — total facturado de Mediodía
-//   E  NOCHE — la parte propia de Noche (total del día completo - Mediodía)
+//   C  TOTAL SIST — total facturado del día sin empanadas (D + E)
+//   D  MEDIO DIA — total facturado de Mediodía, sin sus empanadas
+//   E  NOCHE — la parte propia de Noche (total del día completo - Mediodía),
+//      sin sus empanadas
+//   (Las empanadas van aparte, en G. Hasta el 5/10/2026 C, D y E las
+//   incluían.)
 //   F  GLOVO — suma de los tickets de Glovo del día (paso 3 del cierre). Si
 //      el día no tiene tickets cargados en la app, no se toca (puede estar
 //      puesto a mano).
@@ -1624,6 +1627,20 @@ function getOrCrearPestanaContabilidad_(ss, mesIndex /* 0-11 */) {
   return hoja;
 }
 
+// Lo facturado por Mediodía y la parte propia de Noche (Noche carga el
+// total del día completo), cada uno sin sus empanadas. Un turno sin total
+// cargado queda en 0 aunque tenga empanadas.
+function totalesSinEmpanadas_(md, nc) {
+  md = md || {}; nc = nc || {};
+  var empMd = (md.calc || {}).empanadas || 0, empNc = (nc.calc || {}).empanadas || 0;
+  var totalMd = md.totalFacturado || 0;
+  var propioNc = Math.max(0, (nc.totalFacturado || 0) - totalMd);
+  return {
+    mediodia: totalMd > 0 ? Math.round((totalMd - empMd) * 100) / 100 : 0,
+    noche: propioNc > 0 ? Math.round((propioNc - empNc) * 100) / 100 : 0
+  };
+}
+
 function escribirContabilidad_(data) {
   try {
     var partes = String(data.fecha || '').split('-');
@@ -1653,8 +1670,8 @@ function escribirContabilidad_(data) {
     }
 
     var diasHoy = (mdActivo && ncActivo) ? 1 : ((mdActivo || ncActivo) ? 0.5 : 0);
-    var mediodiaTotal = md.totalFacturado || 0;
-    var nochePropio = Math.max(0, (nc.totalFacturado || 0) - mediodiaTotal);
+    var mediodiaTotal = totalesSinEmpanadas_(md, nc).mediodia;
+    var nochePropio = totalesSinEmpanadas_(md, nc).noche;
     var empanadasDia = (cMd.empanadas || 0) + (cNc.empanadas || 0);
     // Noche carga el acumulado del día completo, que nunca puede ser menor
     // que lo que ya marcó Mediodía: si en Noche quedó en 0 (no se cargó),
