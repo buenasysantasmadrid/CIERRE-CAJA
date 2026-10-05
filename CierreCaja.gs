@@ -1876,11 +1876,11 @@ function escribirDiasSemanaContabilidad_(hoja, anio, mesIndex) {
 
 // 3) Objetivos del día (filas 3-33): se pinta la celda cuando se supera el
 //    objetivo (todo sin empanadas, que ya van aparte):
-//      MEDIO DIA (D) de lunes a viernes  > 1.100 €
-//      NOCHE (E) del jueves              >   870 €
-//      NOCHE (E) del viernes             > 1.570 €
-//      TOTAL SIST (C) del sábado (día entero) > 1.570 €
-//      MEDIO DIA (D) del domingo          > 1.570 €
+//      MEDIO DIA (D) de lunes a viernes      > 1.100 €
+//      NOCHE (E) del jueves                  >   870 €
+//      NOCHE (E) del viernes y del sábado    > 1.570 €
+//      MEDIO DIA (D) del sábado y del domingo > 1.570 €
+//    Solo por turnos: el total del día (C) no se pinta nunca.
 //    Son formatos condicionales de "mayor que" sobre cada celda (sin
 //    fórmulas), así que se actualizan solos si se cambia un número a mano.
 //    Antes se borran TODOS los formatos condicionales de la pestaña. En la
@@ -1889,9 +1889,8 @@ var COLOR_OBJETIVO_CONTABILIDAD_ = '#b7e1cd';
 var OBJETIVOS_CONTABILIDAD_ = [
   { col: 'D', dias: [1, 2, 3, 4, 5], minimo: 1100 }, // getDay(): 0 domingo … 6 sábado
   { col: 'E', dias: [4], minimo: 870 },
-  { col: 'E', dias: [5], minimo: 1570 },
-  { col: 'C', dias: [6], minimo: 1570 },
-  { col: 'D', dias: [0], minimo: 1570 }
+  { col: 'E', dias: [5, 6], minimo: 1570 },
+  { col: 'D', dias: [6, 0], minimo: 1570 }
 ];
 
 function colorearObjetivosContabilidad_(hoja, anio, mesIndex) {
