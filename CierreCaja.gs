@@ -1747,11 +1747,13 @@ function protegerContabilidadDesdeMenu() {
 //    Como mira otros meses (y en enero/diciembre la planilla de otro año), no
 //    son fórmulas: se calculan y escriben al guardar cada día (ese mes y los
 //    de al lado), y desde el menú para todo el año.
-// 2) Días de la semana (C48:K55): fórmulas, una columna por día (E lunes …
-//    K domingo). Filas 49-51 totales de TOTAL SIST, MEDIO DIA y NOCHE; 52
-//    días trabajados de ese día de la semana (suma de A: 0,5 / 1); 53
-//    promedio de TOTAL SIST entre esos días; 54-55 promedios de MEDIO DIA y
-//    NOCHE, cada uno entre los turnos en que ese turno facturó algo.
+// 2) Días de la semana (C48:K55): una columna por día (E lunes … K domingo).
+//    Filas 49-51 totales de TOTAL SIST, MEDIO DIA y NOCHE; 52 vacía; 53
+//    promedio de TOTAL SIST entre los días trabajados (A: 0,5 / 1); 54-55
+//    promedios de MEDIO DIA y NOCHE, cada uno entre los turnos en que ese
+//    turno facturó algo. Valores, no fórmulas (las fórmulas daban #ERROR! en
+//    la planilla); se recalcula igual que las semanas. En la MASTER queda
+//    en blanco.
 // Solo desde octubre de 2026: los meses anteriores quedan como estaban.
 var DESDE_TABLAS_CONTABILIDAD_ = { anio: 2026, mes: 9 };
 var FILA_SEMANAS_CONTABILIDAD_ = 40; // semana 1; hasta 5 semanas
@@ -1824,28 +1826,40 @@ function escribirSemanasContabilidad_(hoja, anio, mesIndex, leerDia) {
   hoja.getRange('C' + FILA_SEMANAS_CONTABILIDAD_ + ':E' + (FILA_SEMANAS_CONTABILIDAD_ + 4)).setValues(filas);
 }
 
-function escribirDiasSemanaContabilidad_(hoja) {
+function escribirDiasSemanaContabilidad_(hoja, anio, mesIndex) {
   var f0 = FILA_DIAS_SEMANA_CONTABILIDAD_;
-  var dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
-  var cols = ['C', 'D', 'E']; // TOTAL SIST, MEDIO DIA, NOCHE
-  var esDia = function (n) { return '(WEEKDAY($B$3:$B$33,2)=' + n + ')'; };
-  var filas = [];
-  cols.forEach(function (col) {
-    filas.push(dias.map(function (_, i) { return '=SUMPRODUCT(' + esDia(i + 1) + '*($' + col + '$3:$' + col + '$33))'; }));
-  });
-  filas.push(dias.map(function (_, i) { return '=SUMPRODUCT(' + esDia(i + 1) + '*($A$3:$A$33))'; }));
-  cols.forEach(function (col, j) {
-    filas.push(dias.map(function (_, i) {
-      var colTotal = String.fromCharCode(69 + i); // E..K
-      var divisor = j === 0
-        ? colTotal + (f0 + 4)
-        : 'SUMPRODUCT(' + esDia(i + 1) + '*($' + col + '$3:$' + col + '$33>0))';
-      return '=IFERROR(' + colTotal + (f0 + 1 + j) + '/' + divisor + ',"")';
-    }));
-  });
-  hoja.getRange('E' + f0 + ':K' + f0).setValues([dias]);
-  hoja.getRange('D' + (f0 + 1) + ':D' + (f0 + 7)).setValues([['TOTAL SIST'], ['MEDIO DIA'], ['NOCHE'], ['DÍAS'], ['TOTAL SIST'], ['MEDIO DIA'], ['NOCHE']]);
-  hoja.getRange('E' + (f0 + 1) + ':K' + (f0 + 7)).setFormulas(filas);
+  var redondo = function (n) { return Math.round(n * 100) / 100; };
+  // Por día de la semana (0 = lunes): totales de C, D, E; días trabajados
+  // (A); turnos de Mediodía y Noche con algo facturado.
+  var t = [0, 1, 2, 3, 4, 5, 6].map(function () { return { c: 0, d: 0, e: 0, dias: 0, md: 0, nc: 0 }; });
+  var hayDatos = anio != null;
+  if (hayDatos) {
+    hoja.getRange('A3:E33').getValues().forEach(function (f, i) {
+      var fecha = new Date(anio, mesIndex, i + 1, 12);
+      if (fecha.getMonth() !== mesIndex) return; // 29-31 en meses más cortos
+      var x = t[(fecha.getDay() + 6) % 7];
+      x.c += Number(f[2]) || 0;
+      x.d += Number(f[3]) || 0;
+      x.e += Number(f[4]) || 0;
+      x.dias += Number(f[0]) || 0;
+      if ((Number(f[3]) || 0) > 0) x.md++;
+      if ((Number(f[4]) || 0) > 0) x.nc++;
+    });
+  }
+  var fila = function (fn) { return t.map(function (x) { return hayDatos ? fn(x) : ''; }); };
+  var prom = function (total, n) { return n > 0 ? redondo(total / n) : ''; };
+  var valores = [
+    fila(function (x) { return redondo(x.c); }),
+    fila(function (x) { return redondo(x.d); }),
+    fila(function (x) { return redondo(x.e); }),
+    ['', '', '', '', '', '', ''], // fila 52: sin uso
+    fila(function (x) { return prom(x.c, x.dias); }),
+    fila(function (x) { return prom(x.d, x.md); }),
+    fila(function (x) { return prom(x.e, x.nc); })
+  ];
+  hoja.getRange('E' + f0 + ':K' + f0).setValues([['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']]);
+  hoja.getRange('D' + (f0 + 1) + ':D' + (f0 + 7)).setValues([['TOTAL SIST'], ['MEDIO DIA'], ['NOCHE'], [''], ['TOTAL SIST'], ['MEDIO DIA'], ['NOCHE']]);
+  hoja.getRange('E' + (f0 + 1) + ':K' + (f0 + 7)).setValues(valores);
 }
 
 // Al guardar un día: semanas de ese mes y de los de al lado (una semana que
@@ -1859,7 +1873,7 @@ function actualizarSemanasAlrededor_(anio, mesIndex) {
     if (!hoja) return;
     escribirSemanasContabilidad_(hoja, d.getFullYear(), d.getMonth(), leerDia);
     // La tabla de días de la semana (fórmulas) en el mes que se guardó.
-    if (delta === 0 && llevaTablasContabilidad_(d.getFullYear(), d.getMonth())) escribirDiasSemanaContabilidad_(hoja);
+    if (delta === 0 && llevaTablasContabilidad_(d.getFullYear(), d.getMonth())) escribirDiasSemanaContabilidad_(hoja, d.getFullYear(), d.getMonth());
   });
 }
 
@@ -1873,12 +1887,12 @@ function tablasContabilidad() {
     try {
       var ss = SpreadsheetApp.openById(p.id);
       var master = ss.getSheetByName(NOMBRE_MASTER_CONTABILIDAD_);
-      if (master) escribirDiasSemanaContabilidad_(master);
+      if (master) escribirDiasSemanaContabilidad_(master, null);
       var hechas = 0;
       MESES_MAYUS_.forEach(function (nombre, mes) {
         var hoja = ss.getSheetByName(nombre);
         if (!hoja || !llevaTablasContabilidad_(anio, mes)) return;
-        escribirDiasSemanaContabilidad_(hoja);
+        escribirDiasSemanaContabilidad_(hoja, anio, mes);
         escribirSemanasContabilidad_(hoja, anio, mes, leerDia);
         hechas++;
       });
