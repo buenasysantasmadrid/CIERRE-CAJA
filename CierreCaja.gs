@@ -1634,6 +1634,11 @@ function getOrCrearPestanaContabilidad_(ss, mesIndex /* 0-11 */) {
   }
   hoja.getRange('A34').setFormula('=SUM(A3:A33)');
   protegerPestanaContabilidad_(hoja);
+  // La MASTER de una planilla recién creada desde la plantilla aún no tiene
+  // la protección.
+  if (master && !master.getProtections(SpreadsheetApp.ProtectionType.SHEET).some(function (p) {
+    return p.getDescription() === DESCRIPCION_PROTECCION_CONTABILIDAD_;
+  })) protegerPestanaContabilidad_(master);
 
   return hoja;
 }
