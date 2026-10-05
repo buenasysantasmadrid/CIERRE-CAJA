@@ -853,10 +853,41 @@ function listarFacturasProveedores_(proveedor, detalle) {
     var resultado = [];
     var error = null;
 
+    // Un mismo movimiento puede aparecer en dos planillas de mes (un día
+    // que quedó guardado en la del mes de al lado) o repetido en la misma:
+    // se muestra una sola vez, preferentemente el de la planilla de su mes.
+    var vistos = {};
     planillas.forEach(function (p) {
       var r = listarFacturasProveedoresEnPlanilla_(p.ss, proveedor, detalleNorm);
       if (r.error) error = r.error;
-      resultado = resultado.concat(r.facturas);
+      r.facturas.forEach(function (f) {
+        var claves = [
+          'id:' + f.idMovimiento,
+          'datos:' + [f.fecha, f.turno, normalizarClave_(f.proveedorTexto), normalizarClave_(f.factura), Number(f.importe) || 0].join('|')
+        ];
+        var deSuMes = String(f.fecha).slice(0, 7) === p.periodo;
+        var previo = null;
+        claves.forEach(function (k) { if (vistos[k]) previo = vistos[k]; });
+        if (previo) {
+          if (deSuMes && !previo.deSuMes) {
+            resultado[previo.pos] = f;
+            previo.deSuMes = true;
+          }
+          return;
+        }
+        var reg = { pos: resultado.length, deSuMes: deSuMes };
+        claves.forEach(function (k) { vistos[k] = reg; });
+        resultado.push(f);
+      });
+    });
+
+    // Solo los últimos 2 meses (este y el anterior, por fecha de factura).
+    // Los albaranes sin pagar más viejos se siguen mostrando, para poder
+    // pagarlos.
+    var hoy = new Date();
+    var desde = Utilities.formatDate(new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1, 12), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    resultado = resultado.filter(function (f) {
+      return f.fechaFactura >= desde || f.subtipo === 'No pagado';
     });
 
     resultado.sort(function (a, b) { return a.fechaFactura < b.fechaFactura ? 1 : (a.fechaFactura > b.fechaFactura ? -1 : 0); });
