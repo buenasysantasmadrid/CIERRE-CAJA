@@ -1633,6 +1633,7 @@ function getOrCrearPestanaContabilidad_(ss, mesIndex /* 0-11 */) {
     });
   }
   hoja.getRange('A34').setFormula('=SUM(A3:A33)');
+  protegerPestanaContabilidad_(hoja);
 
   return hoja;
 }
@@ -1654,12 +1655,56 @@ function masterContabilidad_(ss) {
       copia.setName(NOMBRE_MASTER_CONTABILIDAD_);
       ss.setActiveSheet(copia);
       ss.moveActiveSheet(ss.getNumSheets());
+      protegerPestanaContabilidad_(copia);
       return copia;
     } catch (err) {
       Logger.log('No se pudo copiar la MASTER de ' + otras[i].nombre + ': ' + err);
     }
   }
   return null;
+}
+
+// Contabilidad solo la edita el dueño de la planilla; el resto de la gente con
+// acceso puede editar únicamente las columnas P, Q y W de los meses y la
+// MASTER (las demás pestañas quedan protegidas enteras). La app escribe como
+// el dueño (executeAs USER_DEPLOYING), así que la protección no la frena.
+// Se aplica sola a cada mes y MASTER nuevos; para las que ya existen, desde
+// el menú (protegerContabilidad).
+var DESCRIPCION_PROTECCION_CONTABILIDAD_ = 'Contabilidad: solo el dueño (P, Q y W libres)';
+var COLS_CONTABILIDAD_LIBRES_ = ['P', 'Q', 'W'];
+
+function protegerPestanaContabilidad_(hoja) {
+  hoja.getProtections(SpreadsheetApp.ProtectionType.SHEET).forEach(function (p) {
+    if (p.getDescription() === DESCRIPCION_PROTECCION_CONTABILIDAD_) p.remove();
+  });
+  var proteccion = hoja.protect().setDescription(DESCRIPCION_PROTECCION_CONTABILIDAD_);
+  var nombre = hoja.getName();
+  if (MESES_MAYUS_.indexOf(nombre) !== -1 || nombre === NOMBRE_MASTER_CONTABILIDAD_) {
+    proteccion.setUnprotectedRanges(COLS_CONTABILIDAD_LIBRES_.map(function (col) {
+      return hoja.getRange(col + ':' + col);
+    }));
+  }
+  // Quedan solo el dueño y quien corre esto (que es el dueño).
+  proteccion.removeEditors(proteccion.getEditors());
+  if (proteccion.canDomainEdit()) proteccion.setDomainEdit(false);
+}
+
+function protegerContabilidad() {
+  var resumen = [];
+  planillasDelTipo_('CONTABILIDAD').forEach(function (p) {
+    try {
+      var hojas = SpreadsheetApp.openById(p.id).getSheets();
+      hojas.forEach(protegerPestanaContabilidad_);
+      resumen.push(p.nombre + ': ' + hojas.length + ' pestañas protegidas');
+    } catch (err) {
+      resumen.push(p.nombre + ': no se pudo proteger — ' + err);
+    }
+  });
+  return resumen.length ? resumen : ['No hay planillas de Contabilidad en el Índice.'];
+}
+
+function protegerContabilidadDesdeMenu() {
+  SpreadsheetApp.getUi().alert('Contabilidad protegida', protegerContabilidad().join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 // Lo facturado por Mediodía y la parte propia de Noche (Noche carga el
@@ -1764,6 +1809,7 @@ function onOpen(e) {
     .addItem('Albaranes: pasar al formato con forma y día de pago', 'albaranesPasarAFormatoNuevoDesdeMenu')
     .addSeparator()
     .addItem('Contabilidad: pasar a 3 TPV (sin WEB, con GLOVO)', 'adaptarContabilidadTresTpvDesdeMenu')
+    .addItem('Contabilidad: proteger (solo el dueño; P, Q y W libres)', 'protegerContabilidadDesdeMenu')
     .addItem('Cierre de Caja: pasar la plantilla y los días a 3 TPV', 'pasarCierresATresTpvDesdeMenu')
     .addToUi();
 }
