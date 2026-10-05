@@ -1677,6 +1677,10 @@ function masterContabilidad_(ss) {
 // el menú (protegerContabilidad).
 var DESCRIPCION_PROTECCION_CONTABILIDAD_ = 'Contabilidad: solo el dueño (P, Q y W libres)';
 var COLS_CONTABILIDAD_LIBRES_ = ['P', 'Q', 'W'];
+// La única cuenta que puede editar Contabilidad entera. Google no deja que
+// quien pone la protección se quite a sí mismo, así que hay que ponerla con
+// esta cuenta (si no, protegerContabilidad no hace nada y lo avisa).
+var EDITOR_CONTABILIDAD_ = 'lfisbein@gmail.com';
 
 function protegerPestanaContabilidad_(hoja) {
   hoja.getProtections(SpreadsheetApp.ProtectionType.SHEET).forEach(function (p) {
@@ -1689,18 +1693,32 @@ function protegerPestanaContabilidad_(hoja) {
       return hoja.getRange(col + ':' + col);
     }));
   }
-  // Quedan solo el dueño y quien corre esto (que es el dueño).
-  proteccion.removeEditors(proteccion.getEditors());
+  // Queda solo EDITOR_CONTABILIDAD_ (y el dueño del archivo, que Google no
+  // deja quitar).
+  proteccion.addEditor(EDITOR_CONTABILIDAD_);
+  proteccion.removeEditors(proteccion.getEditors().filter(function (u) {
+    return u.getEmail().toLowerCase() !== EDITOR_CONTABILIDAD_;
+  }));
   if (proteccion.canDomainEdit()) proteccion.setDomainEdit(false);
 }
 
 function protegerContabilidad() {
+  var quien = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+  if (quien !== EDITOR_CONTABILIDAD_) {
+    return ['No se protegió nada: esto lo está haciendo ' + (quien || 'una cuenta desconocida') +
+      ', y esa cuenta quedaría pudiendo editar. Entra con ' + EDITOR_CONTABILIDAD_ + ' y vuelve a usar esta opción.'];
+  }
   var resumen = [];
   planillasDelTipo_('CONTABILIDAD').forEach(function (p) {
     try {
-      var hojas = SpreadsheetApp.openById(p.id).getSheets();
+      var ss = SpreadsheetApp.openById(p.id);
+      var hojas = ss.getSheets();
       hojas.forEach(protegerPestanaContabilidad_);
-      resumen.push(p.nombre + ': ' + hojas.length + ' pestañas protegidas');
+      var duenio = String((ss.getOwner() && ss.getOwner().getEmail()) || '').toLowerCase();
+      resumen.push(p.nombre + ': ' + hojas.length + ' pestañas protegidas' +
+        (duenio && duenio !== EDITOR_CONTABILIDAD_
+          ? ' — OJO: la dueña del archivo es ' + duenio + ' y el dueño siempre puede editar todo. Hay que pasar la propiedad a ' + EDITOR_CONTABILIDAD_ + '.'
+          : ''));
     } catch (err) {
       resumen.push(p.nombre + ': no se pudo proteger — ' + err);
     }
