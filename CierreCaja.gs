@@ -1874,6 +1874,44 @@ function escribirDiasSemanaContabilidad_(hoja, anio, mesIndex) {
   hoja.getRange('E' + (f0 + 1) + ':K' + (f0 + 7)).setValues(valores);
 }
 
+// 3) Objetivos del día (filas 3-33): se pinta la celda cuando se supera el
+//    objetivo (todo sin empanadas, que ya van aparte):
+//      MEDIO DIA (D) de lunes a viernes  > 1.100 €
+//      NOCHE (E) del jueves              >   870 €
+//      NOCHE (E) del viernes             > 1.570 €
+//      TOTAL SIST (C) del sábado (día entero) > 1.570 €
+//      MEDIO DIA (D) del domingo          > 1.570 €
+//    Son formatos condicionales de "mayor que" sobre cada celda (sin
+//    fórmulas), así que se actualizan solos si se cambia un número a mano.
+//    Antes se borran TODOS los formatos condicionales de la pestaña. En la
+//    MASTER solo se borran (no tiene fechas).
+var COLOR_OBJETIVO_CONTABILIDAD_ = '#b7e1cd';
+var OBJETIVOS_CONTABILIDAD_ = [
+  { col: 'D', dias: [1, 2, 3, 4, 5], minimo: 1100 }, // getDay(): 0 domingo … 6 sábado
+  { col: 'E', dias: [4], minimo: 870 },
+  { col: 'E', dias: [5], minimo: 1570 },
+  { col: 'C', dias: [6], minimo: 1570 },
+  { col: 'D', dias: [0], minimo: 1570 }
+];
+
+function colorearObjetivosContabilidad_(hoja, anio, mesIndex) {
+  if (anio == null) { hoja.setConditionalFormatRules([]); return; } // MASTER
+  if (!llevaTablasContabilidad_(anio, mesIndex)) return;
+  var diasMes = new Date(anio, mesIndex + 1, 0).getDate();
+  var reglas = OBJETIVOS_CONTABILIDAD_.map(function (obj) {
+    var rangos = [];
+    for (var d = 1; d <= diasMes; d++) {
+      if (obj.dias.indexOf(new Date(anio, mesIndex, d, 12).getDay()) !== -1) rangos.push(hoja.getRange(obj.col + (2 + d)));
+    }
+    return SpreadsheetApp.newConditionalFormatRule()
+      .whenNumberGreaterThan(obj.minimo)
+      .setBackground(COLOR_OBJETIVO_CONTABILIDAD_)
+      .setRanges(rangos)
+      .build();
+  });
+  hoja.setConditionalFormatRules(reglas);
+}
+
 // Al guardar un día: semanas de ese mes y de los de al lado (una semana que
 // cruza meses puede ser del otro). Solo pestañas que ya existen.
 function actualizarSemanasAlrededor_(anio, mesIndex) {
@@ -1885,7 +1923,10 @@ function actualizarSemanasAlrededor_(anio, mesIndex) {
     if (!hoja) return;
     escribirSemanasContabilidad_(hoja, d.getFullYear(), d.getMonth(), leerDia);
     // La tabla de días de la semana (fórmulas) en el mes que se guardó.
-    if (delta === 0 && llevaTablasContabilidad_(d.getFullYear(), d.getMonth())) escribirDiasSemanaContabilidad_(hoja, d.getFullYear(), d.getMonth());
+    if (delta === 0 && llevaTablasContabilidad_(d.getFullYear(), d.getMonth())) {
+      escribirDiasSemanaContabilidad_(hoja, d.getFullYear(), d.getMonth());
+      colorearObjetivosContabilidad_(hoja, d.getFullYear(), d.getMonth());
+    }
   });
 }
 
@@ -1899,12 +1940,16 @@ function tablasContabilidad() {
     try {
       var ss = SpreadsheetApp.openById(p.id);
       var master = ss.getSheetByName(NOMBRE_MASTER_CONTABILIDAD_);
-      if (master) escribirDiasSemanaContabilidad_(master, null);
+      if (master) {
+        escribirDiasSemanaContabilidad_(master, null);
+        colorearObjetivosContabilidad_(master, null);
+      }
       var hechas = 0;
       MESES_MAYUS_.forEach(function (nombre, mes) {
         var hoja = ss.getSheetByName(nombre);
         if (!hoja || !llevaTablasContabilidad_(anio, mes)) return;
         escribirDiasSemanaContabilidad_(hoja, anio, mes);
+        colorearObjetivosContabilidad_(hoja, anio, mes);
         escribirSemanasContabilidad_(hoja, anio, mes, leerDia);
         hechas++;
       });
@@ -2035,7 +2080,7 @@ function onOpen(e) {
     .addSeparator()
     .addItem('Contabilidad: pasar a 3 TPV (sin WEB, con GLOVO)', 'adaptarContabilidadTresTpvDesdeMenu')
     .addItem('Contabilidad: proteger (solo el dueño; P, Q y W libres)', 'protegerContabilidadDesdeMenu')
-    .addItem('Contabilidad: recalcular semanas y días de la semana', 'tablasContabilidadDesdeMenu')
+    .addItem('Contabilidad: recalcular semanas, días de la semana y colores', 'tablasContabilidadDesdeMenu')
     .addItem('Albaranes: proteger (solo el dueño; columna VARIOS libre)', 'protegerAlbaranesDesdeMenu')
     .addItem('Cierre de Caja: pasar la plantilla y los días a 3 TPV', 'pasarCierresATresTpvDesdeMenu')
     .addToUi();
