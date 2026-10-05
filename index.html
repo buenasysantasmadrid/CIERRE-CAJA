@@ -3810,7 +3810,8 @@
 
   // Botón del cartel: vuelve a la caja de hoy. Si todavía no está creada,
   // primero pregunta si abrirla (igual que al entrar a la app).
-  document.getElementById('btnVolverHoy').addEventListener('click', function(){
+  document.getElementById('btnVolverHoy').addEventListener('click', volverACajaDeHoy);
+  function volverACajaDeHoy(){
     var hoy = todayISO();
     if(state.fecha === hoy) return;
     function seguir(){
@@ -3822,7 +3823,7 @@
     }
     if(getDiasStore()[hoy] || fechasConDatos[hoy]) seguir();
     else confirmarDiaEnSheet(hoy).then(seguir);
-  });
+  }
 
   // ---------- calendario propio (el nativo no se puede pintar ni siempre se puede navegar bien) ----------
   var calMesMostrado = null;  // 0-11
@@ -4143,6 +4144,13 @@
         estadoMenu(idDiaria(p, 'Estado'), '');
         if(document.getElementById(idDiaria(p, 'Fecha')).value === fecha) pintarDiaria(p, d);
         toast(cfg.nombre + ' del ' + fechaCorta(fecha) + ' guardada');
+        // Producción: al guardar se vuelve a la caja de hoy.
+        if(p === 'produccion'){
+          document.getElementById(idDiaria(p, 'Screen')).classList.remove('open');
+          document.body.classList.remove('no-scroll');
+          iniciarSondeoSheet();
+          volverACajaDeHoy();
+        }
       }).catch(function(err){
         estadoMenu(idDiaria(p, 'Estado'), 'No se pudo guardar. (' + err.message + ')', false, true);
       }).finally(function(){ btn.disabled = false; });
