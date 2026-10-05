@@ -1598,33 +1598,68 @@ function turnoTieneActividad_(t) {
 
 // Trae la pestaña del mes en la planilla de Contabilidad DEL AÑO que
 // corresponda (ver Indice.gs — esa planilla anual se crea sola la primera
-// vez que hace falta), creando la pestaña del mes si todavía no existe:
-// duplica la pestaña del mes anterior o, si tampoco existe (por ejemplo, el
-// primer mes del año), "MASTER", la renombra y limpia las filas de días
-// 3-33 en las columnas de arriba (para no arrastrar datos viejos del mes
-// que se copió).
+// vez que hace falta), creando la pestaña del mes si todavía no existe.
+//
+// Los meses nuevos se copian SIEMPRE de la pestaña "MASTER": un mes en
+// blanco con los títulos, el formato y las fórmulas (se puede cambiar a mano
+// y los meses siguientes salen así). Cada planilla anual tiene su MASTER: si
+// la de un año no la tiene (por ejemplo, el año recién creado), se copia la
+// del año anterior. Solo si no hay ninguna MASTER se usa, como antes, el mes
+// anterior, vaciando las columnas que escribe la app.
+var NOMBRE_MASTER_CONTABILIDAD_ = 'MASTER';
+
 function getOrCrearPestanaContabilidad_(ss, mesIndex /* 0-11 */) {
   var nombre = MESES_MAYUS_[mesIndex];
   var hoja = ss.getSheetByName(nombre);
   if (hoja) return hoja;
 
-  var origenNombre = MESES_MAYUS_[(mesIndex + 11) % 12];
-  var origen = ss.getSheetByName(origenNombre) || ss.getSheetByName('MASTER');
-  if (!origen) throw new Error('No se encontró ninguna pestaña de mes para duplicar en la planilla de Contabilidad.');
+  var master = masterContabilidad_(ss);
+  var anterior = ss.getSheetByName(MESES_MAYUS_[(mesIndex + 11) % 12]);
+  var origen = master || anterior;
+  if (!origen) throw new Error('No se encontró la pestaña MASTER ni ningún mes para duplicar en la planilla de Contabilidad.');
 
   hoja = origen.copyTo(ss);
   hoja.setName(nombre);
-  var idxOrigen = origen.getIndex();
+  // Va detrás del mes anterior si existe; si no, delante de la MASTER.
   ss.setActiveSheet(hoja);
-  ss.moveActiveSheet(idxOrigen + 1);
+  if (anterior) ss.moveActiveSheet(anterior.getIndex() + 1);
+  else if (master) ss.moveActiveSheet(master.getIndex());
 
   adaptarPestanaContabilidadTresTpv_(hoja);
-  COLS_CONTABILIDAD_APP_.concat(['F']).forEach(function (col) {
-    hoja.getRange(col + '3:' + col + '33').clearContent();
-  });
+  if (!master) {
+    // Copia de un mes con datos: se vacían los días que escribe la app.
+    COLS_CONTABILIDAD_APP_.concat(['F']).forEach(function (col) {
+      hoja.getRange(col + '3:' + col + '33').clearContent();
+    });
+  }
   hoja.getRange('A34').setFormula('=SUM(A3:A33)');
 
   return hoja;
+}
+
+// La MASTER de esta planilla; si no tiene, copia la de otro año (el anterior
+// más cercano que la tenga) y la deja al final, visible. null si no hay
+// ninguna.
+function masterContabilidad_(ss) {
+  var propia = ss.getSheetByName(NOMBRE_MASTER_CONTABILIDAD_);
+  if (propia) return propia;
+  var otras = planillasDelTipo_('CONTABILIDAD')
+    .filter(function (p) { return p.id !== ss.getId(); })
+    .sort(function (a, b) { return a.periodo < b.periodo ? 1 : -1; });
+  for (var i = 0; i < otras.length; i++) {
+    try {
+      var m = SpreadsheetApp.openById(otras[i].id).getSheetByName(NOMBRE_MASTER_CONTABILIDAD_);
+      if (!m) continue;
+      var copia = m.copyTo(ss);
+      copia.setName(NOMBRE_MASTER_CONTABILIDAD_);
+      ss.setActiveSheet(copia);
+      ss.moveActiveSheet(ss.getNumSheets());
+      return copia;
+    } catch (err) {
+      Logger.log('No se pudo copiar la MASTER de ' + otras[i].nombre + ': ' + err);
+    }
+  }
+  return null;
 }
 
 // Lo facturado por Mediodía y la parte propia de Noche (Noche carga el
