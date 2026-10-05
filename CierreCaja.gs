@@ -1856,7 +1856,10 @@ function actualizarSemanasAlrededor_(anio, mesIndex) {
     var d = new Date(anio, mesIndex + delta, 1, 12);
     var id = buscarEnIndice_('CONTABILIDAD', String(d.getFullYear()));
     var hoja = id && SpreadsheetApp.openById(id).getSheetByName(MESES_MAYUS_[d.getMonth()]);
-    if (hoja) escribirSemanasContabilidad_(hoja, d.getFullYear(), d.getMonth(), leerDia);
+    if (!hoja) return;
+    escribirSemanasContabilidad_(hoja, d.getFullYear(), d.getMonth(), leerDia);
+    // La tabla de días de la semana (fórmulas) en el mes que se guardó.
+    if (delta === 0 && llevaTablasContabilidad_(d.getFullYear(), d.getMonth())) escribirDiasSemanaContabilidad_(hoja);
   });
 }
 
