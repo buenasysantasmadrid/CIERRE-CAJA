@@ -1748,10 +1748,10 @@ function protegerContabilidadDesdeMenu() {
 //    son fórmulas: se calculan y escriben al guardar cada día (ese mes y los
 //    de al lado), y desde el menú para todo el año.
 // 2) Días de la semana (C48:K55): una columna por día (E lunes … K domingo).
-//    Filas 49-51 totales de TOTAL SIST, MEDIO DIA y NOCHE; 52 vacía; 53
-//    promedio de TOTAL SIST entre los días trabajados (A: 0,5 / 1); 54-55
-//    promedios de MEDIO DIA y NOCHE, cada uno entre los turnos en que ese
-//    turno facturó algo. Valores, no fórmulas (las fórmulas daban #ERROR! en
+//    Filas 49-51 totales de TOTAL SIST, MEDIO DIA y NOCHE; 52 vacía; 53-55
+//    promedios: cada total entre los días (o turnos) que facturaron algo.
+//    Aquí no se usa el 0,5 de la columna A: un domingo solo de mediodía con
+//    1.882 daba 3.764 de promedio. Valores, no fórmulas (las fórmulas daban #ERROR! en
 //    la planilla); se recalcula igual que las semanas. En la MASTER queda
 //    en blanco.
 // Solo desde octubre de 2026: los meses anteriores quedan como estaban.
@@ -1829,8 +1829,8 @@ function escribirSemanasContabilidad_(hoja, anio, mesIndex, leerDia) {
 function escribirDiasSemanaContabilidad_(hoja, anio, mesIndex) {
   var f0 = FILA_DIAS_SEMANA_CONTABILIDAD_;
   var redondo = function (n) { return Math.round(n * 100) / 100; };
-  // Por día de la semana (0 = lunes): totales de C, D, E; días trabajados
-  // (A); turnos de Mediodía y Noche con algo facturado.
+  // Por día de la semana (0 = lunes): totales de C, D, E y cuántos días,
+  // mediodías y noches facturaron algo (lo cerrado no cuenta).
   var t = [0, 1, 2, 3, 4, 5, 6].map(function () { return { c: 0, d: 0, e: 0, dias: 0, md: 0, nc: 0 }; });
   var hayDatos = anio != null;
   if (hayDatos) {
@@ -1841,7 +1841,7 @@ function escribirDiasSemanaContabilidad_(hoja, anio, mesIndex) {
       x.c += Number(f[2]) || 0;
       x.d += Number(f[3]) || 0;
       x.e += Number(f[4]) || 0;
-      x.dias += Number(f[0]) || 0;
+      if ((Number(f[2]) || 0) > 0) x.dias++;
       if ((Number(f[3]) || 0) > 0) x.md++;
       if ((Number(f[4]) || 0) > 0) x.nc++;
     });
