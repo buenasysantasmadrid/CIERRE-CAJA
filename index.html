@@ -2874,6 +2874,14 @@
 
   function abrirAlbaranes(){
     poblarAlbaranesProveedor();
+    // Cada vez que se entra, la pantalla empieza limpia: todos los
+    // proveedores y filtro "Todos", no lo último que se buscó.
+    document.getElementById('albaranesProveedor').value = '';
+    albaranesFiltro = 'todos';
+    document.querySelectorAll('#albaranesFiltro [data-alb-filtro]').forEach(function(x){
+      x.classList.toggle('on', x.getAttribute('data-alb-filtro') === 'todos');
+    });
+    document.getElementById('albaranesBody').scrollTop = 0;
     document.getElementById('albaranesOverlay').classList.add('open');
     document.body.classList.add('no-scroll');
     // Se pausa el sondeo automático del Sheet (cada 20s) mientras está
