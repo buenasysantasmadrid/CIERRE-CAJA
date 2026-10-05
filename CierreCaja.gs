@@ -1739,16 +1739,19 @@ function protegerContabilidadDesdeMenu() {
 //    días del final del mes anterior; uno que empieza viernes, sábado o
 //    domingo deja esos días en la última semana del mes anterior.
 //      C  "semana N (dd/mm – dd/mm)"
-//      D  SEMANA — promedio por día trabajado: (TOTAL SIST + TOTAL) / días (A)
-//      E  FIN DE SEMANA — total facturado (TOTAL SIST + TOTAL) de viernes,
+//      D  SEMANA — promedio por día trabajado: (TOTAL SIST + GLOVO) / días
+//         trabajados (A: 0,5 si solo Mediodía, 1 si Mediodía y Noche). Sin
+//         empanadas.
+//      E  FIN DE SEMANA — total facturado (TOTAL SIST + GLOVO) de viernes,
 //         sábado y domingo de esa semana
 //    Como mira otros meses (y en enero/diciembre la planilla de otro año), no
 //    son fórmulas: se calculan y escriben al guardar cada día (ese mes y los
 //    de al lado), y desde el menú para todo el año.
 // 2) Días de la semana (C48:K55): fórmulas, una columna por día (E lunes …
 //    K domingo). Filas 49-51 totales de TOTAL SIST, MEDIO DIA y NOCHE; 52
-//    cuántos de ese día se facturó algo; 53-55 promedios (cada uno entre los
-//    días en que ese turno facturó algo).
+//    días trabajados de ese día de la semana (suma de A: 0,5 / 1); 53
+//    promedio de TOTAL SIST entre esos días; 54-55 promedios de MEDIO DIA y
+//    NOCHE, cada uno entre los turnos en que ese turno facturó algo.
 var FILA_SEMANAS_CONTABILIDAD_ = 40; // semana 1; hasta 5 semanas
 var FILA_DIAS_SEMANA_CONTABILIDAD_ = 48;
 
@@ -1766,7 +1769,8 @@ function semanasDelMesContabilidad_(anio, mesIndex) {
 }
 
 // Lee días de las pestañas de mes (sin crear nada) con caché por pestaña.
-// Devuelve { dias: A, total: C + H } del día, o null si no hay pestaña.
+// Devuelve { dias: A, total: C + F } del día (sin empanadas), o null si no
+// hay pestaña.
 function lectorDiasContabilidad_() {
   var planillas = {}, pestanas = {};
   return function (fecha) {
@@ -1783,7 +1787,7 @@ function lectorDiasContabilidad_() {
     var filas = pestanas[clave];
     if (!filas) return null;
     var f = filas[fecha.getDate() - 1];
-    return { dias: Number(f[0]) || 0, total: (Number(f[2]) || 0) + (Number(f[7]) || 0) };
+    return { dias: Number(f[0]) || 0, total: (Number(f[2]) || 0) + (Number(f[5]) || 0) };
   };
 }
 
@@ -1822,11 +1826,14 @@ function escribirDiasSemanaContabilidad_(hoja) {
   cols.forEach(function (col) {
     filas.push(dias.map(function (_, i) { return '=SUMPRODUCT(' + esDia(i + 1) + '*($' + col + '$3:$' + col + '$33))'; }));
   });
-  filas.push(dias.map(function (_, i) { return '=SUMPRODUCT(' + esDia(i + 1) + '*($C$3:$C$33>0))'; }));
+  filas.push(dias.map(function (_, i) { return '=SUMPRODUCT(' + esDia(i + 1) + '*($A$3:$A$33))'; }));
   cols.forEach(function (col, j) {
     filas.push(dias.map(function (_, i) {
       var colTotal = String.fromCharCode(69 + i); // E..K
-      return '=IFERROR(' + colTotal + (f0 + 1 + j) + '/SUMPRODUCT(' + esDia(i + 1) + '*($' + col + '$3:$' + col + '$33>0)),"")';
+      var divisor = j === 0
+        ? colTotal + (f0 + 4)
+        : 'SUMPRODUCT(' + esDia(i + 1) + '*($' + col + '$3:$' + col + '$33>0))';
+      return '=IFERROR(' + colTotal + (f0 + 1 + j) + '/' + divisor + ',"")';
     }));
   });
   hoja.getRange('E' + f0 + ':K' + f0).setValues([dias]);
