@@ -261,6 +261,12 @@ function obtenerOCrearPlanilla_(tipo, periodo) {
     catch (errTrigger) { Logger.log('No se pudo instalar el trigger onEdit en "' + nombre + '": ' + errTrigger); }
   }
 
+  // Albaranes: solo EDITOR_UNICO_ edita, salvo la columna VARIOS.
+  if (tipo === 'ALBARANES') {
+    try { SpreadsheetApp.openById(id).getSheets().forEach(protegerPestanaAlbaranes_); }
+    catch (errProteger) { Logger.log('No se pudo proteger "' + nombre + '": ' + errProteger); }
+  }
+
   registrarEnIndice_(tipo, periodo, id, nombre);
   return id;
 }

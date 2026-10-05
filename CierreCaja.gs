@@ -1677,53 +1677,65 @@ function masterContabilidad_(ss) {
 // el menú (protegerContabilidad).
 var DESCRIPCION_PROTECCION_CONTABILIDAD_ = 'Contabilidad: solo el dueño (P, Q y W libres)';
 var COLS_CONTABILIDAD_LIBRES_ = ['P', 'Q', 'W'];
-// La única cuenta que puede editar Contabilidad entera. Google no deja que
-// quien pone la protección se quite a sí mismo, así que hay que ponerla con
-// esta cuenta (si no, protegerContabilidad no hace nada y lo avisa).
-var EDITOR_CONTABILIDAD_ = 'lfisbein@gmail.com';
+// La única cuenta que puede editar Contabilidad y Albaranes enteras. Google
+// no deja que quien pone la protección se quite a sí mismo, así que hay que
+// ponerla con esta cuenta (si no, no se protege nada y se avisa).
+var EDITOR_UNICO_ = 'lfisbein@gmail.com';
 
-function protegerPestanaContabilidad_(hoja) {
+// Protege la pestaña entera para que solo la edite EDITOR_UNICO_ (y el dueño
+// del archivo, que Google no deja quitar), salvo las columnas libres. Si ya
+// tenía esta protección, la rehace.
+function protegerPestanaSoloEditor_(hoja, descripcion, columnasLibres) {
   hoja.getProtections(SpreadsheetApp.ProtectionType.SHEET).forEach(function (p) {
-    if (p.getDescription() === DESCRIPCION_PROTECCION_CONTABILIDAD_) p.remove();
+    if (p.getDescription() === descripcion) p.remove();
   });
-  var proteccion = hoja.protect().setDescription(DESCRIPCION_PROTECCION_CONTABILIDAD_);
-  var nombre = hoja.getName();
-  if (MESES_MAYUS_.indexOf(nombre) !== -1 || nombre === NOMBRE_MASTER_CONTABILIDAD_) {
-    proteccion.setUnprotectedRanges(COLS_CONTABILIDAD_LIBRES_.map(function (col) {
+  var proteccion = hoja.protect().setDescription(descripcion);
+  if (columnasLibres && columnasLibres.length) {
+    proteccion.setUnprotectedRanges(columnasLibres.map(function (col) {
       return hoja.getRange(col + ':' + col);
     }));
   }
-  // Queda solo EDITOR_CONTABILIDAD_ (y el dueño del archivo, que Google no
-  // deja quitar).
-  proteccion.addEditor(EDITOR_CONTABILIDAD_);
+  proteccion.addEditor(EDITOR_UNICO_);
   proteccion.removeEditors(proteccion.getEditors().filter(function (u) {
-    return u.getEmail().toLowerCase() !== EDITOR_CONTABILIDAD_;
+    return u.getEmail().toLowerCase() !== EDITOR_UNICO_;
   }));
   if (proteccion.canDomainEdit()) proteccion.setDomainEdit(false);
 }
 
-function protegerContabilidad() {
+function protegerPestanaContabilidad_(hoja) {
+  var nombre = hoja.getName();
+  var esMes = MESES_MAYUS_.indexOf(nombre) !== -1 || nombre === NOMBRE_MASTER_CONTABILIDAD_;
+  protegerPestanaSoloEditor_(hoja, DESCRIPCION_PROTECCION_CONTABILIDAD_, esMes ? COLS_CONTABILIDAD_LIBRES_ : []);
+}
+
+// Protege todas las pestañas de todas las planillas de un tipo del Índice.
+// Solo si lo corre EDITOR_UNICO_; avisa si el dueño de un archivo es otro.
+function protegerPlanillasDelTipo_(tipo, protegerPestana) {
   var quien = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
-  if (quien !== EDITOR_CONTABILIDAD_) {
+  if (quien !== EDITOR_UNICO_) {
     return ['No se protegió nada: esto lo está haciendo ' + (quien || 'una cuenta desconocida') +
-      ', y esa cuenta quedaría pudiendo editar. Entra con ' + EDITOR_CONTABILIDAD_ + ' y vuelve a usar esta opción.'];
+      ', y esa cuenta quedaría pudiendo editar. Entra con ' + EDITOR_UNICO_ + ' y vuelve a usar esta opción.'];
   }
   var resumen = [];
-  planillasDelTipo_('CONTABILIDAD').forEach(function (p) {
+  planillasDelTipo_(tipo).forEach(function (p) {
     try {
       var ss = SpreadsheetApp.openById(p.id);
       var hojas = ss.getSheets();
-      hojas.forEach(protegerPestanaContabilidad_);
+      hojas.forEach(protegerPestana);
       var duenio = String((ss.getOwner() && ss.getOwner().getEmail()) || '').toLowerCase();
       resumen.push(p.nombre + ': ' + hojas.length + ' pestañas protegidas' +
-        (duenio && duenio !== EDITOR_CONTABILIDAD_
-          ? ' — OJO: la dueña del archivo es ' + duenio + ' y el dueño siempre puede editar todo. Hay que pasar la propiedad a ' + EDITOR_CONTABILIDAD_ + '.'
+        (duenio && duenio !== EDITOR_UNICO_
+          ? ' — OJO: la dueña del archivo es ' + duenio + ' y el dueño siempre puede editar todo. Hay que pasar la propiedad a ' + EDITOR_UNICO_ + '.'
           : ''));
     } catch (err) {
       resumen.push(p.nombre + ': no se pudo proteger — ' + err);
     }
   });
-  return resumen.length ? resumen : ['No hay planillas de Contabilidad en el Índice.'];
+  return resumen.length ? resumen : ['No hay planillas de ' + tipo + ' en el Índice.'];
+}
+
+function protegerContabilidad() {
+  return protegerPlanillasDelTipo_('CONTABILIDAD', protegerPestanaContabilidad_);
 }
 
 function protegerContabilidadDesdeMenu() {
@@ -2024,6 +2036,7 @@ function onOpen(e) {
     .addItem('Contabilidad: pasar a 3 TPV (sin WEB, con GLOVO)', 'adaptarContabilidadTresTpvDesdeMenu')
     .addItem('Contabilidad: proteger (solo el dueño; P, Q y W libres)', 'protegerContabilidadDesdeMenu')
     .addItem('Contabilidad: recalcular semanas y días de la semana', 'tablasContabilidadDesdeMenu')
+    .addItem('Albaranes: proteger (solo el dueño; columna VARIOS libre)', 'protegerAlbaranesDesdeMenu')
     .addItem('Cierre de Caja: pasar la plantilla y los días a 3 TPV', 'pasarCierresATresTpvDesdeMenu')
     .addToUi();
 }

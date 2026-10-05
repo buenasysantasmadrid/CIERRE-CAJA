@@ -628,6 +628,33 @@ function pasarBloqueAlbaranesAFormatoNuevo_(hoja, filaEnc) {
   return true;
 }
 
+// Albaranes solo la edita EDITOR_UNICO_ (ver CierreCaja.gs); el resto de la
+// gente con acceso puede editar únicamente la columna VARIOS de cada pestaña
+// de proveedor (la que tiene ese encabezado en los bloques de mes; las
+// pestañas sin esa columna quedan protegidas enteras). La app escribe como
+// el dueño, así que la protección no la frena. Se aplica desde el menú y sola
+// a las pestañas de proveedor nuevas y a la planilla de un año nuevo.
+var DESCRIPCION_PROTECCION_ALBARANES_ = 'Albaranes: solo el dueño (columna VARIOS libre)';
+
+function protegerPestanaAlbaranes_(hoja) {
+  var libres = [];
+  filasEncabezadoAlbaranes_(hoja).forEach(function (filaEnc) {
+    hoja.getRange(filaEnc, 1, 1, ALBARANES_ANCHO_).getValues()[0].forEach(function (h, i) {
+      var col = letraColumna_(i + 1);
+      if (normalizarClave_(h) === 'VARIOS' && libres.indexOf(col) === -1) libres.push(col);
+    });
+  });
+  protegerPestanaSoloEditor_(hoja, DESCRIPCION_PROTECCION_ALBARANES_, libres);
+}
+
+function protegerAlbaranes() {
+  return protegerPlanillasDelTipo_('ALBARANES', protegerPestanaAlbaranes_);
+}
+
+function protegerAlbaranesDesdeMenu() {
+  SpreadsheetApp.getUi().alert('Albaranes protegida', protegerAlbaranes().join('\n'),SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
 // Crea la pestaña de un proveedor nuevo copiando una ya pasada al formato
 // nuevo, vacía (sin datos ni IDs).
 function crearPestanaProveedorAlbaranes_(ss, nombre, modelo) {
@@ -641,6 +668,7 @@ function crearPestanaProveedorAlbaranes_(ss, nombre, modelo) {
     hoja.getRange(filaEnc + 1, 1, ALBARANES_FILAS_DATOS_, ALBARANES_ANCHO_).clearContent();
     hoja.getRange(filaEnc + 1, ALBARANES_COL_ID_, ALBARANES_FILAS_DATOS_, 1).clearContent();
   });
+  try { protegerPestanaAlbaranes_(hoja); } catch (err) { Logger.log('No se pudo proteger ' + nombre + ': ' + err); }
   return true;
 }
 
