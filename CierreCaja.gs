@@ -2017,6 +2017,11 @@ function semanasTrasGuardar_(anio, mesIndex) {
   } catch (err) {
     Logger.log('Semanas de Contabilidad: ' + err);
   }
+  try {
+    actualizarPromediosTotalesAlbaranes_(anio, mesIndex);
+  } catch (err2) {
+    Logger.log('Promedios de TOTALES (Albaranes): ' + err2);
+  }
 }
 
 function escribirContabilidad_(data) {
@@ -2112,6 +2117,8 @@ function onOpen(e) {
     .addItem('Contabilidad: proteger (solo el dueño; P, Q y W libres)', 'protegerContabilidadDesdeMenu')
     .addItem('Contabilidad: recalcular semanas, días de la semana y colores', 'tablasContabilidadDesdeMenu')
     .addItem('Albaranes: proteger (solo el dueño; columna VARIOS libre)', 'protegerAlbaranesDesdeMenu')
+    .addItem('Albaranes: pasar NOO a FRUTAPRO y sacarla del TOTAL (una vez)', 'completarFrutaproDesdeNooDesdeMenu')
+    .addItem('Albaranes: completar promedios por día y semana en TOTALES', 'actualizarPromediosTotalesAlbaranesDesdeMenu')
     .addItem('Cierre de Caja: pasar la plantilla y los días a 3 TPV', 'pasarCierresATresTpvDesdeMenu')
     .addToUi();
 }

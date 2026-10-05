@@ -917,3 +917,148 @@ function completarAlbaranesDesdeExcel_(soloRevisar) {
   resumen.push('TOTAL: ' + totalAgregadas + (soloRevisar ? ' filas para agregar' : ' filas agregadas'));
   return resumen;
 }
+
+// ----------------------------------------------------------------------------
+// NOO → FRUTAPRO (una sola vez, desde el menú)
+// ----------------------------------------------------------------------------
+// La pestaña NOO es una copia vieja de FRUTAPRO: de enero a agosto tiene los
+// mismos albaranes, y los de FRUTAPRO del 1 al 26/09 quedaron solo en NOO.
+// Esto copia a FRUTAPRO, mes por mes, lo de NOO que le falta (misma fecha e
+// importe = el mismo albarán) y saca NOO de la suma del TOTAL en TOTALES para
+// que no cuente doble. NOO no se borra. Se puede correr más de una vez.
+var ALBARANES_COPIA_VIEJA_ = { de: 'NOO', a: 'FRUTAPRO' };
+
+function completarFrutaproDesdeNoo() {
+  var resumen = [];
+  planillasDelTipo_('ALBARANES').forEach(function (p) {
+    var ss = SpreadsheetApp.openById(p.id);
+    var origen = ss.getSheetByName(ALBARANES_COPIA_VIEJA_.de);
+    var destino = pestanaAlbaranesParaProveedor_(ss, ALBARANES_COPIA_VIEJA_.a);
+    if (!origen || !destino) { resumen.push(p.nombre + ': no tiene las pestañas ' + ALBARANES_COPIA_VIEJA_.de + ' y ' + ALBARANES_COPIA_VIEJA_.a); return; }
+    var encO = filasEncabezadoAlbaranes_(origen), encD = filasEncabezadoAlbaranes_(destino);
+    if (encO.length !== 12 || encD.length !== 12) { resumen.push(p.nombre + ': las pestañas no tienen los 12 meses — no se tocó'); return; }
+
+    var total = 0;
+    for (var mes = 0; mes < 12; mes++) {
+      var cabO = origen.getRange(encO[mes], 1, 1, ALBARANES_ANCHO_).getValues()[0];
+      var cabD = destino.getRange(encD[mes], 1, 1, ALBARANES_ANCHO_).getValues()[0];
+      if (cabO.map(normalizarClave_).join('|') !== cabD.map(normalizarClave_).join('|')) {
+        resumen.push(p.nombre + ' mes ' + (mes + 1) + ': las columnas no coinciden — no se tocó');
+        continue;
+      }
+      var mapa = mapaColumnasAlbaranes_(cabD);
+      var primeraD = encD[mes] + 1;
+      var rangoD = destino.getRange(primeraD, 1, ALBARANES_FILAS_DATOS_, ALBARANES_ANCHO_);
+      if (rangoD.getFormulas().some(function (f) { return f.some(String); })) continue;
+      var valoresD = rangoD.getValues();
+      var idsD = destino.getRange(primeraD, ALBARANES_COL_ID_, ALBARANES_FILAS_DATOS_, 1).getValues();
+      var actuales = [], hay = {};
+      valoresD.forEach(function (v, i) {
+        if (v.every(function (x) { return x === '' || x == null; })) return;
+        actuales.push({ id: String(idsD[i][0] || ''), fila: v });
+        var k = claveAlbaranMigracion_(v[mapa.fecha], v[mapa.importe]);
+        hay[k] = (hay[k] || 0) + 1;
+      });
+      var nuevas = [];
+      origen.getRange(encO[mes] + 1, 1, ALBARANES_FILAS_DATOS_, ALBARANES_ANCHO_).getValues().forEach(function (v) {
+        if (v.every(function (x) { return x === '' || x == null; })) return;
+        var k = claveAlbaranMigracion_(v[mapa.fecha], v[mapa.importe]);
+        if (hay[k]) { hay[k]--; return; }
+        nuevas.push({ id: '', fila: v });
+      });
+      if (!nuevas.length) continue;
+      if (actuales.length + nuevas.length > ALBARANES_FILAS_DATOS_) {
+        resumen.push(p.nombre + ' mes ' + (mes + 1) + ': no entran ' + nuevas.length + ' albaranes más — no se tocó');
+        continue;
+      }
+      guardarBloqueOrdenado_(destino, encD[mes], actuales.concat(nuevas));
+      total += nuevas.length;
+      resumen.push(p.nombre + ' mes ' + (mes + 1) + ': ' + nuevas.length + ' albaranes copiados de ' + ALBARANES_COPIA_VIEJA_.de);
+    }
+    if (!total) resumen.push(p.nombre + ': ' + ALBARANES_COPIA_VIEJA_.a + ' ya tenía todo');
+    resumen = resumen.concat(sacarDelTotalAlbaranes_(ss, ALBARANES_COPIA_VIEJA_.de));
+  });
+  return resumen.length ? resumen : ['No hay planillas de Albaranes en el Índice.'];
+}
+
+function completarFrutaproDesdeNooDesdeMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var ok = ui.alert('Albaranes: NOO → FRUTAPRO',
+    'Copia a FRUTAPRO los albaranes de NOO que le faltan (septiembre del 1 al 26) y saca NOO de la suma del TOTAL en TOTALES. NOO no se borra. ¿Continuar?',
+    ui.ButtonSet.YES_NO);
+  if (ok !== ui.Button.YES) return;
+  ui.alert('Listo', completarFrutaproDesdeNoo().join('\n'), ui.ButtonSet.OK);
+}
+
+// En TOTALES, la fila TOTAL suma todas las filas de proveedores menos la de
+// `nombre` (de la fila 2 hasta la de antes del TOTAL).
+function sacarDelTotalAlbaranes_(ss, nombre) {
+  var hoja = ss.getSheetByName('TOTALES');
+  if (!hoja) return ['No hay pestaña TOTALES.'];
+  var filaTotal = filaTotalDeTotales_(hoja);
+  if (filaTotal === -1) return ['TOTALES: no se encontró la fila TOTAL.'];
+  var colB = hoja.getRange(1, 2, filaTotal, 1).getValues();
+  var filaFuera = -1;
+  for (var i = 1; i < filaTotal; i++) if (normalizarClave_(colB[i][0]) === normalizarClave_(nombre)) { filaFuera = i + 1; break; }
+  var formulas = [];
+  for (var c = 3; c <= 14; c++) { // C..N = enero..diciembre
+    var L = letraColumna_(c);
+    var f = '=SUM(' + L + '2:' + L + (filaTotal - 1) + ')';
+    if (filaFuera > 0) f += '-' + L + filaFuera;
+    formulas.push(f);
+  }
+  hoja.getRange(filaTotal, 3, 1, 12).setFormulas([formulas]);
+  return ['TOTALES: el TOTAL (fila ' + filaTotal + ') ya no suma ' + nombre + (filaFuera > 0 ? ' (fila ' + filaFuera + ')' : '')];
+}
+
+function filaTotalDeTotales_(hoja) {
+  var colB = hoja.getRange(1, 2, hoja.getLastRow(), 1).getValues();
+  for (var i = 1; i < colB.length; i++) if (normalizarClave_(colB[i][0]) === 'TOTAL') return i + 1;
+  return -1;
+}
+
+// ----------------------------------------------------------------------------
+// TOTALES: promedio por día y por semana (filas de debajo del TOTAL)
+// ----------------------------------------------------------------------------
+// Desde septiembre de 2026, cada mes se completa solo al guardar un día:
+//   fila TOTAL + 4 (37): TOTAL / días trabajados
+//   fila TOTAL + 5 (38): TOTAL / semanas trabajadas (días trabajados / 6)
+// Los días trabajados son la suma de la columna A (0,5 / 1) de ese mes en
+// Contabilidad. Los meses anteriores quedan como estaban (puestos a mano).
+var DESDE_PROMEDIOS_TOTALES_ = { anio: 2026, mes: 8 };
+var DIAS_POR_SEMANA_TOTALES_ = 6;
+
+function actualizarPromediosTotalesAlbaranes_(anio, mesIndex) {
+  if (anio * 12 + mesIndex < DESDE_PROMEDIOS_TOTALES_.anio * 12 + DESDE_PROMEDIOS_TOTALES_.mes) return null;
+  var idAlb = buscarEnIndice_('ALBARANES', String(anio));
+  var idCont = buscarEnIndice_('CONTABILIDAD', String(anio));
+  if (!idAlb || !idCont) return null;
+  var mesCont = SpreadsheetApp.openById(idCont).getSheetByName(MESES_MAYUS_[mesIndex]);
+  if (!mesCont) return null;
+  var dias = mesCont.getRange('A3:A33').getValues().reduce(function (s, f) { return s + (Number(f[0]) || 0); }, 0);
+  if (!(dias > 0)) return null;
+
+  var hoja = SpreadsheetApp.openById(idAlb).getSheetByName('TOTALES');
+  if (!hoja) return null;
+  var filaTotal = filaTotalDeTotales_(hoja);
+  if (filaTotal === -1) return null;
+  var L = letraColumna_(3 + mesIndex);
+  var diasTxt = String(Math.round(dias * 10) / 10);
+  hoja.getRange(L + (filaTotal + 4)).setFormula('=' + L + filaTotal + '/' + diasTxt);
+  hoja.getRange(L + (filaTotal + 5)).setFormula('=' + L + filaTotal + '/(' + diasTxt + '/' + DIAS_POR_SEMANA_TOTALES_ + ')');
+  return MESES_MAYUS_[mesIndex] + ': ' + diasTxt + ' días';
+}
+
+// Desde el menú: los meses desde septiembre de 2026 hasta el actual.
+function actualizarPromediosTotalesAlbaranes() {
+  var hoy = new Date(), resumen = [];
+  for (var m = DESDE_PROMEDIOS_TOTALES_.anio * 12 + DESDE_PROMEDIOS_TOTALES_.mes; m <= hoy.getFullYear() * 12 + hoy.getMonth(); m++) {
+    var r = actualizarPromediosTotalesAlbaranes_(Math.floor(m / 12), m % 12);
+    if (r) resumen.push(r);
+  }
+  return resumen.length ? resumen : ['No había meses para completar.'];
+}
+
+function actualizarPromediosTotalesAlbaranesDesdeMenu() {
+  SpreadsheetApp.getUi().alert('TOTALES: promedios por día y semana', actualizarPromediosTotalesAlbaranes().join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
+}
