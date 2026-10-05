@@ -1712,6 +1712,153 @@ function protegerContabilidadDesdeMenu() {
   SpreadsheetApp.getUi().alert('Contabilidad protegida', protegerContabilidad().join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
+// ----------------------------------------------------------------------------
+// Tablas de abajo de cada mes de Contabilidad
+// ----------------------------------------------------------------------------
+// 1) Semanas (C40:E44, títulos en D39/E39): semanas de lunes a domingo. Una
+//    semana que cruza dos meses es del mes que tiene 4 o más días de ella (el
+//    del jueves): un mes que empieza de lunes a jueves suma en su semana 1 los
+//    días del final del mes anterior; uno que empieza viernes, sábado o
+//    domingo deja esos días en la última semana del mes anterior.
+//      C  "semana N (dd/mm – dd/mm)"
+//      D  SEMANA — promedio por día trabajado: (TOTAL SIST + TOTAL) / días (A)
+//      E  FIN DE SEMANA — total facturado (TOTAL SIST + TOTAL) de viernes,
+//         sábado y domingo de esa semana
+//    Como mira otros meses (y en enero/diciembre la planilla de otro año), no
+//    son fórmulas: se calculan y escriben al guardar cada día (ese mes y los
+//    de al lado), y desde el menú para todo el año.
+// 2) Días de la semana (C48:K55): fórmulas, una columna por día (E lunes …
+//    K domingo). Filas 49-51 totales de TOTAL SIST, MEDIO DIA y NOCHE; 52
+//    cuántos de ese día se facturó algo; 53-55 promedios (cada uno entre los
+//    días en que ese turno facturó algo).
+var FILA_SEMANAS_CONTABILIDAD_ = 40; // semana 1; hasta 5 semanas
+var FILA_DIAS_SEMANA_CONTABILIDAD_ = 48;
+
+// Lunes de cada semana que pertenece al mes (4 o 5).
+function semanasDelMesContabilidad_(anio, mesIndex) {
+  var primero = new Date(anio, mesIndex, 1, 12);
+  var lunes = new Date(anio, mesIndex, 1 - ((primero.getDay() + 6) % 7), 12);
+  var semanas = [];
+  for (var d = lunes; ; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7, 12)) {
+    var jueves = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 3, 12);
+    if (jueves.getFullYear() * 12 + jueves.getMonth() > anio * 12 + mesIndex) break;
+    if (jueves.getMonth() === mesIndex) semanas.push(d);
+  }
+  return semanas;
+}
+
+// Lee días de las pestañas de mes (sin crear nada) con caché por pestaña.
+// Devuelve { dias: A, total: C + H } del día, o null si no hay pestaña.
+function lectorDiasContabilidad_() {
+  var planillas = {}, pestanas = {};
+  return function (fecha) {
+    var anio = fecha.getFullYear(), mes = fecha.getMonth();
+    var clave = anio + '-' + mes;
+    if (!(clave in pestanas)) {
+      if (!(anio in planillas)) {
+        var id = buscarEnIndice_('CONTABILIDAD', String(anio));
+        planillas[anio] = id ? SpreadsheetApp.openById(id) : null;
+      }
+      var hoja = planillas[anio] && planillas[anio].getSheetByName(MESES_MAYUS_[mes]);
+      pestanas[clave] = hoja ? hoja.getRange('A3:H33').getValues() : null;
+    }
+    var filas = pestanas[clave];
+    if (!filas) return null;
+    var f = filas[fecha.getDate() - 1];
+    return { dias: Number(f[0]) || 0, total: (Number(f[2]) || 0) + (Number(f[7]) || 0) };
+  };
+}
+
+function escribirSemanasContabilidad_(hoja, anio, mesIndex, leerDia) {
+  var dosDig = function (n) { return (n < 10 ? '0' : '') + n; };
+  var corto = function (d) { return dosDig(d.getDate()) + '/' + dosDig(d.getMonth() + 1); };
+  var filas = semanasDelMesContabilidad_(anio, mesIndex).map(function (lunes, i) {
+    var total = 0, dias = 0, finde = 0, domingo;
+    for (var k = 0; k < 7; k++) {
+      var d = new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate() + k, 12);
+      var dia = leerDia(d);
+      if (dia) {
+        total += dia.total;
+        dias += dia.dias;
+        if (k >= 4) finde += dia.total;
+      }
+      domingo = d;
+    }
+    return [
+      'semana ' + (i + 1) + ' (' + corto(lunes) + ' – ' + corto(domingo) + ')',
+      dias > 0 ? Math.round(total / dias * 100) / 100 : '',
+      finde ? Math.round(finde * 100) / 100 : ''
+    ];
+  });
+  while (filas.length < 5) filas.push(['semana ' + (filas.length + 1), '', '']);
+  hoja.getRange('D' + (FILA_SEMANAS_CONTABILIDAD_ - 1) + ':E' + (FILA_SEMANAS_CONTABILIDAD_ - 1)).setValues([['SEMANA', 'FIN DE SEMANA']]);
+  hoja.getRange('C' + FILA_SEMANAS_CONTABILIDAD_ + ':E' + (FILA_SEMANAS_CONTABILIDAD_ + 4)).setValues(filas);
+}
+
+function escribirDiasSemanaContabilidad_(hoja) {
+  var f0 = FILA_DIAS_SEMANA_CONTABILIDAD_;
+  var dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+  var cols = ['C', 'D', 'E']; // TOTAL SIST, MEDIO DIA, NOCHE
+  var esDia = function (n) { return '(WEEKDAY($B$3:$B$33,2)=' + n + ')'; };
+  var filas = [];
+  cols.forEach(function (col) {
+    filas.push(dias.map(function (_, i) { return '=SUMPRODUCT(' + esDia(i + 1) + '*($' + col + '$3:$' + col + '$33))'; }));
+  });
+  filas.push(dias.map(function (_, i) { return '=SUMPRODUCT(' + esDia(i + 1) + '*($C$3:$C$33>0))'; }));
+  cols.forEach(function (col, j) {
+    filas.push(dias.map(function (_, i) {
+      var colTotal = String.fromCharCode(69 + i); // E..K
+      return '=IFERROR(' + colTotal + (f0 + 1 + j) + '/SUMPRODUCT(' + esDia(i + 1) + '*($' + col + '$3:$' + col + '$33>0)),"")';
+    }));
+  });
+  hoja.getRange('E' + f0 + ':K' + f0).setValues([dias]);
+  hoja.getRange('D' + (f0 + 1) + ':D' + (f0 + 7)).setValues([['TOTAL SIST'], ['MEDIO DIA'], ['NOCHE'], ['DÍAS'], ['TOTAL SIST'], ['MEDIO DIA'], ['NOCHE']]);
+  hoja.getRange('E' + (f0 + 1) + ':K' + (f0 + 7)).setFormulas(filas);
+}
+
+// Al guardar un día: semanas de ese mes y de los de al lado (una semana que
+// cruza meses puede ser del otro). Solo pestañas que ya existen.
+function actualizarSemanasAlrededor_(anio, mesIndex) {
+  var leerDia = lectorDiasContabilidad_();
+  [-1, 0, 1].forEach(function (delta) {
+    var d = new Date(anio, mesIndex + delta, 1, 12);
+    var id = buscarEnIndice_('CONTABILIDAD', String(d.getFullYear()));
+    var hoja = id && SpreadsheetApp.openById(id).getSheetByName(MESES_MAYUS_[d.getMonth()]);
+    if (hoja) escribirSemanasContabilidad_(hoja, d.getFullYear(), d.getMonth(), leerDia);
+  });
+}
+
+// Desde el menú: las dos tablas en todos los meses (y la de días de la
+// semana también en la MASTER) de todas las planillas de Contabilidad.
+function tablasContabilidad() {
+  var leerDia = lectorDiasContabilidad_();
+  var resumen = [];
+  planillasDelTipo_('CONTABILIDAD').forEach(function (p) {
+    var anio = parseInt(String(p.periodo).slice(0, 4), 10);
+    try {
+      var ss = SpreadsheetApp.openById(p.id);
+      var master = ss.getSheetByName(NOMBRE_MASTER_CONTABILIDAD_);
+      if (master) escribirDiasSemanaContabilidad_(master);
+      var hechas = 0;
+      MESES_MAYUS_.forEach(function (nombre, mes) {
+        var hoja = ss.getSheetByName(nombre);
+        if (!hoja) return;
+        escribirDiasSemanaContabilidad_(hoja);
+        escribirSemanasContabilidad_(hoja, anio, mes, leerDia);
+        hechas++;
+      });
+      resumen.push(p.nombre + ': ' + hechas + ' meses' + (master ? ' y la MASTER' : ''));
+    } catch (err) {
+      resumen.push(p.nombre + ': error — ' + err);
+    }
+  });
+  return resumen.length ? resumen : ['No hay planillas de Contabilidad en el Índice.'];
+}
+
+function tablasContabilidadDesdeMenu() {
+  SpreadsheetApp.getUi().alert('Contabilidad: semanas y días de la semana', tablasContabilidad().join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
 // Lo facturado por Mediodía y la parte propia de Noche (Noche carga el
 // total del día completo), cada uno sin sus empanadas. Un turno sin total
 // cargado queda en 0 aunque tenga empanadas.
@@ -1724,6 +1871,16 @@ function totalesSinEmpanadas_(md, nc) {
     mediodia: totalMd > 0 ? Math.round((totalMd - empMd) * 100) / 100 : 0,
     noche: propioNc > 0 ? Math.round((propioNc - empNc) * 100) / 100 : 0
   };
+}
+
+// Las semanas no deben cortar el guardado del día si fallan.
+function semanasTrasGuardar_(anio, mesIndex) {
+  try {
+    SpreadsheetApp.flush();
+    actualizarSemanasAlrededor_(anio, mesIndex);
+  } catch (err) {
+    Logger.log('Semanas de Contabilidad: ' + err);
+  }
 }
 
 function escribirContabilidad_(data) {
@@ -1751,6 +1908,7 @@ function escribirContabilidad_(data) {
       COLS_CONTABILIDAD_APP_.forEach(function (col) {
         hoja.getRange(col + fila).clearContent();
       });
+      semanasTrasGuardar_(anio, mes - 1);
       return { ok: true, pestana: hoja.getName(), fila: fila, vacio: true };
     }
 
@@ -1785,6 +1943,7 @@ function escribirContabilidad_(data) {
       tpv1Dia, tpv2Dia, tpv3Dia, '=I' + fila + '+J' + fila + '+K' + fila,
       efevoDia, diferenciaDia, retiraDia
     ]]);
+    semanasTrasGuardar_(anio, mes - 1);
 
     return { ok: true, pestana: hoja.getName(), fila: fila };
   } catch (err) {
@@ -1815,6 +1974,7 @@ function onOpen(e) {
     .addSeparator()
     .addItem('Contabilidad: pasar a 3 TPV (sin WEB, con GLOVO)', 'adaptarContabilidadTresTpvDesdeMenu')
     .addItem('Contabilidad: proteger (solo el dueño; P, Q y W libres)', 'protegerContabilidadDesdeMenu')
+    .addItem('Contabilidad: recalcular semanas y días de la semana', 'tablasContabilidadDesdeMenu')
     .addItem('Cierre de Caja: pasar la plantilla y los días a 3 TPV', 'pasarCierresATresTpvDesdeMenu')
     .addToUi();
 }
