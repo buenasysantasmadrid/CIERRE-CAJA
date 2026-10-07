@@ -79,8 +79,11 @@ function armarDatosInformes_() {
   } else {
     datos.avisos.push('Faltan los albaranes de 2016-2025 (InformesDatos.gs).');
   }
-  var actual = albaranesDelAnio_(anio);
-  if (actual) datos.albaranes[String(anio)] = actual;
+  // Desde 2026 los albaranes están en las planillas de Google (una por año).
+  for (var a = 2026; a <= anio; a++) {
+    var delAnio = albaranesDelAnio_(a);
+    if (delAnio) datos.albaranes[String(a)] = delAnio;
+  }
   return datos;
 }
 

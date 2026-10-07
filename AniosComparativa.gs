@@ -31,6 +31,7 @@ function actualizarAniosComparativa_(anio, mesIndex) {
   if (!idCont) return null;
   var ss = SpreadsheetApp.openById(idCont);
   var hojas = hojasAniosComparativa_(ss);
+  if (!hojas.anios || !hojas.comparativa) hojas = traerAniosComparativaDelAnioAnterior_(ss, anio, hojas);
   if (!hojas.anios && !hojas.comparativa) return null;
   arreglarComparativa2025_(hojas);
   var nuevo = asegurarBloquesDelAnio_(hojas, anio);
@@ -51,7 +52,35 @@ function actualizarAniosComparativa_(anio, mesIndex) {
   for (var m = desde; m <= mesIndex; m++) {
     escribirMesAniosComparativa_(hojas, anio, m, datosMesContabilidad_(ss, m), proveedores[m]);
   }
+  // PROVEEDORES de todos los meses (un albarán puede ser de un mes anterior
+  // al de la caja en la que se cargó).
+  if (hojas.anios && proveedores.length) {
+    var S = filaBloqueAnio_(hojas.anios, anio);
+    if (S) {
+      var col = hojas.anios.getRange(S + 2, 19, mesIndex + 1, 1).getValues();
+      var dias = hojas.anios.getRange(S + 2, 2, mesIndex + 1, 1).getValues();
+      hojas.anios.getRange(S + 2, 19, mesIndex + 1, 1).setValues(col.map(function (f, i) {
+        return [dias[i][0] !== '' && proveedores[i] ? redondear_(proveedores[i]) : f[0]];
+      }));
+    }
+  }
   return true;
+}
+
+// Año nuevo: la planilla de Contabilidad sale de la plantilla y puede venir
+// sin "años" o "comparativa". Se copian de la del año anterior (con todo el
+// histórico) y después se crean los bloques del año como siempre.
+function traerAniosComparativaDelAnioAnterior_(ss, anio, hojas) {
+  var idAnt = buscarEnIndice_('CONTABILIDAD', String(anio - 1));
+  if (!idAnt) return hojas;
+  var ant = hojasAniosComparativa_(SpreadsheetApp.openById(idAnt));
+  [['anios', 'años'], ['comparativa', 'comparativa']].forEach(function (k) {
+    if (hojas[k[0]] || !ant[k[0]]) return;
+    var copia = ant[k[0]].copyTo(ss);
+    try { copia.setName(ant[k[0]].getName()); } catch (err) { copia.setName(k[1]); }
+    hojas[k[0]] = copia;
+  });
+  return hojas;
 }
 
 // Para correr a mano desde el editor: todo el año actual otra vez.
