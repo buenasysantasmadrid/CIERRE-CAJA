@@ -392,6 +392,7 @@ function sincronizarAlbaranesDelDiaEnAnio_(anio, fechaISO, gastos, soloSiExiste)
   // La pestaña SERVICIOS aparece con el primer guardado, aunque todavía no
   // se haya cargado ningún servicio.
   try { asegurarPestanaServiciosAlbaranes_(ss); } catch (errServicios) { Logger.log('SERVICIOS: ' + errServicios); }
+  try { asegurarPestanaInformeMes_(ss); } catch (errInforme) { Logger.log('INFORME MES: ' + errInforme); }
   var hojaIds = getOrCrearHojaIdsAlbaranes_(ss);
   var valoresIds = hojaIds.getDataRange().getValues();
 
@@ -474,6 +475,12 @@ function sincronizarAlbaranesDelDiaEnAnio_(anio, fechaISO, gastos, soloSiExiste)
   });
   hojaIds.clearContents();
   hojaIds.getRange(1, 1, resto.length, 4).setNumberFormat('@').setValues(resto);
+
+  // Si el INFORME MES muestra uno de los meses tocados, se pone al día.
+  try {
+    var mesesTocados = Object.keys(porBloque).map(function (k) { return parseInt(porBloque[k].fechaFactura.split('-')[1], 10) - 1; });
+    refrescarInformeMesSiToca_(ss, mesesTocados);
+  } catch (errInf) { Logger.log('INFORME MES: ' + errInf); }
 
   var salida = { ok: avisos.length === 0, escritos: Object.keys(actuales).length };
   if (avisos.length) salida.error = avisos.join(' ');
@@ -1176,4 +1183,184 @@ function actualizarPromediosTotalesAlbaranes() {
 
 function actualizarPromediosTotalesAlbaranesDesdeMenu() {
   SpreadsheetApp.getUi().alert('TOTALES: DIAS, SEMANAS y promedios', actualizarPromediosTotalesAlbaranes().join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+// ============================================================================
+// Pestaña "INFORME MES": todas las facturas de un mes, para los contables
+// ============================================================================
+// Pestaña sin proteger en la planilla de Albaranes del año. En B2 se elige
+// el mes; la pestaña se rellena sola (también al marcar "Actualizar" en E2)
+// con las facturas de ese mes de todas las pestañas de proveedor (menos
+// EXTRAS), agrupadas por proveedor con su subtotal: Fecha · Proveedor ·
+// Nº factura · Base imponible · IVA · Total. Al final, el total del mes y un
+// resumen por proveedor. En G2 hay un enlace que baja solo esta pestaña en
+// Excel. Cuando la app guarda una factura del mes elegido, el informe se
+// pone al día (como mucho cada 5 minutos, para no hacer lentos los
+// guardados).
+var INFORME_MES_PESTANA_ = 'INFORME MES';
+var INFORME_MES_FUERA_ = ['EXTRAS', 'NOO'];
+var INFORME_MES_PRIMERA_FILA_ = 5;
+ALBARANES_PESTANAS_EXCLUIDAS_.push(INFORME_MES_PESTANA_);
+
+function asegurarPestanaInformeMes_(ss) {
+  var hoja = ss.getSheetByName(INFORME_MES_PESTANA_);
+  if (hoja) return hoja;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    hoja = ss.getSheetByName(INFORME_MES_PESTANA_);
+    if (hoja) return hoja;
+    hoja = ss.insertSheet(INFORME_MES_PESTANA_, 0);
+    var anio = anioDePlanillaAlbaranes_(ss);
+    var meses = MESES_MAYUS_.map(function (m) { return m.charAt(0) + m.slice(1).toLowerCase() + ' ' + anio; });
+    hoja.getRange('A1').setValue('FACTURAS DEL MES (para los contables)').setFontWeight('bold').setFontSize(13);
+    hoja.getRange('A2').setValue('Mes:').setFontWeight('bold');
+    var hoy = new Date();
+    hoja.getRange('B2').setValue(meses[hoy.getFullYear() === anio ? hoy.getMonth() : 0])
+      .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(meses, true).setAllowInvalid(false).build())
+      .setFontWeight('bold').setBackground('#fff2cc');
+    hoja.getRange('D2').setValue('Actualizar:');
+    hoja.getRange('E2').insertCheckboxes();
+    var url = 'https://docs.google.com/spreadsheets/d/' + ss.getId() + '/export?format=xlsx&gid=' + hoja.getSheetId();
+    hoja.getRange('G2').setFormula(formulaLocal_(hoja, '=HYPERLINK("' + url + '","Descargar en Excel")')).setFontWeight('bold');
+    hoja.getRange('A3').setValue('Elige el mes en B2 y la lista se rellena sola. Con "Descargar en Excel" se baja solo esta pestaña.').setFontColor('#666666');
+    hoja.setColumnWidth(1, 95); hoja.setColumnWidth(2, 260); hoja.setColumnWidth(3, 130);
+    hoja.setColumnWidths(4, 3, 115);
+    hoja.setFrozenRows(INFORME_MES_PRIMERA_FILA_ - 1);
+    instalarTriggerInformeMes_(ss.getId());
+    SpreadsheetApp.flush();
+    generarInformeMes_(ss, hoja);
+    return hoja;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function anioDePlanillaAlbaranes_(ss) {
+  var m = /(20\d\d)/.exec(ss.getName());
+  return m ? Number(m[1]) : new Date().getFullYear();
+}
+
+// Las ediciones de cualquier persona en esa planilla llaman a
+// alEditarAlbaranes (trigger instalable: corre con la cuenta del script).
+function instalarTriggerInformeMes_(idPlanilla) {
+  var yaEsta = ScriptApp.getProjectTriggers().some(function (t) {
+    return t.getHandlerFunction() === 'alEditarAlbaranes' && t.getTriggerSourceId() === idPlanilla;
+  });
+  if (!yaEsta) ScriptApp.newTrigger('alEditarAlbaranes').forSpreadsheet(idPlanilla).onEdit().create();
+}
+
+function alEditarAlbaranes(e) {
+  try {
+    if (!e || !e.range) return;
+    var hoja = e.range.getSheet();
+    if (hoja.getName() !== INFORME_MES_PESTANA_ || e.range.getRow() !== 2) return;
+    var col = e.range.getColumn();
+    if (col !== 2 && col !== 5) return;
+    if (col === 5) hoja.getRange('E2').setValue(false);
+    hoja.getRange('A3').setValue('Generando…');
+    SpreadsheetApp.flush();
+    generarInformeMes_(hoja.getParent(), hoja);
+  } catch (err) {
+    Logger.log('INFORME MES: ' + err);
+  }
+}
+
+// Para correr a mano desde el editor: crea (o regenera) la pestaña en la
+// planilla de Albaranes del año actual.
+function crearInformeMesAlbaranes() {
+  var id = buscarEnIndice_('ALBARANES', String(new Date().getFullYear()));
+  if (!id) { Logger.log('No hay planilla de Albaranes de este año en el Índice.'); return; }
+  var ss = SpreadsheetApp.openById(id);
+  var hoja = asegurarPestanaInformeMes_(ss);
+  instalarTriggerInformeMes_(id);
+  generarInformeMes_(ss, hoja);
+  Logger.log('INFORME MES listo en ' + ss.getName());
+}
+
+// Después de guardar albaranes desde la app: si el informe muestra un mes
+// que cambió, se rehace (como mucho cada 5 minutos).
+function refrescarInformeMesSiToca_(ss, mesesCambiados) {
+  var hoja = ss.getSheetByName(INFORME_MES_PESTANA_);
+  if (!hoja) return;
+  var mes = mesDelInforme_(hoja);
+  if (mes === -1 || mesesCambiados.indexOf(mes) === -1) return;
+  var cache = CacheService.getScriptCache(), clave = 'informe_mes_' + ss.getId();
+  if (cache.get(clave)) return;
+  cache.put(clave, '1', 300);
+  generarInformeMes_(ss, hoja);
+}
+
+function mesDelInforme_(hoja) {
+  var t = normalizarClave_(hoja.getRange('B2').getValue()).split(' ')[0];
+  return MESES_MAYUS_.indexOf(t);
+}
+
+function generarInformeMes_(ss, hoja) {
+  var mes = mesDelInforme_(hoja);
+  var anio = anioDePlanillaAlbaranes_(ss);
+  var ultima = Math.max(hoja.getLastRow(), INFORME_MES_PRIMERA_FILA_);
+  hoja.getRange(INFORME_MES_PRIMERA_FILA_, 1, ultima - INFORME_MES_PRIMERA_FILA_ + 1, 8).clear();
+  if (mes === -1) { hoja.getRange('A3').setValue('Elige un mes en B2.'); return; }
+
+  // Facturas del mes de cada pestaña de proveedor.
+  var grupos = [];
+  ss.getSheets().forEach(function (h) {
+    var nombre = h.getName();
+    if (ALBARANES_PESTANAS_EXCLUIDAS_.indexOf(nombre) > -1 || INFORME_MES_FUERA_.indexOf(normalizarClave_(nombre)) > -1) return;
+    var enc = filasEncabezadoAlbaranes_(h);
+    if (enc.length !== 12) return;
+    var mapa = mapaColumnasAlbaranes_(h.getRange(enc[mes], 1, 1, ALBARANES_ANCHO_).getValues()[0]);
+    if (mapa.importe == null) return;
+    var filas = [];
+    h.getRange(enc[mes] + 1, 1, ALBARANES_FILAS_DATOS_, ALBARANES_ANCHO_).getValues().forEach(function (v) {
+      var total = Number(v[mapa.importe]) || 0;
+      var fecha = mapa.fecha != null ? v[mapa.fecha] : '';
+      if (!total && !(fecha instanceof Date)) return;
+      var iva = mapa.iva != null ? (Number(v[mapa.iva]) || 0) : 0;
+      var detalle = mapa.detalle != null ? String(v[mapa.detalle] || '').trim() : '';
+      var factura = mapa.factura != null ? String(v[mapa.factura] || '').trim() : '';
+      filas.push([fecha, detalle ? nombre + ' — ' + detalle : nombre, factura || '(sin nº)', Math.round((total - iva) * 100) / 100, iva, total]);
+    });
+    if (!filas.length) return;
+    filas.sort(function (a, b) { return (a[0] instanceof Date ? a[0].getTime() : 0) - (b[0] instanceof Date ? b[0].getTime() : 0); });
+    grupos.push({ nombre: nombre, filas: filas });
+  });
+  grupos.sort(function (a, b) { return a.nombre < b.nombre ? -1 : 1; });
+
+  var salida = [], estilos = [];
+  function poner(fila, tipo) { salida.push(fila); estilos.push(tipo); }
+  poner(['Fecha', 'Proveedor', 'Nº factura', 'Base imponible', 'IVA', 'Total'], 'cabecera');
+  var tot = [0, 0, 0], resumen = [];
+  grupos.forEach(function (g) {
+    poner([g.nombre, '', '', '', '', ''], 'grupo');
+    var sub = [0, 0, 0];
+    g.filas.forEach(function (f) { poner(f, 'dato'); sub[0] += f[3]; sub[1] += f[4]; sub[2] += f[5]; });
+    sub = sub.map(function (x) { return Math.round(x * 100) / 100; });
+    poner(['', 'Subtotal ' + g.nombre + ' (' + g.filas.length + ')', '', sub[0], sub[1], sub[2]], 'subtotal');
+    poner(['', '', '', '', '', ''], 'vacia');
+    tot[0] += sub[0]; tot[1] += sub[1]; tot[2] += sub[2];
+    resumen.push([g.nombre, g.filas.length, sub[0], sub[1], sub[2]]);
+  });
+  tot = tot.map(function (x) { return Math.round(x * 100) / 100; });
+  poner(['', 'TOTAL DEL MES', '', tot[0], tot[1], tot[2]], 'total');
+  poner(['', '', '', '', '', ''], 'vacia');
+  poner(['RESUMEN', 'Proveedor', 'Facturas', 'Base imponible', 'IVA', 'Total'], 'cabecera');
+  resumen.forEach(function (r) { poner(['', r[0], r[1], r[2], r[3], r[4]], 'dato'); });
+
+  var f0 = INFORME_MES_PRIMERA_FILA_;
+  hoja.getRange(f0, 1, salida.length, 6).setValues(salida);
+  hoja.getRange(f0, 1, salida.length, 1).setNumberFormat('dd/mm/yyyy');
+  hoja.getRange(f0, 4, salida.length, 3).setNumberFormat('#,##0.00 €');
+  estilos.forEach(function (t, i) {
+    var r = hoja.getRange(f0 + i, 1, 1, 6);
+    if (t === 'cabecera') r.setFontWeight('bold').setBackground('#d9e2f3');
+    else if (t === 'grupo') r.setFontWeight('bold').setBackground('#f3f3f3');
+    else if (t === 'subtotal') r.setFontWeight('bold');
+    else if (t === 'total') r.setFontWeight('bold').setBackground('#fff2cc');
+  });
+  var nMes = MESES_MAYUS_[mes].charAt(0) + MESES_MAYUS_[mes].slice(1).toLowerCase();
+  hoja.getRange('A3').setValue(grupos.length
+    ? nMes + ' ' + anio + ': ' + resumen.reduce(function (s, r) { return s + r[1]; }, 0) + ' facturas de ' + grupos.length + ' proveedores · actualizado ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM HH:mm')
+    : 'No hay facturas en ' + nMes.toLowerCase() + ' ' + anio + '.');
 }
