@@ -1204,7 +1204,16 @@ ALBARANES_PESTANAS_EXCLUIDAS_.push(INFORME_MES_PESTANA_);
 
 function asegurarPestanaInformeMes_(ss) {
   var hoja = ss.getSheetByName(INFORME_MES_PESTANA_);
-  if (hoja) return hoja;
+  if (hoja) {
+    // Que el activador que la rellena al elegir el mes siga instalado
+    // (se comprueba como mucho cada 6 horas).
+    var cache = CacheService.getScriptCache(), clave = 'informe_mes_trigger_' + ss.getId();
+    if (!cache.get(clave)) {
+      try { instalarTriggerInformeMes_(ss.getId()); cache.put(clave, '1', 21600); }
+      catch (errTrigger) { hoja.getRange('A3').setValue('No se pudo instalar el activador: ' + errTrigger); }
+    }
+    return hoja;
+  }
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -1263,6 +1272,7 @@ function alEditarAlbaranes(e) {
     generarInformeMes_(hoja.getParent(), hoja);
   } catch (err) {
     Logger.log('INFORME MES: ' + err);
+    try { e.range.getSheet().getRange('A3').setValue('No se pudo generar: ' + (err && err.message || err)); } catch (err2) {}
   }
 }
 
@@ -1304,14 +1314,15 @@ function generarInformeMes_(ss, hoja) {
   if (mes === -1) { hoja.getRange('A3').setValue('Elige un mes en B2.'); return; }
 
   // Facturas del mes de cada pestaña de proveedor.
-  var grupos = [];
+  var grupos = [], revisadas = [], saltadas = [];
   ss.getSheets().forEach(function (h) {
     var nombre = h.getName();
     if (ALBARANES_PESTANAS_EXCLUIDAS_.indexOf(nombre) > -1 || INFORME_MES_FUERA_.indexOf(normalizarClave_(nombre)) > -1) return;
     var enc = filasEncabezadoAlbaranes_(h);
-    if (enc.length !== 12) return;
+    if (enc.length < mes + 1) { saltadas.push(nombre + ' (' + enc.length + ' meses)'); return; }
     var mapa = mapaColumnasAlbaranes_(h.getRange(enc[mes], 1, 1, ALBARANES_ANCHO_).getValues()[0]);
-    if (mapa.importe == null) return;
+    if (mapa.importe == null) { saltadas.push(nombre + ' (sin IMPORTE)'); return; }
+    revisadas.push(nombre);
     var filas = [];
     h.getRange(enc[mes] + 1, 1, ALBARANES_FILAS_DATOS_, ALBARANES_ANCHO_).getValues().forEach(function (v) {
       var total = Number(v[mapa.importe]) || 0;
@@ -1362,5 +1373,6 @@ function generarInformeMes_(ss, hoja) {
   var nMes = MESES_MAYUS_[mes].charAt(0) + MESES_MAYUS_[mes].slice(1).toLowerCase();
   hoja.getRange('A3').setValue(grupos.length
     ? nMes + ' ' + anio + ': ' + resumen.reduce(function (s, r) { return s + r[1]; }, 0) + ' facturas de ' + grupos.length + ' proveedores · actualizado ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM HH:mm')
-    : 'No hay facturas en ' + nMes.toLowerCase() + ' ' + anio + '.');
+    : 'No hay facturas en ' + nMes.toLowerCase() + ' ' + anio + ' (revisé ' + revisadas.length + ' pestañas de proveedor' +
+      (saltadas.length ? '; no pude leer: ' + saltadas.join(', ') : '') + ').');
 }
