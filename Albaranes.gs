@@ -81,16 +81,9 @@ function mapaColumnasAlbaranes_(encabezados) {
   return mapa;
 }
 
-// Servicios (luz, alarma, teléfono, tickets restaurante...): todos van a
-// la pestaña SERVICIOS, con el nombre en la columna PROVEEDOR. La misma
-// lista está en index.html (PROVEEDORES_SERVICIOS).
-var ALBARANES_SERVICIOS_ = ['Carsan', 'GSC', 'Prosegur', 'Logos Energía', 'Love Energía', 'Endered', 'O2', 'Pluxee', 'Up'];
+// Proveedor "Servicios" de la app (como VARIOS y SUPER: el nombre real va
+// en la columna PROVEEDOR): va a la pestaña SERVICIOS.
 var ALBARANES_PESTANA_SERVICIOS_ = 'SERVICIOS';
-
-function esProveedorServicio_(proveedor) {
-  var n = normalizarClave_(proveedor);
-  return ALBARANES_SERVICIOS_.some(function (s) { return normalizarClave_(s) === n; });
-}
 
 // Crea la pestaña SERVICIOS (al final, copiando VARIOS vacía) y su fila en
 // TOTALES, si no está. Se hace sola al guardar cualquier caja; se puede
@@ -232,7 +225,7 @@ function filaAlbaran_(m, fechaISO, mapa, fechaCajaISO) {
   // Las formas de pago que no son efectivo ya vienen marcadas en Info
   // (TARJETA, NO PAGADO, TRANSFERENCIA, PAGADO ...); el efectivo no.
   var textoObs = [info, formaPago].filter(String).join(' · ');
-  var detalle = m.proveedorDetalle || (esProveedorServicio_(m.proveedor) ? m.proveedor : '');
+  var detalle = m.proveedorDetalle || '';
 
   // Formato nuevo: la forma y el día de pago van en sus columnas, y en
   // observaciones queda solo lo que se escribió.
@@ -428,9 +421,7 @@ function sincronizarAlbaranesDelDiaEnAnio_(anio, fechaISO, gastos, soloSiExiste)
   var avisos = [];
   var actuales = {}; // id -> {fechaCaja, pestana, fechaFactura}
   gastos.forEach(function (m) {
-    var hoja = esProveedorServicio_(m.proveedor)
-      ? asegurarPestanaServiciosAlbaranes_(ss)
-      : pestanaAlbaranesParaProveedor_(ss, m.proveedor);
+    var hoja = pestanaAlbaranesParaProveedor_(ss, m.proveedor);
     if (!hoja) { avisos.push('No hay pestaña para el proveedor "' + m.proveedor + '".'); return; }
     var r = { fechaCaja: fechaISO, pestana: hoja.getName(), fechaFactura: fechaFacturaGasto_(m, fechaISO) };
     actuales[m.id] = r;

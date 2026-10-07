@@ -824,25 +824,18 @@
   var MONEDAS = [2,1,0.5,0.2,0.1,0.05];
   var ROLL_VALUE = {2:50, 1:25, 0.5:20, 0.2:8, 0.1:4, 0.05:2.5};
 
-  // Servicios (luz, alarma, teléfono, tickets restaurante...): salen al
-  // final de los desplegables, en su propio grupo, y en Albaranes van todos
-  // a la pestaña SERVICIOS (con el nombre en la columna PROVEEDOR). La
-  // misma lista está en Albaranes.gs (ALBARANES_SERVICIOS_).
-  var PROVEEDORES_SERVICIOS = [
-    "Carsan","GSC","Prosegur","Logos Energía","Love Energía","Endered","O2","Pluxee","Up"
-  ];
-
   var PROVEEDORES_CONOCIDOS = [
     "Varios","Frutapro","Mercandalucia","Polleria","Super","Las 3B","Dia Carne","Extras",
     "Alimentos Australes","cbg","Atlanta","cream de luxe","Disbesa","Duo Harinero","Envapro",
     "Franco Arg","Gabarrera","Gamo","Hughes","Iberolactal","La Jaula","Los Fuenteños","Mercadona","Monbake",
-    "Delta Cafe","Vino","Wineup"
-  ].concat(PROVEEDORES_SERVICIOS);
+    "Delta Cafe","Vino","Wineup",
+    "Servicios" // siempre el último del desplegable
+  ];
 
   // Proveedores genéricos: al elegirlos, piden escribir a mano el nombre
   // real (igual que "Varios"). "Super" es un proveedor genérico (Mercadona,
   // Carrefour, etc., el que haya tocado ese día), así que funciona igual.
-  var PROVEEDORES_CON_DETALLE_LIBRE = ['Varios', 'Super'];
+  var PROVEEDORES_CON_DETALLE_LIBRE = ['Varios', 'Super', 'Servicios'];
 
   // Nombre legal (el que viene en la factura) de cada proveedor de la
   // lista. Al escanear una factura se busca acá para ponerla en el
@@ -2475,7 +2468,7 @@
   //      final ("Iniciativa" / "Iniciativas") o con una letra mal leída
   //      ("Mercandalucia" / "Mercadalucia").
   // Varios, Super y Extras son genéricos: solo cuentan si coinciden igual.
-  var PROVEEDORES_SIN_COINCIDENCIA_TOLERANTE = ['Varios', 'Super', 'Extras'];
+  var PROVEEDORES_SIN_COINCIDENCIA_TOLERANTE = ['Varios', 'Super', 'Extras', 'Servicios'];
 
   // Lista que se manda a la IA al escanear o dictar: cada proveedor con los
   // nombres con que puede salir en la factura, para que diga cuál es.
@@ -2563,6 +2556,23 @@
   // la factura sale como "DIA RETAIL ESPAÑA", "Distribuidora Internacional
   // de Alimentación" o "Supermercados DIA"). "Dia Carne" es otro proveedor
   // y ya se encuentra antes, por la lista.
+  // Facturas que van a "Servicios" (al escanear o dictar), con las palabras
+  // con que se las reconoce en el nombre leído. Como detalle queda el
+  // nombre de esta lista.
+  var SERVICIOS_CONOCIDOS = [
+    ['Carsan', ['carsan']], ['GSC', ['gsc']], ['Prosegur', ['prosegur']],
+    ['Logos Energía', ['logos energia', 'logos']], ['Love Energía', ['love energia']],
+    ['Endered', ['endered']], ['O2', ['o2']], ['Pluxee', ['pluxee', 'pluxe']], ['Up', ['up']]
+  ];
+  function servicioConocido(nombre){
+    var n = ' ' + normalizarNombreProveedor(nombre) + ' ';
+    if(!n.trim()) return null;
+    for(var i = 0; i < SERVICIOS_CONOCIDOS.length; i++){
+      if(SERVICIOS_CONOCIDOS[i][1].some(function(w){ return n.indexOf(' ' + w + ' ') > -1; })) return SERVICIOS_CONOCIDOS[i][0];
+    }
+    return null;
+  }
+
   function esSupermercado(nombre){
     var n = ' ' + normalizarNombreProveedor(nombre) + ' ';
     return / carrefour /.test(n) || / grupo dia /.test(n) || / dia retail /.test(n) ||
@@ -2592,10 +2602,13 @@
         ponerProveedor(match);
         aplicarRestoFactura(data);
       } else {
-        // No está en la lista: un supermercado (Grupo Dia, Carrefour) va a
-        // "Super" y cualquier otro a "Varios", sin preguntar. El nombre
-        // leído de la factura queda como detalle (columna B).
-        ponerProveedor(esSupermercado(nombreExtraido) ? 'Super' : 'Varios', nombreExtraido);
+        // No está en la lista: un servicio (ver SERVICIOS_CONOCIDOS) va a
+        // "Servicios", un supermercado (Grupo Dia, Carrefour) a "Super" y
+        // cualquier otro a "Varios", sin preguntar. El nombre queda como
+        // detalle (columna B).
+        var servicio = servicioConocido(nombreExtraido) || servicioConocido(data.proveedor_lista);
+        if(servicio) ponerProveedor('Servicios', servicio);
+        else ponerProveedor(esSupermercado(nombreExtraido) ? 'Super' : 'Varios', nombreExtraido);
         aplicarRestoFactura(data);
       }
     } else {
@@ -2692,12 +2705,10 @@
     var valorEfectivo = esLegado ? 'Varios' : selected;
     var detalleEfectivo = esLegado ? selected : detalle;
 
-    function opcion(p){
-      return '<option value="'+escapeHtml(p)+'" '+(p===valorEfectivo?'selected':'')+'>'+escapeHtml(p)+'</option>';
-    }
     var opts = '<option value="">Elegir proveedor…</option>';
-    opts += PROVEEDORES_CONOCIDOS.filter(function(p){ return PROVEEDORES_SERVICIOS.indexOf(p) === -1; }).map(opcion).join('');
-    opts += '<optgroup label="Servicios">' + PROVEEDORES_SERVICIOS.map(opcion).join('') + '</optgroup>';
+    opts += PROVEEDORES_CONOCIDOS.map(function(p){
+      return '<option value="'+escapeHtml(p)+'" '+(p===valorEfectivo?'selected':'')+'>'+escapeHtml(p)+'</option>';
+    }).join('');
     var mostrarTexto = PROVEEDORES_CON_DETALLE_LIBRE.indexOf(valorEfectivo) > -1;
     var valorTexto = mostrarTexto ? (detalleEfectivo||'') : '';
     return '<div class="field field-prov">' +
@@ -2883,20 +2894,11 @@
   function poblarAlbaranesProveedor(){
     var sel = document.getElementById('albaranesProveedor');
     if(sel.options.length > 1) return;
-    function opcion(destino, valor, texto){
-      var opt = document.createElement('option');
-      opt.value = valor; opt.textContent = texto || valor;
-      destino.appendChild(opt);
-    }
     PROVEEDORES_CONOCIDOS.forEach(function(p){
-      if(PROVEEDORES_SERVICIOS.indexOf(p) === -1) opcion(sel, p);
+      var opt = document.createElement('option');
+      opt.value = p; opt.textContent = p;
+      sel.appendChild(opt);
     });
-    // Al final, los servicios: "Servicios (todos)" y cada uno.
-    var grupo = document.createElement('optgroup');
-    grupo.label = 'Servicios';
-    opcion(grupo, 'Servicios', 'Servicios (todos)');
-    PROVEEDORES_SERVICIOS.forEach(function(p){ opcion(grupo, p); });
-    sel.appendChild(grupo);
   }
 
   function abrirAlbaranes(){
