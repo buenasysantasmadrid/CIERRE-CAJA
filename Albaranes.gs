@@ -1074,54 +1074,62 @@ function filaTotalDeTotales_(hoja) {
 }
 
 // ----------------------------------------------------------------------------
-// TOTALES: promedio por día y por semana (filas de debajo del TOTAL)
+// TOTALES: DIAS, SEMANAS y promedios (filas de debajo del TOTAL)
 // ----------------------------------------------------------------------------
-// Al guardar un día se completa su mes:
-//   fila DIAS (40): días trabajados (suma de la columna A, 0,5 / 1, de ese
-//     mes en Contabilidad)
-//   fila SEMANAS (41): cuántos martes tiene el mes
-// y, desde septiembre de 2026 (los de antes se pusieron a mano):
-//   fila TOTAL + 4: TOTAL / DIAS
-//   fila TOTAL + 5: TOTAL / SEMANAS
+// Las filas se buscan por lo que dice la columna B (o A):
+//   DIAS             días trabajados de cada mes (suma de la columna A,
+//                    0,5 / 1, de ese mes en Contabilidad)
+//   SEMANAS          cuántos martes tiene el mes
+//   PROMEDIO DIAS    TOTAL / DIAS      (desde septiembre de 2026)
+//   PROMEDIO SEMANAS TOTAL / SEMANAS   (desde septiembre de 2026)
+// Si no hay una fila DIAS o SEMANAS, se usan la 40 y la 41. Cada guardado
+// de un día completa todos los meses del año hasta el suyo. Los promedios
+// de antes de septiembre se pusieron a mano y no se tocan; tampoco una
+// celda de promedio con otra cosa que no sea TOTAL / algo.
 var DESDE_PROMEDIOS_TOTALES_ = { anio: 2026, mes: 8 };
+var FILA_DIAS_TOTALES_ = 40;
+var FILA_SEMANAS_TOTALES_ = 41;
 
 function actualizarPromediosTotalesAlbaranes_(anio, mesIndex) {
   var idAlb = buscarEnIndice_('ALBARANES', String(anio));
-  if (!idAlb) return null;
+  if (!idAlb) return 'No hay planilla de Albaranes ' + anio + ' en el Índice.';
   var hoja = SpreadsheetApp.openById(idAlb).getSheetByName('TOTALES');
-  if (!hoja) return null;
+  if (!hoja) return 'Albaranes ' + anio + ' no tiene pestaña TOTALES.';
   var filaTotal = filaTotalDeTotales_(hoja);
-  if (filaTotal === -1) return null;
-  var L = letraColumna_(3 + mesIndex);
+  if (filaTotal === -1) return 'TOTALES: no se encontró la fila TOTAL.';
   var filas = filasDiasSemanasTotales_(hoja, filaTotal);
 
-  // SEMANAS: cuántos martes tiene el mes (no depende de lo trabajado).
-  var semanas = martesDelMes_(anio, mesIndex);
-  if (filas.semanas) hoja.getRange(L + filas.semanas).setValue(semanas);
+  // SEMANAS: los 12 meses (no depende de lo trabajado).
+  var semanas = [];
+  for (var m = 0; m < 12; m++) semanas.push(martesDelMes_(anio, m));
+  hoja.getRange(filas.semanas, 3, 1, 12).setValues([semanas]);
 
-  // DIAS: los días trabajados del mes, de Contabilidad.
-  var dias = diasTrabajadosContabilidad_(anio, mesIndex);
-  if (!(dias > 0)) return null;
-  if (filas.dias) hoja.getRange(L + filas.dias).setValue(dias);
-
-  // Promedios (desde septiembre de 2026; los de antes se pusieron a mano):
-  // TOTAL / DIAS y TOTAL / SEMANAS. Solo se escribe si la celda está vacía
-  // o ya tiene un promedio puesto por este script.
-  if (anio * 12 + mesIndex >= DESDE_PROMEDIOS_TOTALES_.anio * 12 + DESDE_PROMEDIOS_TOTALES_.mes) {
-    var diasRef = filas.dias ? L + filas.dias : String(dias);
-    var semanasRef = filas.semanas ? L + filas.semanas : String(semanas);
-    escribirPromedioTotales_(hoja, L, filaTotal, filaTotal + 4, '=' + L + filaTotal + '/' + diasRef);
-    escribirPromedioTotales_(hoja, L, filaTotal, filaTotal + 5, '=' + L + filaTotal + '/' + semanasRef);
+  // DIAS: de enero hasta este mes; un mes sin días en Contabilidad deja lo
+  // que ya hubiera en la celda.
+  var dias = hoja.getRange(filas.dias, 3, 1, 12).getValues()[0];
+  var idCont = buscarEnIndice_('CONTABILIDAD', String(anio));
+  var ssCont = idCont ? SpreadsheetApp.openById(idCont) : null;
+  for (var k = 0; k <= mesIndex; k++) {
+    var d = ssCont ? diasTrabajadosContabilidad_(ssCont, k) : 0;
+    if (d > 0) dias[k] = d;
   }
-  return MESES_MAYUS_[mesIndex] + ': ' + dias + ' días, ' + semanas + ' semanas';
+  hoja.getRange(filas.dias, 3, 1, 12).setValues([dias]);
+
+  // Promedios, de septiembre de 2026 hasta este mes.
+  for (var p = 0; p <= mesIndex; p++) {
+    if (anio * 12 + p < DESDE_PROMEDIOS_TOTALES_.anio * 12 + DESDE_PROMEDIOS_TOTALES_.mes) continue;
+    if (!(Number(dias[p]) > 0)) continue;
+    var L = letraColumna_(3 + p);
+    if (filas.promDias) escribirPromedioTotales_(hoja, L, filaTotal, filas.promDias, '=' + L + filaTotal + '/' + L + filas.dias);
+    if (filas.promSemanas) escribirPromedioTotales_(hoja, L, filaTotal, filas.promSemanas, '=' + L + filaTotal + '/' + L + filas.semanas);
+  }
+  return anio + ': DIAS en la fila ' + filas.dias + ' (' + dias.slice(0, mesIndex + 1).join(', ') + '), SEMANAS en la fila ' + filas.semanas +
+    (filas.promDias ? ', PROMEDIO DIAS en la ' + filas.promDias : ', no hay fila PROMEDIO DIAS') +
+    (filas.promSemanas ? ', PROMEDIO SEMANAS en la ' + filas.promSemanas : ', no hay fila PROMEDIO SEMANAS');
 }
 
-// Días trabajados del mes: la suma de la columna A (0,5 / 1) de ese mes en
-// Contabilidad.
-function diasTrabajadosContabilidad_(anio, mesIndex) {
-  var idCont = buscarEnIndice_('CONTABILIDAD', String(anio));
-  if (!idCont) return 0;
-  var mesCont = SpreadsheetApp.openById(idCont).getSheetByName(MESES_MAYUS_[mesIndex]);
+function diasTrabajadosContabilidad_(ssCont, mesIndex) {
+  var mesCont = ssCont.getSheetByName(MESES_MAYUS_[mesIndex]);
   if (!mesCont) return 0;
   var dias = mesCont.getRange('A3:A33').getValues().reduce(function (s, f) { return s + (Number(f[0]) || 0); }, 0);
   return Math.round(dias * 10) / 10;
@@ -1133,24 +1141,26 @@ function martesDelMes_(anio, mesIndex) {
   return n;
 }
 
-// Filas DIAS y SEMANAS de TOTALES (debajo del TOTAL): las que dicen eso en
-// la columna A o B; si no se encuentran, las filas 40 y 41.
 function filasDiasSemanasTotales_(hoja, filaTotal) {
   var ultima = Math.max(hoja.getLastRow(), FILA_SEMANAS_TOTALES_);
   var etiquetas = hoja.getRange(1, 1, ultima, 2).getValues();
-  function etiqueta(fila) { return normalizarClave_(etiquetas[fila - 1][0]) + ' ' + normalizarClave_(etiquetas[fila - 1][1]); }
-  var res = { dias: 0, semanas: 0 };
-  for (var f = filaTotal + 6; f <= ultima; f++) { // debajo de los promedios
-    var e = ' ' + etiqueta(f) + ' ';
-    if (!res.dias && / DIAS /.test(e) && e.indexOf('PROMED') === -1) res.dias = f;
-    if (!res.semanas && / SEMANAS? /.test(e) && e.indexOf('PROMED') === -1) res.semanas = f;
+  var res = { dias: 0, semanas: 0, promDias: 0, promSemanas: 0 };
+  for (var f = filaTotal + 1; f <= ultima; f++) {
+    var e = normalizarClave_(etiquetas[f - 1][1]) || normalizarClave_(etiquetas[f - 1][0]);
+    if (!e) continue;
+    var promedio = e.indexOf('PROMEDIO') === 0;
+    if (/DIA/.test(e)) {
+      if (promedio) res.promDias = res.promDias || f;
+      else if (/^DIAS?\b/.test(e)) res.dias = res.dias || f;
+    } else if (/SEMANA/.test(e)) {
+      if (promedio) res.promSemanas = res.promSemanas || f;
+      else if (/^SEMANAS?\b/.test(e)) res.semanas = res.semanas || f;
+    }
   }
-  if (!res.dias && FILA_DIAS_TOTALES_ > filaTotal + 5) res.dias = FILA_DIAS_TOTALES_;
-  if (!res.semanas && FILA_SEMANAS_TOTALES_ > filaTotal + 5) res.semanas = FILA_SEMANAS_TOTALES_;
+  res.dias = res.dias || FILA_DIAS_TOTALES_;
+  res.semanas = res.semanas || FILA_SEMANAS_TOTALES_;
   return res;
 }
-var FILA_DIAS_TOTALES_ = 40;
-var FILA_SEMANAS_TOTALES_ = 41;
 
 function escribirPromedioTotales_(hoja, L, filaTotal, fila, formula) {
   var celda = hoja.getRange(L + fila);
@@ -1158,17 +1168,12 @@ function escribirPromedioTotales_(hoja, L, filaTotal, fila, formula) {
   if (celda.getValue() === '' || actual.indexOf('=' + L + filaTotal + '/') === 0) celda.setFormula(formula);
 }
 
-// Desde el menú: DIAS y SEMANAS de todos los meses del año hasta el
-// actual, y los promedios desde septiembre de 2026.
+// Desde el menú: todo el año actual.
 function actualizarPromediosTotalesAlbaranes() {
-  var hoy = new Date(), resumen = [];
-  for (var m = hoy.getFullYear() * 12; m <= hoy.getFullYear() * 12 + hoy.getMonth(); m++) {
-    var r = actualizarPromediosTotalesAlbaranes_(Math.floor(m / 12), m % 12);
-    if (r) resumen.push(r);
-  }
-  return resumen.length ? resumen : ['No había meses para completar.'];
+  var hoy = new Date();
+  return [actualizarPromediosTotalesAlbaranes_(hoy.getFullYear(), hoy.getMonth())];
 }
 
 function actualizarPromediosTotalesAlbaranesDesdeMenu() {
-  SpreadsheetApp.getUi().alert('TOTALES: promedios por día y semana', actualizarPromediosTotalesAlbaranes().join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
+  SpreadsheetApp.getUi().alert('TOTALES: DIAS, SEMANAS y promedios', actualizarPromediosTotalesAlbaranes().join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
 }
