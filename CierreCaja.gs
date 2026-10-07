@@ -111,6 +111,11 @@ function doPost(e) {
       Logger.log('escribirHojaDelDiaExacta_ error: ' + errHoja);
     }
 
+    // Los demás dispositivos preguntan cada pocos segundos si esta caja
+    // cambió (GET ?verCaja=fecha): se avisa ya, antes de Contabilidad y
+    // Albaranes, que tardan.
+    marcarCajaCambiada_(data.fecha, ahora);
+
     var contabilidad = escribirContabilidad_(data);
     var albaranes = escribirAlbaranes_(data); // ver Albaranes.gs
     var glovo = escribirGlovo_(data); // ver Glovo.gs
@@ -678,6 +683,15 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
+  // Pregunta rápida (sin abrir ninguna planilla): ¿cuándo se guardó por
+  // última vez la caja de esta fecha? La app la hace cada pocos segundos y
+  // solo trae la caja entera si cambió.
+  if (parametros.verCaja) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: true, v: versionCaja_(parametros.verCaja) }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
   var avisoTpv1Mes = e && e.parameter && e.parameter.avisoTpv1;
   if (avisoTpv1Mes) {
     return ContentService
@@ -716,6 +730,19 @@ function doGet(e) {
   return ContentService
     .createTextOutput(JSON.stringify({ ok: true, msg: 'API de Cierre de Caja activa. Usá POST para enviar datos, GET ?fecha=YYYY-MM-DD para leer un día ya guardado, o GET ?listarFacturas=1 (con ?proveedor=<nombre> opcional) para ver todas las facturas y albaranes de proveedores.' }))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ---------- versión de cada caja (para que los dispositivos se enteren solos) ----------
+// Cada guardado deja en la memoria rápida de Google la hora del último
+// cambio de esa fecha. Si no está (pasaron 6 horas, o se editó a mano en
+// "Registro"), la app igual consulta la caja entera cada tanto.
+function marcarCajaCambiada_(fecha, cuando) {
+  if (!fecha) return;
+  try { CacheService.getScriptCache().put('caja_ver_' + fecha, (cuando || new Date()).toISOString(), 21600); } catch (e) {}
+}
+
+function versionCaja_(fecha) {
+  try { return CacheService.getScriptCache().get('caja_ver_' + fecha) || null; } catch (e) { return null; }
 }
 
 // ---------- memoria rápida de los listados (días y albaranes) ----------
@@ -1007,6 +1034,8 @@ function onEdit(e) {
     } else if (/^\d{2}-\d{2}-\d{4}$/.test(nombreHoja)) {
       invalidarCacheListados_();
       manejarEdicionHojaDelDia_(e, hoja, nombreHoja);
+      var p = nombreHoja.split('-');
+      marcarCajaCambiada_(p[2] + '-' + p[1] + '-' + p[0]);
     }
   } catch (err) {
     Logger.log('onEdit error: ' + err);

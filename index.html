@@ -2884,7 +2884,7 @@
     document.getElementById('albaranesBody').scrollTop = 0;
     document.getElementById('albaranesOverlay').classList.add('open');
     document.body.classList.add('no-scroll');
-    // Se pausa el sondeo automático del Sheet (cada 20s) mientras está
+    // Se pausa el sondeo automático del Sheet (cada 30s) mientras está
     // abierta esta pantalla, para no pisarle pedidos al fetch de acá —
     // dos pedidos al mismo tiempo contra el Apps Script pueden hacer que
     // alguno de los dos vuelva con un error de cuota/concurrencia.
@@ -4727,11 +4727,111 @@
     return payload;
   }
 
-  // El Sheet rechazó el envío porque este dispositivo tenía una copia vieja
-  // de la caja: se trae la del Sheet (la buena) y se avisa.
+  // ---------- juntar cambios de dos dispositivos ----------
+  // Cada turno guarda en `_base` cómo estaba en el Sheet la última vez que
+  // este dispositivo lo vio (al traerlo o al guardarlo). Si otro dispositivo
+  // cambió la caja mientras tanto, se compara lo de acá con esa base para
+  // saber qué cambió acá, y solo eso se pone encima de lo del Sheet. Así no
+  // se pierde nada de ninguno de los dos.
+  function copiaJSON(v){ return v === undefined ? undefined : JSON.parse(JSON.stringify(v)); }
+  function fotoTurno(s){
+    s = s || {};
+    return copiaJSON({
+      fondoFijo: s.fondoFijo, totalFacturado: s.totalFacturado, tpv1: s.tpv1, tpv2: s.tpv2, tpv3: s.tpv3,
+      fondoConteo: s.fondoConteo || null, denom: s.denom || {}, movimientos: s.movimientos || [], glovo: s.glovo || []
+    });
+  }
+  function mismoValor(a, b){ return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b); }
+
+  // Listas con id (movimientos, tickets de Glovo): se parte de la del Sheet,
+  // se quita lo que acá se borró, se pone la versión de acá de lo que acá se
+  // editó y se agrega lo que acá se creó.
+  function juntarLista(local, base, remota){
+    local = local || []; remota = remota || [];
+    function porId(l){ var m = {}; (l || []).forEach(function(x){ if(x && x.id) m[x.id] = x; }); return m; }
+    var L = porId(local), R = porId(remota), B = base ? porId(base) : null;
+    var res = [];
+    remota.forEach(function(x){
+      if(!x || !x.id){ res.push(x); return; }
+      if(L[x.id]){
+        res.push(B && B[x.id] && !mismoValor(L[x.id], B[x.id]) ? L[x.id] : x);
+      } else if(!(B && B[x.id])){
+        res.push(x); // nuevo del otro dispositivo
+      } // si no: se borró acá
+    });
+    local.forEach(function(x){
+      if(x && x.id && !R[x.id] && !(B && B[x.id])) res.push(x); // nuevo de acá
+    });
+    return copiaJSON(res);
+  }
+
+  function juntarTurno(local, remoto){
+    local = local || crearTurnoVacio();
+    var base = local._base || null;
+    var r = Object.assign(crearTurnoVacio(), copiaJSON(remoto));
+    r.id = remoto.id || local.id || uid();
+    r.movimientos = juntarLista(local.movimientos, base && base.movimientos, remoto.movimientos);
+    r.glovo = juntarLista(local.glovo, base && base.glovo, remoto.glovo);
+    if(base){
+      ['fondoFijo', 'totalFacturado', 'tpv1', 'tpv2', 'tpv3', 'fondoConteo'].forEach(function(k){
+        if(!mismoValor(local[k], base[k])) r[k] = copiaJSON(local[k]);
+      });
+      var dl = local.denom || {}, db = base.denom || {};
+      r.denom = copiaJSON(r.denom || {});
+      ['billetes', 'monedasSueltas', 'monedasBlister'].forEach(function(g){
+        var claves = {};
+        Object.keys(dl[g] || {}).concat(Object.keys(db[g] || {})).forEach(function(k){ claves[k] = true; });
+        Object.keys(claves).forEach(function(k){
+          var vl = (dl[g] || {})[k], vb = (db[g] || {})[k];
+          if(num(vl) !== num(vb)){
+            r.denom[g] = r.denom[g] || {};
+            r.denom[g][k] = vl;
+          }
+        });
+      });
+    }
+    r.actualizadoEn = remoto.actualizadoEn || null;
+    r._base = fotoTurno(remoto);
+    return r;
+  }
+
+  // Pone en `dia` lo que trae el Sheet (`data`, la respuesta de ?fecha=),
+  // juntándolo con lo que este dispositivo tenga sin subir. Devuelve true si
+  // quedó algo de acá que hay que volver a mandar.
+  function juntarDiaConSheet(dia, data){
+    var quedaAlgoDeAca = false;
+    TURNOS.forEach(function(t){
+      if(!data[t]) return;
+      if(dia._sinSubir){
+        dia[t] = juntarTurno(dia[t], data[t]);
+        if(resumenTurno(dia[t]) !== resumenTurno(data[t]) || num(dia[t].fondoFijo) !== num(data[t].fondoFijo)) quedaAlgoDeAca = true;
+      } else {
+        var idPrevio = dia[t] && dia[t].id;
+        dia[t] = Object.assign(crearTurnoVacio(), data[t]);
+        if(!dia[t].id) dia[t].id = idPrevio || uid();
+        dia[t]._base = fotoTurno(data[t]);
+      }
+    });
+    dia._sinSubir = quedaAlgoDeAca;
+    return quedaAlgoDeAca;
+  }
+
+  // El Sheet rechazó el envío porque otro dispositivo había cambiado la caja
+  // después de la última vez que este la trajo: se trae la del Sheet, se le
+  // ponen encima los cambios de acá y se vuelve a mandar. Sin carteles: solo
+  // un aviso corto. (Si vuelve a chocar varias veces seguidas, se espera.)
+  var reintentosConflicto = {};
   function recargarDiaPorConflicto(fecha, motivo){
     var url = loadSheetUrl();
     if(!hasValidSheetUrl(url)) return;
+    reintentosConflicto[fecha] = (reintentosConflicto[fecha] || 0) + 1;
+    if(reintentosConflicto[fecha] > 3){
+      reintentosConflicto[fecha] = 0;
+      logSheetStatus('La caja del ' + fecha + ' chocó varias veces seguidas con otro dispositivo (' + motivo + ').', true);
+      toast('La caja se está cambiando a la vez en otro dispositivo: se vuelve a intentar guardar en unos segundos.');
+      setTimeout(function(){ if(state.fecha === fecha && state._sinSubir) scheduleAutoSync(); }, 15000);
+      return;
+    }
     fetch(url + (url.indexOf('?')>-1?'&':'?') + 'fecha=' + encodeURIComponent(fecha))
       .then(function(r){ return r.json(); })
       .then(function(data){
@@ -4739,17 +4839,14 @@
         var store = getDiasStore();
         var dia = (state.fecha === fecha) ? state : store[fecha];
         if(!dia) return;
-        TURNOS.forEach(function(t){
-          if(!data[t]) return;
-          var idPrevio = dia[t] && dia[t].id;
-          dia[t] = Object.assign(crearTurnoVacio(), data[t]);
-          if(!dia[t].id) dia[t].id = idPrevio || uid();
-        });
-        dia._sinSubir = false;
+        var hayQueMandar = juntarDiaConSheet(dia, data);
         if(dia === state){ aplicarEstadoATurnos(true); guardarDiaActual(); }
         else { store[fecha] = dia; saveDiasStore(store); }
-        logSheetStatus('Copia vieja rechazada por el Sheet (' + motivo + '). Se trajo lo último.', true);
-        alert('OJO: esta caja se había cambiado desde otro dispositivo y este tenía una versión vieja, así que no se guardó lo último que hiciste acá.\n\nYa se cargó lo que está guardado en el Sheet: revisa y, si falta, vuelve a poner tu último cambio.');
+        logSheetStatus('Otro dispositivo había cambiado la caja del ' + fecha + ': se juntaron los cambios de los dos.');
+        if(hayQueMandar){
+          toast('Se juntaron tus cambios con los del otro dispositivo');
+          if(dia === state) syncDraftToSheet(); else enviarDiaASheet(dia);
+        }
       })
       .catch(function(){});
   }
@@ -4771,6 +4868,8 @@
     TURNOS.forEach(function(t){ if(!state[t].id) state[t].id = uid(); });
     var dia = state;
     var enviadoEn = Date.now();
+    var fotos = {};
+    TURNOS.forEach(function(t){ fotos[t] = fotoTurno(dia[t]); });
     sendToSheet(url, buildSheetPayload(dia))
       .then(function(res){
         if(res && res.conflicto){
@@ -4779,7 +4878,12 @@
         }
         if(res && res.ok){
           // Lo que se acaba de guardar es ahora lo último del Sheet.
-          if(res.actualizadoEn) TURNOS.forEach(function(t){ if(dia[t]) dia[t].actualizadoEn = res.actualizadoEn; });
+          reintentosConflicto[dia.fecha] = 0;
+          TURNOS.forEach(function(t){
+            if(!dia[t]) return;
+            if(res.actualizadoEn) dia[t].actualizadoEn = res.actualizadoEn;
+            dia[t]._base = fotos[t];
+          });
           if(ultimaEdicionLocalEn <= enviadoEn) dia._sinSubir = false;
           if(dia === state) guardarDiaActual();
           else { var st = getDiasStore(); if(st[dia.fecha]){ st[dia.fecha] = dia; saveDiasStore(st); } }
@@ -4857,9 +4961,22 @@
   function enviarDiaASheet(dia){
     var url = loadSheetUrl();
     if(!hasValidSheetUrl(url)) return;
+    var fotos = {};
+    TURNOS.forEach(function(t){ fotos[t] = fotoTurno(dia[t]); });
     sendToSheet(url, buildSheetPayload(dia))
       .then(function(res){
         if(res && res.conflicto){ recargarDiaPorConflicto(dia.fecha, res.error || ''); return; }
+        if(res && res.ok){
+          reintentosConflicto[dia.fecha] = 0;
+          TURNOS.forEach(function(t){
+            if(!dia[t]) return;
+            if(res.actualizadoEn) dia[t].actualizadoEn = res.actualizadoEn;
+            dia[t]._base = fotos[t];
+          });
+          if(dia !== state) dia._sinSubir = false;
+          if(dia === state) guardarDiaActual();
+          else { var st = getDiasStore(); st[dia.fecha] = dia; saveDiasStore(st); }
+        }
         toast(res && res.ok ? 'Día sincronizado con Google Sheets' : 'El Sheet respondió con un error');
       })
       .catch(function(){
@@ -4930,6 +5047,7 @@
           };
           if(!diaDesdeSheet.mediodia.id) diaDesdeSheet.mediodia.id = uid();
           if(!diaDesdeSheet.noche.id) diaDesdeSheet.noche.id = uid();
+          TURNOS.forEach(function(t){ if(data[t]) diaDesdeSheet[t]._base = fotoTurno(data[t]); });
 
           state = diaDesdeSheet;
           aplicarEstadoATurnos(true);
@@ -4955,9 +5073,18 @@
   // que la app lo sincronizó), aplica esos valores a la pantalla. No pisa
   // nada si hubo una edición local hace menos de unos segundos, para no
   // interrumpir a alguien que está escribiendo en ese mismo momento.
-  var POLL_INTERVAL_MS = 20000;
+  //
+  // Además, cada SONDEO_RAPIDO_MS se hace una pregunta mucho más liviana
+  // (?verCaja=fecha, que no abre ninguna planilla): "¿cuándo se guardó por
+  // última vez esta caja?". Si es más nuevo que lo que hay acá, se trae la
+  // caja entera ya mismo. Así otro dispositivo se entera de un cambio en
+  // unos 5 segundos sin refrescar. La consulta entera sigue cada
+  // POLL_INTERVAL_MS por las ediciones hechas a mano en el Sheet.
+  var POLL_INTERVAL_MS = 30000;
+  var SONDEO_RAPIDO_MS = 5000;
   var MARGEN_EDICION_LOCAL_MS = 6000;
   var pollTimer = null;
+  var sondeoRapidoTimer = null;
 
   function iniciarSondeoSheet(){
     detenerSondeoSheet();
@@ -4967,15 +5094,41 @@
         revisarActualizacionesDesdeSheet();
       }
     }, POLL_INTERVAL_MS);
+    sondeoRapidoTimer = setInterval(function(){
+      if(document.visibilityState === 'visible') revisarVersionCaja();
+    }, SONDEO_RAPIDO_MS);
   }
   function detenerSondeoSheet(){
     if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+    if(sondeoRapidoTimer){ clearInterval(sondeoRapidoTimer); sondeoRapidoTimer = null; }
+  }
+
+  var consultandoVersion = false;
+  function revisarVersionCaja(){
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url) || consultandoVersion) return;
+    var fechaAlMomento = state.fecha;
+    consultandoVersion = true;
+    fetch(url + (url.indexOf('?') > -1 ? '&' : '?') + 'verCaja=' + encodeURIComponent(fechaAlMomento))
+      .then(function(resp){ return resp.json(); })
+      .then(function(data){
+        if(!data || !data.ok || !data.v || state.fecha !== fechaAlMomento) return;
+        var remotoMs = new Date(data.v).getTime();
+        var localMs = 0;
+        TURNOS.forEach(function(t){
+          var ms = state[t] && state[t].actualizadoEn ? new Date(state[t].actualizadoEn).getTime() : 0;
+          if(ms > localMs) localMs = ms;
+        });
+        if(isFinite(remotoMs) && remotoMs > localMs + 1000) revisarActualizacionesDesdeSheet();
+      })
+      .catch(function(){})
+      .then(function(){ consultandoVersion = false; });
   }
 
   // Si la pestaña queda abierta de un día para el otro (ej. tablet que nunca
   // se recarga), `state.fecha` se había calculado una sola vez al cargar la
   // página y se quedaba viejo. Esto se revisa junto al sondeo normal (cada
-  // 20s mientras la pestaña está visible) y solo muestra el cartel rojo
+  // 30s mientras la pestaña está visible) y solo muestra el cartel rojo
   // "OJO, NO ES LA CAJA DEL DÍA DE HOY" con su botón "VOLVER A HOY" — no
   // cambia de día solo ni pregunta, para no interrumpir un turno de Noche
   // que sigue después de medianoche.
@@ -5016,10 +5169,29 @@
           if(!data || !data.ok || !data.encontrado) return;
           if(state.fecha !== fechaAlMomento) return; // cambió de día mientras se consultaba
           if(Date.now() - ultimaEdicionLocalEn < MARGEN_EDICION_LOCAL_MS) return; // por las dudas, no interrumpir una edición reciente
-          // Cambios de este dispositivo que todavía no llegaron al Sheet: no
-          // se pisan con lo del Sheet; se vuelven a mandar (y si el Sheet
-          // tiene algo más nuevo de otro dispositivo, lo avisa al guardar).
-          if(state._sinSubir){ if(!autoSyncTimer) scheduleAutoSync(); return; }
+          // Cambios de este dispositivo que todavía no llegaron al Sheet: si
+          // otro dispositivo guardó algo después, se juntan las dos cosas
+          // ya (sin esperar a que el Sheet rechace el envío); si no, solo se
+          // vuelven a mandar.
+          if(state._sinSubir){
+            var otroGuardoDespues = TURNOS.some(function(t){
+              var remoto = data[t];
+              if(!remoto || !remoto.actualizadoEn) return false;
+              var localMs = state[t].actualizadoEn ? new Date(state[t].actualizadoEn).getTime() : 0;
+              return new Date(remoto.actualizadoEn).getTime() > localMs;
+            });
+            if(otroGuardoDespues){
+              clearTimeout(autoSyncTimer); autoSyncTimer = null;
+              var hayQueMandar = juntarDiaConSheet(state, data);
+              aplicarEstadoATurnos(true);
+              guardarDiaActual();
+              logSheetStatus('Día ' + fechaAlMomento + ': se juntaron los cambios de acá con los de otro dispositivo.');
+              if(hayQueMandar) syncDraftToSheet();
+            } else if(!autoSyncTimer){
+              scheduleAutoSync();
+            }
+            return;
+          }
 
           var huboCambios = false;
           TURNOS.forEach(function(t){
@@ -5035,7 +5207,13 @@
               var idPrevio = state[t].id;
               state[t] = Object.assign(crearTurnoVacio(), remoto);
               if(!state[t].id) state[t].id = idPrevio || uid();
+              state[t]._base = fotoTurno(remoto);
               huboCambios = true;
+            } else if(!state[t]._base){
+              // Igual al Sheet: se guarda como base para poder juntar
+              // cambios más adelante (cajas guardadas antes de esto).
+              state[t]._base = fotoTurno(remoto);
+              guardarDiaActual();
             }
           });
 
@@ -5166,14 +5344,23 @@
     if(diaTieneActividad(state)) saveDraft();
   }
 
-  document.addEventListener('visibilitychange', function(){
-    if(document.visibilityState === 'visible'){
-      revisarSiCambioElDia_();
-      revisarActualizacionesDesdeSheet();
-      refrescarAlbaranesAbiertos();
-      revisarAvisoTpv1();
-    }
-  });
+  // Al volver a la app (cambiar de pestaña o de app, desbloquear el
+  // celular, o el navegador que la restaura de memoria) se trae al momento
+  // lo último del Sheet. Como mucho una vez cada 3 segundos, porque varios
+  // de estos avisos llegan juntos.
+  var ultimaVueltaALaApp = 0;
+  function alVolverALaApp(){
+    if(document.visibilityState !== 'visible') return;
+    if(Date.now() - ultimaVueltaALaApp < 3000) return;
+    ultimaVueltaALaApp = Date.now();
+    revisarSiCambioElDia_();
+    revisarActualizacionesDesdeSheet();
+    refrescarAlbaranesAbiertos();
+    revisarAvisoTpv1();
+  }
+  document.addEventListener('visibilitychange', alVolverALaApp);
+  window.addEventListener('focus', alVolverALaApp);
+  window.addEventListener('pageshow', function(ev){ if(ev.persisted) alVolverALaApp(); });
 
   // ---------- Aviso: TPV 1 al límite del mes ----------
   // Cuando lo cobrado por el TPV 1 en el mes llega a 24.000 €, al abrir la
