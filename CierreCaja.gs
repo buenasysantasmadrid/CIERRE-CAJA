@@ -2135,20 +2135,7 @@ function onOpen(e) {
   SpreadsheetApp.getUi()
     .createMenu('Cierre de Caja — Pruebas')
     .addItem('Borrar un día completo…', 'borrarDiaCompleto')
-    .addItem('Conectar los meses cargados en el Índice', 'conectarMesesCierreCajaDesdeMenu')
-    .addItem('Mover días que quedaron en otro mes', 'moverDiasAlMesCorrectoDesdeMenu')
-    .addSeparator()
-    .addItem('Albaranes: restaurar datos viejos 2026 (una sola vez)', 'restaurarAlbaranesViejos2026DesdeMenu')
     .addItem('Albaranes: reenviar un mes desde Cierre de Caja…', 'reenviarMesAAlbaranesDesdeMenu')
-    .addItem('Albaranes: pasar al formato con forma y día de pago', 'albaranesPasarAFormatoNuevoDesdeMenu')
-    .addSeparator()
-    .addItem('Contabilidad: pasar a 3 TPV (sin WEB, con GLOVO)', 'adaptarContabilidadTresTpvDesdeMenu')
-    .addItem('Contabilidad: proteger (solo el dueño; P, Q y W libres)', 'protegerContabilidadDesdeMenu')
-    .addItem('Contabilidad: recalcular semanas, días de la semana y colores', 'tablasContabilidadDesdeMenu')
-    .addItem('Albaranes: proteger (solo el dueño; columna VARIOS libre)', 'protegerAlbaranesDesdeMenu')
-    .addItem('Albaranes: pasar NOO a FRUTAPRO y sacarla del TOTAL (una vez)', 'completarFrutaproDesdeNooDesdeMenu')
-    .addItem('Albaranes: completar DIAS, SEMANAS y promedios en TOTALES', 'actualizarPromediosTotalesAlbaranesDesdeMenu')
-    .addItem('Cierre de Caja: pasar la plantilla y los días a 3 TPV', 'pasarCierresATresTpvDesdeMenu')
     .addToUi();
 }
 
