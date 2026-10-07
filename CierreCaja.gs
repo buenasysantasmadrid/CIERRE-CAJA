@@ -2051,6 +2051,11 @@ function semanasTrasGuardar_(anio, mesIndex) {
   } catch (err2) {
     Logger.log('Promedios de TOTALES (Albaranes): ' + err2);
   }
+  try {
+    actualizarAniosComparativa_(anio, mesIndex); // ver AniosComparativa.gs
+  } catch (err3) {
+    Logger.log('años / comparativa (Contabilidad): ' + err3);
+  }
 }
 
 function escribirContabilidad_(data) {
