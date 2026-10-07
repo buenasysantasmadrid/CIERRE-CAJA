@@ -1225,7 +1225,7 @@ function asegurarPestanaInformeMes_(ss) {
     hoja.getRange('A1').setValue('FACTURAS DEL MES (para los contables)').setFontWeight('bold').setFontSize(13);
     hoja.getRange('A2').setValue('Mes:').setFontWeight('bold');
     var hoy = new Date();
-    hoja.getRange('B2').setValue(meses[hoy.getFullYear() === anio ? hoy.getMonth() : 0])
+    hoja.getRange('B2').setNumberFormat('@').setValue(meses[hoy.getFullYear() === anio ? hoy.getMonth() : 0])
       .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(meses, true).setAllowInvalid(false).build())
       .setFontWeight('bold').setBackground('#fff2cc');
     hoja.getRange('D2').setValue('Actualizar:');
@@ -1301,9 +1301,20 @@ function refrescarInformeMesSiToca_(ss, mesesCambiados) {
   generarInformeMes_(ss, hoja);
 }
 
+// En una planilla en español, "Septiembre 2026" se convierte solo en una
+// fecha (1/9/2026): se acepta la fecha, el texto o lo que se ve en la celda.
 function mesDelInforme_(hoja) {
-  var t = normalizarClave_(hoja.getRange('B2').getValue()).split(' ')[0];
-  return MESES_MAYUS_.indexOf(t);
+  var celda = hoja.getRange('B2');
+  var v = celda.getValue();
+  if (v instanceof Date) return v.getMonth();
+  var textos = [v, celda.getDisplayValue()];
+  for (var i = 0; i < textos.length; i++) {
+    var n = normalizarClave_(textos[i]);
+    for (var m = 0; m < 12; m++) if (n.indexOf(MESES_MAYUS_[m]) > -1 || n.indexOf(MESES_MAYUS_[m].slice(0, 3) + ' ') === 0) return m;
+    var f = /^(\d{1,2})[\/\-](\d{1,2})[\/\-]\d{2,4}$/.exec(n);
+    if (f) return Number(f[2]) - 1;
+  }
+  return -1;
 }
 
 function generarInformeMes_(ss, hoja) {
