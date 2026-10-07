@@ -2147,7 +2147,7 @@ function onOpen(e) {
     .addItem('Contabilidad: recalcular semanas, días de la semana y colores', 'tablasContabilidadDesdeMenu')
     .addItem('Albaranes: proteger (solo el dueño; columna VARIOS libre)', 'protegerAlbaranesDesdeMenu')
     .addItem('Albaranes: pasar NOO a FRUTAPRO y sacarla del TOTAL (una vez)', 'completarFrutaproDesdeNooDesdeMenu')
-    .addItem('Albaranes: completar promedios por día y semana en TOTALES', 'actualizarPromediosTotalesAlbaranesDesdeMenu')
+    .addItem('Albaranes: completar DIAS, SEMANAS y promedios en TOTALES', 'actualizarPromediosTotalesAlbaranesDesdeMenu')
     .addItem('Cierre de Caja: pasar la plantilla y los días a 3 TPV', 'pasarCierresATresTpvDesdeMenu')
     .addToUi();
 }
