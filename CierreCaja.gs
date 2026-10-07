@@ -788,6 +788,7 @@ function respuestaConCache_(nombre, fn) {
 
 function coincideProveedor_(textoProv, proveedor, detalleNorm) {
   if (!proveedor) return true;
+  if (proveedor === 'Servicios') return esProveedorServicio_(textoProv);
   if (proveedor === 'Varios') {
     return textoProv.indexOf('Varios') === 0 && (!detalleNorm || textoProv.toLowerCase().indexOf(detalleNorm) > -1);
   }

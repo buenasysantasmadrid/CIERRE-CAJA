@@ -81,6 +81,66 @@ function mapaColumnasAlbaranes_(encabezados) {
   return mapa;
 }
 
+// Servicios (luz, alarma, teléfono, tickets restaurante...): todos van a
+// la pestaña SERVICIOS, con el nombre en la columna PROVEEDOR. La misma
+// lista está en index.html (PROVEEDORES_SERVICIOS).
+var ALBARANES_SERVICIOS_ = ['Carsan', 'GSC', 'Prosegur', 'Logos Energía', 'Love Energía', 'Endered', 'O2', 'Pluxee', 'Up'];
+var ALBARANES_PESTANA_SERVICIOS_ = 'SERVICIOS';
+
+function esProveedorServicio_(proveedor) {
+  var n = normalizarClave_(proveedor);
+  return ALBARANES_SERVICIOS_.some(function (s) { return normalizarClave_(s) === n; });
+}
+
+// Crea la pestaña SERVICIOS (al final, copiando VARIOS vacía) y su fila en
+// TOTALES, si no está. Se hace sola al guardar cualquier caja; se puede
+// correr a mano desde el editor.
+function crearPestanaServiciosAlbaranes() {
+  var resumen = [];
+  planillasDelTipo_('ALBARANES').forEach(function (p) {
+    var ss = SpreadsheetApp.openById(p.id);
+    resumen.push(p.nombre + ': ' + (asegurarPestanaServiciosAlbaranes_(ss) ? 'pestaña SERVICIOS lista' : 'no se pudo (no hay pestaña VARIOS para copiar)'));
+  });
+  Logger.log(resumen.join('\n'));
+  return resumen;
+}
+
+function asegurarPestanaServiciosAlbaranes_(ss) {
+  var hoja = pestanaAlbaranesParaProveedor_(ss, ALBARANES_PESTANA_SERVICIOS_);
+  if (hoja) return hoja;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    hoja = pestanaAlbaranesParaProveedor_(ss, ALBARANES_PESTANA_SERVICIOS_); // la pudo crear otro guardado mientras se esperaba
+    if (hoja) return hoja;
+    var modelo = pestanaAlbaranesParaProveedor_(ss, 'VARIOS');
+    if (!modelo) return null;
+    crearPestanaProveedorAlbaranes_(ss, ALBARANES_PESTANA_SERVICIOS_, modelo);
+    hoja = ss.getSheetByName(ALBARANES_PESTANA_SERVICIOS_);
+    ss.setActiveSheet(hoja);
+    ss.moveActiveSheet(ss.getNumSheets());
+    try { ponerServiciosEnTotales_(ss); } catch (err) { Logger.log('TOTALES SERVICIOS: ' + err); }
+    SpreadsheetApp.flush();
+    return hoja;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Fila de SERVICIOS en TOTALES: en una fila libre antes del TOTAL; si no
+// hay, se agrega una justo antes y el TOTAL se vuelve a escribir para que
+// la sume (sin NOO, ver sacarDelTotalAlbaranes_).
+function ponerServiciosEnTotales_(ss) {
+  var r = arreglarTotalesAlbaranes_(ss, [ALBARANES_PESTANA_SERVICIOS_]);
+  if (!r.some(function (x) { return x.indexOf('no hubo fila libre') > -1; })) return;
+  var hoja = ss.getSheetByName('TOTALES');
+  var filaTotal = filaTotalDeTotales_(hoja);
+  if (filaTotal === -1) return;
+  hoja.insertRowBefore(filaTotal);
+  arreglarTotalesAlbaranes_(ss, [ALBARANES_PESTANA_SERVICIOS_]);
+  sacarDelTotalAlbaranes_(ss, ALBARANES_COPIA_VIEJA_.de);
+}
+
 function pestanaAlbaranesParaProveedor_(ss, proveedor) {
   var buscado = normalizarClave_(proveedor);
   if (!buscado) return null;
@@ -172,7 +232,7 @@ function filaAlbaran_(m, fechaISO, mapa, fechaCajaISO) {
   // Las formas de pago que no son efectivo ya vienen marcadas en Info
   // (TARJETA, NO PAGADO, TRANSFERENCIA, PAGADO ...); el efectivo no.
   var textoObs = [info, formaPago].filter(String).join(' · ');
-  var detalle = m.proveedorDetalle || '';
+  var detalle = m.proveedorDetalle || (esProveedorServicio_(m.proveedor) ? m.proveedor : '');
 
   // Formato nuevo: la forma y el día de pago van en sus columnas, y en
   // observaciones queda solo lo que se escribió.
@@ -336,6 +396,9 @@ function sincronizarAlbaranesDelDiaEnAnio_(anio, fechaISO, gastos, soloSiExiste)
   if (!idPlanilla) return { ok: true, nada: 'No hay planilla de Albaranes ' + anio + ' en el Índice.' };
 
   var ss = SpreadsheetApp.openById(idPlanilla);
+  // La pestaña SERVICIOS aparece con el primer guardado, aunque todavía no
+  // se haya cargado ningún servicio.
+  try { asegurarPestanaServiciosAlbaranes_(ss); } catch (errServicios) { Logger.log('SERVICIOS: ' + errServicios); }
   var hojaIds = getOrCrearHojaIdsAlbaranes_(ss);
   var valoresIds = hojaIds.getDataRange().getValues();
 
@@ -365,7 +428,9 @@ function sincronizarAlbaranesDelDiaEnAnio_(anio, fechaISO, gastos, soloSiExiste)
   var avisos = [];
   var actuales = {}; // id -> {fechaCaja, pestana, fechaFactura}
   gastos.forEach(function (m) {
-    var hoja = pestanaAlbaranesParaProveedor_(ss, m.proveedor);
+    var hoja = esProveedorServicio_(m.proveedor)
+      ? asegurarPestanaServiciosAlbaranes_(ss)
+      : pestanaAlbaranesParaProveedor_(ss, m.proveedor);
     if (!hoja) { avisos.push('No hay pestaña para el proveedor "' + m.proveedor + '".'); return; }
     var r = { fechaCaja: fechaISO, pestana: hoja.getName(), fechaFactura: fechaFacturaGasto_(m, fechaISO) };
     actuales[m.id] = r;
@@ -562,7 +627,7 @@ function reenviarMesAAlbaranes(periodo) {
 // PAGO y DIA DE PAGO. Un bloque ya pasado no se vuelve a tocar.
 var ALBARANES_ENC_NORMAL_ = ['FECHA', 'Nº FACTURA', 'IVA', 'IMPORTE', 'OBERVACIONES', 'FORMA DE PAGO', 'DIA DE PAGO', 'VARIOS'];
 var ALBARANES_ENC_CON_PROVEEDOR_ = ['FECHA', 'PROVEEDOR', 'Nº FACTURA', 'IVA', 'IMPORTE', 'OBERVACIONES', 'FORMA DE PAGO', 'DIA DE PAGO', 'VARIOS'];
-var ALBARANES_PESTANAS_CON_PROVEEDOR_ = ['VARIOS', 'SUPER'];
+var ALBARANES_PESTANAS_CON_PROVEEDOR_ = ['VARIOS', 'SUPER', 'SERVICIOS'];
 var ALBARANES_PESTANAS_SIN_CAMBIO_ = ['EXTRAS'];
 var ALBARANES_PROVEEDORES_NUEVOS_ = ['LOS FUENTEÑOS', 'WINEUP'];
 
