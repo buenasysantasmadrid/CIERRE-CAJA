@@ -2551,6 +2551,16 @@
     return diferencias + (a.length - i) + (b.length - j) <= 1;
   }
 
+  // Facturas de supermercado que van a "Super": Carrefour y Grupo Dia (en
+  // la factura sale como "DIA RETAIL ESPAÑA", "Distribuidora Internacional
+  // de Alimentación" o "Supermercados DIA"). "Dia Carne" es otro proveedor
+  // y ya se encuentra antes, por la lista.
+  function esSupermercado(nombre){
+    var n = ' ' + normalizarNombreProveedor(nombre) + ' ';
+    return / carrefour /.test(n) || / grupo dia /.test(n) || / dia retail /.test(n) ||
+      / supermercados? dia /.test(n) || /distribuidora internacional de alimentacion/.test(n) || n === ' dia ';
+  }
+
   function aplicarDatosFactura(data){
     data = data || {};
 
@@ -2574,13 +2584,11 @@
         ponerProveedor(match);
         aplicarRestoFactura(data);
       } else {
-        // No está en la lista: se pregunta si va a "Varios" o a "Super",
-        // con el nombre leído de la factura como detalle (columna B).
-        preguntar(
-          'NO ENCONTRÉ EL PROVEEDOR "' + nombreExtraido.toUpperCase() + '". ¿ES VARIOS O SUPER?',
-          'Varios', 'Super',
-          function(){ ponerProveedor('Varios', nombreExtraido); aplicarRestoFactura(data); },
-          function(){ ponerProveedor('Super', nombreExtraido); aplicarRestoFactura(data); });
+        // No está en la lista: un supermercado (Grupo Dia, Carrefour) va a
+        // "Super" y cualquier otro a "Varios", sin preguntar. El nombre
+        // leído de la factura queda como detalle (columna B).
+        ponerProveedor(esSupermercado(nombreExtraido) ? 'Super' : 'Varios', nombreExtraido);
+        aplicarRestoFactura(data);
       }
     } else {
       aplicarRestoFactura(data);
