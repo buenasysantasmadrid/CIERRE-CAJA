@@ -46,6 +46,10 @@ function doPost(e) {
     var delMenu = accionDelMenu_(data);
     if (delMenu) return delMenu;
 
+    // La página de informes (informes.html, ver Informes.gs): solo lee.
+    var deInformes = accionDeInformes_(data, sesionValida_(data.sesion));
+    if (deInformes) return deInformes;
+
     // Lo mismo para un ingreso, un retiro o unas empanadas dictados.
     if (data.accionDictarMovimiento) {
       return ContentService

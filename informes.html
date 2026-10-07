@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Informes</title>
+<link rel="icon" href="icono.svg?v=3" type="image/svg+xml">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  /* Colores por función (paleta validada: series azul, naranja, aqua). */
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --s1: #2a78d6;
+    --s2: #eb6834;
+    --s3: #1baf7a;
+    --up: #006300;
+    --down: #d03b3b;
+    --accent: #2a78d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --up: #0ca30c; --down: #e66767; --accent: #3987e5;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --up: #0ca30c; --down: #e66767; --accent: #3987e5;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 16px 16px 48px; }
+  header.top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 16px; }
+  header.top h1 { font-size: 22px; margin: 0; flex: 1 1 auto; }
+  header.top .sub { color: var(--ink-2); font-size: 13px; }
+  select, button, textarea { font: inherit; color: var(--ink); }
+  select, textarea { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; }
+  button { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+  button.prim { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .55; cursor: default; }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; min-width: 0; }
+  .card h2 { font-size: 15px; margin: 0 0 2px; }
+  .card .nota { color: var(--ink-2); font-size: 12.5px; margin: 0 0 10px; }
+  .full { grid-column: 1 / -1; }
+  .tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); margin-bottom: 16px; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+  .tile .k { color: var(--ink-2); font-size: 12.5px; }
+  .tile .v { font-size: 24px; font-weight: 650; margin: 2px 0; }
+  .tile .d { font-size: 12.5px; color: var(--ink-2); }
+  .tile .d b.up { color: var(--up); } .tile .d b.down { color: var(--down); }
+  .chart { position: relative; height: 280px; }
+  .chart.alto { height: 380px; }
+  .fila { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 6px 8px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--ink-2); font-weight: 600; }
+  .scroll { overflow-x: auto; }
+  .preg textarea { width: 100%; min-height: 70px; resize: vertical; }
+  .ejemplos { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .ejemplos button { font-size: 12.5px; padding: 4px 10px; border-radius: 999px; color: var(--ink-2); }
+  .resp { border-top: 1px solid var(--grid); margin-top: 14px; padding-top: 12px; }
+  .resp .q { font-weight: 600; margin-bottom: 6px; }
+  .resp .a { white-space: normal; }
+  .resp .a ul { margin: 4px 0 4px 18px; padding: 0; }
+  .estado { color: var(--ink-2); font-size: 13px; }
+  .error { color: var(--down); }
+  #login { position: fixed; inset: 0; background: var(--page); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
+  #login .card { max-width: 380px; text-align: center; }
+  .oculto { display: none !important; }
+  @media (max-width: 520px) { .chart { height: 240px; } .tile .v { font-size: 21px; } }
+</style>
+</head>
+<body>
+<div id="login">
+  <div class="card">
+    <h2>Informes · Buenas y Santas</h2>
+    <p class="nota" id="loginTexto">Inicia sesión con tu cuenta de Google.</p>
+    <div id="loginBoton" style="display:flex;justify-content:center;margin:12px 0"></div>
+    <p class="nota error" id="loginError"></p>
+    <button id="otraCuenta" class="oculto">Entrar con otra cuenta</button>
+  </div>
+</div>
+
+<div class="wrap oculto" id="app">
+  <header class="top">
+    <h1>Informes</h1>
+    <label class="sub">Año <select id="anio"></select></label>
+    <button id="actualizar">Actualizar</button>
+    <span class="sub" id="estado"></span>
+  </header>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="grid">
+    <section class="card full preg">
+      <h2>Pregúntale a tus datos</h2>
+      <p class="nota">Ventas desde 2009, días de la semana desde 2016, albaranes por proveedor desde 2016 y cada día de este año. Tarda unos segundos.</p>
+      <textarea id="pregunta" placeholder="Por ejemplo: ¿cuánto hemos gastado en Frutapro este año comparado con 2025?"></textarea>
+      <div class="ejemplos" id="ejemplos"></div>
+      <div class="fila"><button class="prim" id="preguntar">Preguntar</button><span class="estado" id="estadoPregunta"></span></div>
+      <div id="respuestas"></div>
+    </section>
+
+    <section class="card full">
+      <h2>Facturado por mes</h2>
+      <p class="nota" id="notaMes">Total (local + delivery + web + empanadas) del año elegido y del anterior.</p>
+      <div class="chart"><canvas id="gMes"></canvas></div>
+    </section>
+
+    <section class="card">
+      <h2>Promedio por día trabajado, por año</h2>
+      <p class="nota">Total facturado ÷ días trabajados. El año en curso cuenta solo lo que va.</p>
+      <div class="chart"><canvas id="gAnios"></canvas></div>
+    </section>
+
+    <section class="card">
+      <h2>Promedio por día de la semana</h2>
+      <p class="nota" id="notaSemana">Facturado en el local, promedio de los meses del año elegido.</p>
+      <div class="chart"><canvas id="gSemana"></canvas></div>
+    </section>
+
+    <section class="card">
+      <h2>Proveedores del año</h2>
+      <p class="nota" id="notaProv">Lo comprado a cada proveedor (albaranes). Los 12 más grandes.</p>
+      <div class="chart alto"><canvas id="gProv"></canvas></div>
+    </section>
+
+    <section class="card">
+      <h2>Un proveedor a lo largo de los años</h2>
+      <div class="fila"><select id="proveedor"></select></div>
+      <div class="chart"><canvas id="gProvAnios"></canvas></div>
+    </section>
+
+    <section class="card full">
+      <h2>Mes a mes</h2>
+      <p class="nota" id="notaTabla"></p>
+      <div class="scroll"><table id="tabla"></table></div>
+    </section>
+  </div>
+</div>
+
+<script>
+(function(){
+  // Misma conexión que la caja (Apps Script); acá solo entra lfisbein.
+  var API = "https://script.google.com/macros/s/AKfycbyrfOE73JqgjTXAEaLetRz8aJg1Ldb-Du4dsqGgW34H-zgwLSJMrAkSKApiTCoz6t7m_A/exec";
+  var GOOGLE_CLIENT_ID = '831497268247-b3hhi4pqlvnd18vv7dph2ihodmih2jmp.apps.googleusercontent.com';
+  var LS_SESION = 'informes_sesion_v1';
+  var LS_DATOS = 'informes_datos_v1';
+  var LS_HISTORIAL = 'informes_historial_v1';
+  var MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  var DIAS = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+  var datos = null, graficos = {};
+
+  function $(id){ return document.getElementById(id); }
+  function leer(k){ try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch(e){ return null; } }
+  function guardar(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+  function borrar(k){ try { localStorage.removeItem(k); } catch(e){} }
+  function sesion(){ var s = leer(LS_SESION); return s && s.sesion && s.expira > Date.now() ? s : null; }
+  function euros(x, dec){ return (x == null || isNaN(x)) ? '—' : Number(x).toLocaleString('es-ES', { minimumFractionDigits: dec || 0, maximumFractionDigits: dec || 0 }) + ' €'; }
+  function num(x, dec){ return (x == null || isNaN(x)) ? '—' : Number(x).toLocaleString('es-ES', { minimumFractionDigits: dec || 0, maximumFractionDigits: dec || 0 }); }
+  function css(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+  function esc(t){ return String(t).replace(/[&<>"]/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]; }); }
+
+  function api(cuerpo){
+    var s = sesion();
+    cuerpo.sesion = s ? s.sesion : '';
+    return fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(cuerpo) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d && d.sinSesion) { borrar(LS_SESION); mostrarLogin('La sesión se cerró. Vuelve a entrar.'); throw new Error('sin sesión'); }
+        if (d && d.sinPermiso) { mostrarLogin(d.error, true); throw new Error('sin permiso'); }
+        return d;
+      });
+  }
+
+  // ---------- inicio de sesión ----------
+  function mostrarLogin(error, otraCuenta){
+    $('login').classList.remove('oculto');
+    $('app').classList.add('oculto');
+    $('loginError').textContent = error || '';
+    $('otraCuenta').classList.toggle('oculto', !otraCuenta);
+    esperarGoogle(function(){
+      google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: alEntrar });
+      $('loginBoton').innerHTML = '';
+      google.accounts.id.renderButton($('loginBoton'), { theme: 'filled_blue', size: 'large', text: 'signin_with', locale: 'es' });
+    });
+  }
+  var intentosGoogle = 0;
+  function esperarGoogle(cb){
+    if (window.google && google.accounts && google.accounts.id) { cb(); return; }
+    if (++intentosGoogle > 75) { $('loginError').textContent = 'No se pudo cargar el inicio de sesión de Google. Recarga la página.'; return; }
+    setTimeout(function(){ esperarGoogle(cb); }, 200);
+  }
+  function alEntrar(r){
+    $('loginTexto').textContent = 'Comprobando la cuenta…';
+    fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ accionIniciarSesion: true, idToken: r.credential }) })
+      .then(function(x){ return x.json(); })
+      .then(function(d){
+        if (d && d.ok && d.sesion) { guardar(LS_SESION, { sesion: d.sesion, email: d.email, expira: d.expira }); entrar(); }
+        else { $('loginTexto').textContent = 'Inicia sesión con tu cuenta de Google.'; $('loginError').textContent = (d && d.error) || 'No se pudo iniciar sesión.'; }
+      })
+      .catch(function(e){ $('loginError').textContent = 'No se pudo conectar (' + e.message + ').'; });
+  }
+  $('otraCuenta').addEventListener('click', function(){ borrar(LS_SESION); mostrarLogin(''); });
+
+  function entrar(){
+    $('login').classList.add('oculto');
+    $('app').classList.remove('oculto');
+    var guardados = leer(LS_DATOS);
+    if (guardados) { datos = guardados; pintarTodo(); }
+    cargar(false);
+  }
+
+  // ---------- datos ----------
+  function cargar(fresco){
+    $('estado').textContent = 'Actualizando…';
+    $('actualizar').disabled = true;
+    api({ accionInformesDatos: true, fresco: fresco })
+      .then(function(d){
+        if (!d || !d.ok) throw new Error((d && d.error) || 'Respuesta inválida');
+        datos = d.datos; guardar(LS_DATOS, datos); pintarTodo();
+      })
+      .catch(function(e){ if (e.message !== 'sin sesión' && e.message !== 'sin permiso') $('estado').textContent = 'No se pudo actualizar: ' + e.message; })
+      .then(function(){ $('actualizar').disabled = false; });
+  }
+  $('actualizar').addEventListener('click', function(){ cargar(true); });
+  $('anio').addEventListener('change', function(){ pintarTodo(true); });
+  $('proveedor').addEventListener('change', function(){ pintarProveedorAnios(); });
+
+  function anios(){ return Object.keys(datos.ventas).map(Number).sort(); }
+  function ventasMes(a){ var r = {}; (datos.ventas[a] || []).forEach(function(f){ r[f.mes] = f; }); return r; }
+  function mesesCon(a){ return (datos.ventas[a] || []).map(function(f){ return f.mes; }); }
+  function suma(lista, k){ return lista.reduce(function(s, f){ return s + (Number(f[k]) || 0); }, 0); }
+  function comprasMes(a){
+    var p = datos.albaranes[a]; if (!p) return null;
+    var m = [0,0,0,0,0,0,0,0,0,0,0,0];
+    Object.keys(p).forEach(function(n){ p[n].forEach(function(v, i){ m[i] += v || 0; }); });
+    return m;
+  }
+
+  function pintarTodo(soloAnio){
+    if (!datos) return;
+    var sel = $('anio');
+    if (!soloAnio) {
+      var actual = sel.value || String(datos.anioActual);
+      sel.innerHTML = anios().slice().reverse().map(function(a){ return '<option>' + a + '</option>'; }).join('');
+      sel.value = datos.ventas[actual] ? actual : String(anios()[anios().length - 1]);
+      var gen = new Date(datos.generado);
+      $('estado').textContent = 'Datos del ' + gen.toLocaleDateString('es-ES') + ' a las ' + gen.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) + (datos.avisos && datos.avisos.length ? ' · ' + datos.avisos.join(' ') : '');
+    }
+    var a = Number(sel.value);
+    pintarTiles(a); pintarMes(a); pintarAnios(); pintarSemana(a); pintarProveedores(a); pintarProveedorAnios(); pintarTabla(a);
+  }
+
+  // Comparación justa: el año anterior con los mismos meses que tiene el elegido.
+  // Del año en curso no cuenta el mes que va por la mitad (si no, siempre
+  // saldría para abajo): se comparan los meses ya cerrados.
+  function mesesCerrados(a){
+    var m = mesesCon(a);
+    var hoy = new Date();
+    if (a === hoy.getFullYear()) m = m.filter(function(x){ return x < hoy.getMonth() + 1; });
+    return m;
+  }
+  function pintarTiles(a){
+    var todos = mesesCon(a), meses = mesesCerrados(a);
+    var act = (datos.ventas[a] || []).filter(function(f){ return meses.indexOf(f.mes) > -1; });
+    var ant = (datos.ventas[a - 1] || []).filter(function(f){ return meses.indexOf(f.mes) > -1; });
+    var actTodo = datos.ventas[a] || [];
+    var cA = comprasMes(a), cP = comprasMes(a - 1);
+    function sumC(c){ return c ? meses.reduce(function(s, m){ return s + c[m - 1]; }, 0) : null; }
+    var tot = suma(act, 'total'), totP = suma(ant, 'total'), dias = suma(act, 'dias'), diasP = suma(ant, 'dias');
+    var compras = sumC(cA), comprasP = sumC(cP);
+    // El número grande es todo lo que va del año; la comparación, solo meses cerrados.
+    var totTodo = suma(actTodo, 'total'), diasTodo = suma(actTodo, 'dias');
+    var comprasTodo = cA ? todos.reduce(function(s, m){ return s + cA[m - 1]; }, 0) : null;
+    var tiles = [
+      { k: 'Facturado ' + a, v: euros(totTodo), act: tot, prev: totP },
+      { k: 'Promedio por día', v: euros(diasTodo ? totTodo / diasTodo : null), act: dias ? tot / dias : null, prev: diasP ? totP / diasP : null },
+      { k: 'Días trabajados', v: num(diasTodo, 1), act: dias, prev: diasP, sinSigno: true },
+      { k: 'Compras (albaranes)', v: euros(comprasTodo), act: compras, prev: comprasP, alReves: true },
+      { k: 'Compras / facturado', v: comprasTodo != null && totTodo ? num(comprasTodo / totTodo * 100, 1) + ' %' : '—', act: compras != null && tot ? compras / tot * 100 : null, prev: comprasP != null && totP ? comprasP / totP * 100 : null, puntos: true, alReves: true }
+    ];
+    var rango = meses.length ? (meses.length === 1 ? MESES[meses[0] - 1] : MESES[meses[0] - 1] + '–' + MESES[meses[meses.length - 1] - 1]) : '';
+    $('tiles').innerHTML = tiles.map(function(t){
+      var d = '';
+      if (t.act != null && t.prev && meses.length) {
+        var dif = t.puntos ? t.act - t.prev : (t.act - t.prev) / t.prev * 100;
+        var bueno = t.sinSigno ? null : (t.alReves ? dif < 0 : dif > 0);
+        var txt = (dif > 0 ? '▲ +' : dif < 0 ? '▼ ' : '') + num(dif, 1) + (t.puntos ? ' pts' : ' %');
+        d = '<b class="' + (bueno == null ? '' : bueno ? 'up' : 'down') + '">' + txt + '</b> vs ' + (a - 1) + ' (' + rango + ')';
+      } else d = '&nbsp;';
+      return '<div class="tile"><div class="k">' + t.k + '</div><div class="v">' + t.v + '</div><div class="d">' + d + '</div></div>';
+    }).join('');
+  }
+
+  // ---------- gráficos ----------
+  function base(tipo, extra){
+    var o = {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, position: 'top', align: 'start', labels: { color: css('--ink-2'), boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: 'rectRounded' } },
+        tooltip: { callbacks: { label: function(c){ return ' ' + c.dataset.label + ': ' + euros(c.parsed[c.chart.options.indexAxis === 'y' ? 'x' : 'y']); } } }
+      },
+      scales: {
+        x: { grid: { display: false }, border: { color: css('--axis') }, ticks: { color: css('--muted') } },
+        y: { grid: { color: css('--grid') }, border: { display: false }, ticks: { color: css('--muted'), callback: function(v){ return num(v); } }, beginAtZero: true }
+      }
+    };
+    return Object.assign(o, extra || {});
+  }
+  function dibujar(id, tipo, data, opciones){
+    if (graficos[id]) graficos[id].destroy();
+    graficos[id] = new Chart($(id), { type: tipo, data: data, options: opciones });
+  }
+  function serieLinea(nombre, valores, color, discontinua){
+    return { label: nombre, data: valores, borderColor: color, backgroundColor: color, borderWidth: 2, pointRadius: 3, pointHoverRadius: 5, tension: 0.25, spanGaps: false, borderDash: discontinua ? [5, 4] : [] };
+  }
+  function serieBarra(nombre, valores, color){
+    return { label: nombre, data: valores, backgroundColor: color, borderRadius: 4, borderSkipped: 'start', maxBarThickness: 34, borderColor: css('--surface'), borderWidth: { top: 0, left: 0, right: 2, bottom: 0 } };
+  }
+
+  function pintarMes(a){
+    var va = ventasMes(a), vp = ventasMes(a - 1);
+    var sets = [serieLinea(String(a), MESES.map(function(_, i){ return va[i + 1] ? va[i + 1].total : null; }), css('--s1'))];
+    if (datos.ventas[a - 1]) sets.push(serieLinea(String(a - 1), MESES.map(function(_, i){ return vp[i + 1] ? vp[i + 1].total : null; }), css('--s2'), true));
+    var hoy = new Date();
+    $('notaMes').textContent = 'Total (local + delivery + web + empanadas) de ' + a + ' y ' + (a - 1) + '.' +
+      (a === hoy.getFullYear() && va[hoy.getMonth() + 1] ? ' ' + MESES[hoy.getMonth()] + ' va por la mitad.' : '');
+    dibujar('gMes', 'line', { labels: MESES, datasets: sets }, base('line'));
+  }
+
+  function pintarAnios(){
+    var as = anios(), sel = Number($('anio').value);
+    var vals = as.map(function(a){ var l = datos.ventas[a]; var d = suma(l, 'dias'); return d ? Math.round(suma(l, 'total') / d) : null; });
+    var o = base('bar');
+    o.plugins.legend.display = false;
+    o.plugins.tooltip.callbacks.label = function(c){ return ' ' + euros(c.parsed.y) + ' por día'; };
+    var colores = as.map(function(a){ return a === sel ? css('--s1') : css('--axis'); });
+    var ds = serieBarra('Promedio por día', vals, colores);
+    dibujar('gAnios', 'bar', { labels: as.map(String), datasets: [ds] }, o);
+  }
+
+  function pintarSemana(a){
+    var s = datos.semana[a];
+    if (!s) { dibujar('gSemana', 'bar', { labels: DIAS, datasets: [] }, base('bar')); $('notaSemana').textContent = 'No hay datos por día de la semana de ' + a + '.'; return; }
+    function prom(k){
+      return DIAS.map(function(_, i){
+        var xs = Object.keys(s).map(function(m){ return s[m][k][i]; }).filter(function(x){ return x != null && x > 0; });
+        return xs.length ? Math.round(xs.reduce(function(t, x){ return t + x; }, 0) / xs.length) : null;
+      });
+    }
+    $('notaSemana').textContent = 'Facturado en el local en ' + a + ', promedio de los meses. Mediodía y noche apilados.';
+    var o = base('bar');
+    o.scales.x.stacked = true; o.scales.y.stacked = true;
+    var md = serieBarra('Mediodía', prom('mediodia'), css('--s1'));
+    var nc = serieBarra('Noche', prom('noche'), css('--s2'));
+    md.borderRadius = 0; md.borderWidth = { top: 2, left: 0, right: 0, bottom: 0 };
+    dibujar('gSemana', 'bar', { labels: DIAS, datasets: [md, nc] }, o);
+  }
+
+  function totalesProv(a){
+    var p = datos.albaranes[a] || {};
+    return Object.keys(p).map(function(n){ return { n: n, t: p[n].reduce(function(s, v){ return s + (v || 0); }, 0) }; })
+      .filter(function(x){ return x.t > 0; }).sort(function(x, y){ return y.t - x.t; });
+  }
+  function pintarProveedores(a){
+    var lista = totalesProv(a).slice(0, 12);
+    $('notaProv').textContent = lista.length ? 'Lo comprado a cada proveedor en ' + a + ' (albaranes). Los 12 más grandes.' : 'No hay albaranes de ' + a + '.';
+    var o = base('bar', { indexAxis: 'y' });
+    o.plugins.legend.display = false;
+    o.scales.x = { grid: { color: css('--grid') }, border: { display: false }, ticks: { color: css('--muted'), callback: function(v){ return num(v); } }, beginAtZero: true };
+    o.scales.y = { grid: { display: false }, border: { color: css('--axis') }, ticks: { color: css('--ink-2') } };
+    o.plugins.tooltip.callbacks.label = function(c){ return ' ' + euros(c.parsed.x); };
+    var ds = serieBarra('Compras', lista.map(function(x){ return Math.round(x.t); }), css('--s1'));
+    ds.borderSkipped = 'start'; ds.borderWidth = 0;
+    $('gProv').parentNode.classList.toggle('oculto', !lista.length);
+    if (lista.length) dibujar('gProv', 'bar', { labels: lista.map(function(x){ return x.n; }), datasets: [ds] }, o);
+    // Lista de proveedores (todos los años), sin perder el elegido.
+    var todos = {};
+    Object.keys(datos.albaranes).forEach(function(y){ Object.keys(datos.albaranes[y]).forEach(function(n){ todos[n] = (todos[n] || 0) + 1; }); });
+    var sel = $('proveedor'), antes = sel.value || (lista[0] && lista[0].n);
+    sel.innerHTML = Object.keys(todos).sort().map(function(n){ return '<option>' + esc(n) + '</option>'; }).join('');
+    if (antes) sel.value = antes;
+  }
+  function pintarProveedorAnios(){
+    var n = $('proveedor').value;
+    var ys = Object.keys(datos.albaranes).sort();
+    var vals = ys.map(function(y){ var v = datos.albaranes[y][n]; return v ? Math.round(v.reduce(function(s, x){ return s + (x || 0); }, 0)) : null; });
+    var o = base('bar');
+    o.plugins.legend.display = false;
+    o.plugins.tooltip.callbacks.label = function(c){ return ' ' + euros(c.parsed.y) + (Number(c.label) === datos.anioActual ? ' (año en curso)' : ''); };
+    dibujar('gProvAnios', 'bar', { labels: ys, datasets: [serieBarra(n, vals, css('--s1'))] }, o);
+  }
+
+  function pintarTabla(a){
+    var va = ventasMes(a), c = comprasMes(a);
+    $('notaTabla').textContent = 'Ventas de la Contabilidad y compras de Albaranes, ' + a + '.';
+    var cab = ['Mes', 'Días', 'Local', 'Mediodía', 'Noche', 'Delivery/web', 'Empanadas', 'Total', 'Prom./día', 'Compras', '% compras'];
+    var filas = MESES.map(function(m, i){
+      var f = va[i + 1]; if (!f) return '';
+      var compra = c ? c[i] : null;
+      return '<tr><td>' + m + '</td><td>' + num(f.dias, 1) + '</td><td>' + euros(f.sistema) + '</td><td>' + euros(f.mediodia) + '</td><td>' + euros(f.noche) +
+        '</td><td>' + euros((f.delivery || 0) + (f.web || 0)) + '</td><td>' + euros(f.empanadas || 0) + '</td><td><b>' + euros(f.total) + '</b></td><td>' + euros(f.dias ? f.total / f.dias : null) +
+        '</td><td>' + (compra ? euros(compra) : '—') + '</td><td>' + (compra && f.total ? num(compra / f.total * 100, 1) + ' %' : '—') + '</td></tr>';
+    }).join('');
+    $('tabla').innerHTML = '<thead><tr>' + cab.map(function(h){ return '<th>' + h + '</th>'; }).join('') + '</tr></thead><tbody>' + filas + '</tbody>';
+  }
+
+  // ---------- preguntas ----------
+  var EJEMPLOS = [
+    '¿Cómo vamos este año comparado con el anterior?',
+    '¿Qué día de la semana facturamos más por la noche?',
+    '¿Qué proveedores han subido más respecto a 2025?',
+    '¿Cuál fue el mejor mes de la historia?',
+    '¿Cuánto representa el delivery sobre el total cada año?'
+  ];
+  $('ejemplos').innerHTML = EJEMPLOS.map(function(e){ return '<button type="button">' + esc(e) + '</button>'; }).join('');
+  $('ejemplos').addEventListener('click', function(ev){ if (ev.target.tagName === 'BUTTON') { $('pregunta').value = ev.target.textContent; $('pregunta').focus(); } });
+
+  function textoConFormato(t){
+    var lineas = esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').split('\n');
+    var html = '', enLista = false;
+    lineas.forEach(function(l){
+      var m = /^\s*[-•]\s+(.*)$/.exec(l);
+      if (m) { if (!enLista) { html += '<ul>'; enLista = true; } html += '<li>' + m[1] + '</li>'; return; }
+      if (enLista) { html += '</ul>'; enLista = false; }
+      html += l.trim() ? '<p style="margin:4px 0">' + l + '</p>' : '';
+    });
+    return html + (enLista ? '</ul>' : '');
+  }
+
+  var historial = leer(LS_HISTORIAL) || [];
+  function pintarRespuesta(h, i){
+    var div = document.createElement('div');
+    div.className = 'resp';
+    div.innerHTML = '<div class="q">' + esc(h.pregunta) + '</div><div class="a">' + textoConFormato(h.respuesta) + '</div>';
+    var g = h.grafico;
+    if (g && g.tipo !== 'ninguno' && g.series && g.series.length && g.etiquetas && g.etiquetas.length) {
+      var cont = document.createElement('div'); cont.className = 'chart'; cont.style.marginTop = '10px';
+      var cv = document.createElement('canvas'); cv.id = 'gResp' + i; cont.appendChild(cv);
+      var t = document.createElement('div'); t.className = 'nota'; t.style.marginTop = '10px'; t.innerHTML = '<b>' + esc(g.titulo || '') + '</b>';
+      div.appendChild(t); div.appendChild(cont);
+      setTimeout(function(){
+        var colores = [css('--s1'), css('--s2'), css('--s3'), css('--muted')];
+        var tipo = g.tipo === 'lineas' ? 'line' : 'bar';
+        var sets = g.series.slice(0, 4).map(function(s, k){ return tipo === 'line' ? serieLinea(s.nombre, s.valores, colores[k]) : serieBarra(s.nombre, s.valores, colores[k]); });
+        var o = base(tipo);
+        o.plugins.legend.display = sets.length > 1;
+        o.plugins.tooltip.callbacks.label = function(c){ return ' ' + c.dataset.label + ': ' + num(c.parsed.y, 2); };
+        dibujar(cv.id, tipo, { labels: g.etiquetas, datasets: sets }, o);
+      }, 0);
+    }
+    return div;
+  }
+  function pintarHistorial(){
+    var cont = $('respuestas'); cont.innerHTML = '';
+    historial.slice().reverse().forEach(function(h, k){ cont.appendChild(pintarRespuesta(h, historial.length - 1 - k)); });
+  }
+  pintarHistorial();
+
+  $('preguntar').addEventListener('click', function(){
+    var p = $('pregunta').value.trim();
+    if (!p) return;
+    $('preguntar').disabled = true;
+    $('estadoPregunta').className = 'estado';
+    $('estadoPregunta').textContent = 'Pensando… (puede tardar medio minuto)';
+    api({ accionInformesPregunta: true, pregunta: p, historial: historial.slice(-6).map(function(h){ return { pregunta: h.pregunta, respuesta: h.respuesta }; }) })
+      .then(function(d){
+        if (!d || !d.ok) throw new Error((d && d.error) || 'Sin respuesta');
+        historial.push({ pregunta: p, respuesta: d.respuesta, grafico: d.grafico, cuando: Date.now() });
+        historial = historial.slice(-20);
+        guardar(LS_HISTORIAL, historial);
+        $('pregunta').value = '';
+        $('estadoPregunta').textContent = '';
+        pintarHistorial();
+      })
+      .catch(function(e){ $('estadoPregunta').className = 'estado error'; $('estadoPregunta').textContent = 'No se pudo responder: ' + e.message; })
+      .then(function(){ $('preguntar').disabled = false; });
+  });
+
+  // Si cambia el modo claro/oscuro del sistema, se vuelven a pintar con sus colores.
+  if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(){ pintarTodo(); pintarHistorial(); });
+
+  if (sesion()) entrar(); else mostrarLogin('');
+})();
+</script>
+</body>
+</html>

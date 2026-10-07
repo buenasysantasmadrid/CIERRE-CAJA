@@ -94,7 +94,7 @@ function datosMesContabilidad_(ss, mesIndex) {
     dif: col(['DIFERENCIA']), ret: col(['RETIRA'])
   };
   if (c.sist === -1) return null;
-  var r = { dias: 0, sist: 0, md: 0, nc: 0, deliv: 0, web: 0, emp: 0, tarj: 0, tick: 0, efvo: 0, dif: 0, ret: 0, sem: {} };
+  var r = { dias: 0, sist: 0, md: 0, nc: 0, deliv: 0, web: 0, emp: 0, tarj: 0, tick: 0, efvo: 0, dif: 0, ret: 0, sem: {}, lista: [] };
   ['total', 'md', 'nc'].forEach(function (k) { r.sem[k] = [0, 0, 0, 0, 0, 0, 0]; r.sem['n' + k] = [0, 0, 0, 0, 0, 0, 0]; });
   var acumulada = false, maxA = 0, sumaA = 0, hayDias = false;
   for (var i = 2; i < vals.length; i++) {
@@ -111,6 +111,12 @@ function datosMesContabilidad_(ss, mesIndex) {
     if (tot > 0) { r.sem.total[d] += tot; r.sem.ntotal[d]++; hayDias = true; }
     if (md > 0) { r.sem.md[d] += md; r.sem.nmd[d]++; }
     if (nc > 0) { r.sem.nc[d] += nc; r.sem.nnc[d]++; }
+    // Día por día (lo usa la página de informes, ver Informes.gs).
+    if (tot > 0) r.lista.push({
+      fecha: Utilities.formatDate(f[1], Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+      sistema: redondear_(tot), mediodia: redondear_(md), noche: redondear_(nc),
+      delivery: redondear_(n('deliv') + n('web')), empanadas: redondear_(n('emp')), tarjetas: redondear_(n('tarj'))
+    });
   }
   if (!hayDias) return null;
   r.dias = acumulada ? maxA : Math.round(sumaA * 10) / 10;
