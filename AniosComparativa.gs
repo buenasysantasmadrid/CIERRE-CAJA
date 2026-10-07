@@ -34,6 +34,18 @@ function actualizarAniosComparativa_(anio, mesIndex) {
   if (!hojas.anios && !hojas.comparativa) return null;
   arreglarComparativa2025_(hojas);
   var nuevo = asegurarBloquesDelAnio_(hojas, anio);
+  // Las primeras fórmulas de "años" se escribieron con "," y en la planilla
+  // en español dan #ERROR!: una sola vez se vuelven a escribir todas con ";".
+  var props = PropertiesService.getScriptProperties();
+  var claveArreglo = 'anios_formulas_puntoycoma_' + anio;
+  if (!props.getProperty(claveArreglo)) {
+    if (hojas.anios && !nuevo) {
+      var S = filaBloqueAnio_(hojas.anios, anio);
+      if (S) escribirTotalesBloqueAnio_(hojas.anios, S);
+    }
+    nuevo = true;
+    props.setProperty(claveArreglo, '1');
+  }
   var desde = nuevo ? 0 : mesIndex;
   var proveedores = proveedoresPorMesAlbaranes_(anio);
   for (var m = desde; m <= mesIndex; m++) {
@@ -236,7 +248,12 @@ function crearBloqueAnio_(hoja, anio) {
   hoja.getRange(nuevo + 2, 2, 12, 23).clearContent();
   hoja.getRange(nuevo + 14, 2, alto - 14, 23).clearContent();
   hoja.getRange(nuevo + 1, 7).setValue('UBER / GLOVO');
-  // Fila del total del año y fila de promedios por mes.
+  escribirTotalesBloqueAnio_(hoja, nuevo);
+  return true;
+}
+
+// Fila del total del año y fila de promedios por mes de un bloque de "años".
+function escribirTotalesBloqueAnio_(hoja, nuevo) {
   var tot = nuevo + 14, pri = nuevo + 2, ult = nuevo + 13;
   var f = [];
   for (var c = 2; c <= 21; c++) {
@@ -248,14 +265,13 @@ function crearBloqueAnio_(hoja, anio) {
       : '=SUM(' + L + pri + ':' + L + ult + ')');
   }
   f.push('=IFERROR(S' + tot + '/K' + tot + ',"")', '=IFERROR(M' + tot + '/D' + tot + ',"")', '=IFERROR((T' + tot + '+U' + tot + ')/K' + tot + ',"")');
-  hoja.getRange(tot, 2, 1, 23).setFormulas([f]);
+  hoja.getRange(tot, 2, 1, 23).setFormulas(filasLocales_(hoja, [f]));
   var p = [];
   for (var c2 = 4; c2 <= 21; c2++) {
     var L2 = letraColumna_(c2);
     p.push(c2 === 10 || c2 === 12 || c2 === 18 ? '' : '=IFERROR(AVERAGE(' + L2 + pri + ':' + L2 + ult + '),"")');
   }
-  hoja.getRange(tot + 1, 4, 1, 18).setFormulas([p]);
-  return true;
+  hoja.getRange(tot + 1, 4, 1, 18).setFormulas(filasLocales_(hoja, [p]));
 }
 
 // Columna del año en la tabla ancha: 4 columnas más a la derecha que la del
@@ -324,17 +340,17 @@ function redondear_(x) { return x === '' ? '' : Math.round(x * 100) / 100; }
 function escribirMesAnios_(hoja, fila, d, proveedores) {
   if (!d) { hoja.getRange(fila, 2, 1, 18).clearContent(); hoja.getRange(fila, 22, 1, 3).clearContent(); return; }
   var r = fila;
-  hoja.getRange(fila, 2, 1, 18).setValues([[
+  hoja.getRange(fila, 2, 1, 18).setValues(filasLocales_(hoja, [[
     d.dias, '=IFERROR(D' + r + '/B' + r + ',"")', redondear_(d.sist), redondear_(d.md), redondear_(d.nc),
     redondear_(d.deliv), redondear_(d.web), redondear_(d.emp),
     '=IFERROR((G' + r + '+H' + r + '+I' + r + ')/B' + r + ',"")', '=D' + r + '+G' + r + '+H' + r + '+I' + r,
     '=IFERROR(K' + r + '/B' + r + ',"")', redondear_(d.tarj), redondear_(d.tick), redondear_(d.efvo),
     redondear_(d.dif), redondear_(d.ret), '=IFERROR(M' + r + '/B' + r + ',"")', proveedores ? redondear_(proveedores) : ''
-  ]]);
+  ]]));
   // NOMINAS y EXTRAS (T, U) quedan como estén; los % se calculan.
-  hoja.getRange(fila, 22, 1, 3).setFormulas([[
+  hoja.getRange(fila, 22, 1, 3).setFormulas(filasLocales_(hoja, [[
     '=IFERROR(S' + r + '/K' + r + ',"")', '=IFERROR(M' + r + '/D' + r + ',"")', '=IFERROR((T' + r + '+U' + r + ')/K' + r + ',"")'
-  ]]);
+  ]]));
 }
 
 function escribirMesComparativa_(hoja, anio, m, d) {

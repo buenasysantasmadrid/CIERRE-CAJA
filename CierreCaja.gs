@@ -1589,6 +1589,40 @@ var COLS_CONTABILIDAD_APP_ = ['A', 'B', 'C', 'D', 'E', 'G', 'I', 'J', 'K', 'M', 
 // WEB, GLOVO en vez de UBER EAT, 3 TPV). Los datos de cada día se mueven a
 // su columna nueva; lo que hubiera en WEB se pierde (se avisa en el
 // resultado). Si la pestaña ya tiene el formato nuevo, no hace nada.
+// ---------- fórmulas en las planillas en español ----------
+// Las planillas están en español: ahí el separador de argumentos de las
+// fórmulas es ";" y con "," dan #ERROR!. Toda fórmula con comas que escriba
+// el script pasa por formulaLocal_ (o filasLocales_ para setValues /
+// setFormulas). Las comas dentro de comillas no se tocan. Si alguna planilla
+// estuviera en inglés, se deja con comas.
+var SEPARADOR_POR_PLANILLA_ = {};
+
+function separadorFormulas_(ss) {
+  var id = ss.getId();
+  if (!SEPARADOR_POR_PLANILLA_[id]) {
+    var loc = '';
+    try { loc = String(ss.getSpreadsheetLocale() || ''); } catch (err) {}
+    SEPARADOR_POR_PLANILLA_[id] = /^en/i.test(loc) ? ',' : ';';
+  }
+  return SEPARADOR_POR_PLANILLA_[id];
+}
+
+function formulaLocal_(hoja, f) {
+  if (typeof f !== 'string' || f.charAt(0) !== '=' || f.indexOf(',') === -1) return f;
+  if (separadorFormulas_(hoja.getParent()) === ',') return f;
+  var res = '', enComillas = false;
+  for (var i = 0; i < f.length; i++) {
+    var ch = f.charAt(i);
+    if (ch === '"') enComillas = !enComillas;
+    res += (ch === ',' && !enComillas) ? ';' : ch;
+  }
+  return res;
+}
+
+function filasLocales_(hoja, filas) {
+  return filas.map(function (fila) { return fila.map(function (x) { return formulaLocal_(hoja, x); }); });
+}
+
 function adaptarPestanaContabilidadTresTpv_(hoja) {
   var enc = hoja.getRange('A2:U2').getValues()[0];
   function h(col) { return normalizarClave_(enc[columnaLetraANumero_(col) - 1]); }
@@ -1616,7 +1650,7 @@ function adaptarPestanaContabilidadTresTpv_(hoja) {
     for (var r = 3; r <= 33; r++) {
       comparacion.push(['=I' + r + '-P' + r, '=J' + r + '-Q' + r, '=IFERROR(R' + r + '/I' + r + ', "")', '=IFERROR(S' + r + '/J' + r + ', "")']);
     }
-    hoja.getRange('R3:U33').setValues(comparacion);
+    hoja.getRange('R3:U33').setValues(filasLocales_(hoja, comparacion));
   }
 
   return { pestana: hoja.getName(), diasConWeb: diasConWeb };
