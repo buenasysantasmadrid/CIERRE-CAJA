@@ -2472,8 +2472,10 @@ var INSTRUCCIONES_FACTURA =
   'Esta es la foto de una factura, albarán o ticket de compra de un restaurante ' +
   '(el restaurante es el CLIENTE: "Buenas y Santas"). Extrae estos datos:\n' +
   '- proveedor: nombre de la empresa que EMITE la factura (el vendedor), tal como aparece. Nunca el cliente.\n' +
-  '- numero_factura: el número que identifica ESTE documento: el que está junto a "Nº factura", "Factura", "Nº albarán", ' +
-  '"Albarán", "Nº documento" o "Ticket". NUNCA el número de cliente, código de cliente, cuenta, NIF/CIF, pedido, ruta, ' +
+  '- numero_factura: el número que identifica ESTE documento. Sé flexible con cómo está escrito: puede poner "Factura", ' +
+  '"Nº factura", "Num. factura", "Fra.", "Factura nº", "Albarán", "Albaran", "Nº albarán", "Alb.", "Documento", "Nº doc.", ' +
+  '"Ticket", "Nota" o similar, con o sin "Nº", tildes o dos puntos, en mayúsculas o minúsculas, y el número puede llevar ' +
+  'letras, barras o guiones (ej. "A-2026/0153"). NUNCA el número de cliente, código de cliente, cuenta, NIF/CIF, pedido, ruta, ' +
   'repartidor ni teléfono (por ejemplo, en las facturas de Sodexo/Disbesa el "Nº cliente" no es el número de factura). ' +
   'Si hay número de factura y de albarán, pon el de factura. Si no se ve claramente, déjalo vacío.\n' +
   '- fecha: fecha de la factura en formato YYYY-MM-DD.\n' +
