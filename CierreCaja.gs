@@ -918,7 +918,7 @@ function listarFacturasProveedores_(proveedor, detalle) {
     var hoy = new Date();
     var desde = Utilities.formatDate(new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1, 12), Session.getScriptTimeZone(), 'yyyy-MM-dd');
     resultado = resultado.filter(function (f) {
-      return f.fechaFactura >= desde || f.subtipo === 'No pagado';
+      return f.fechaFactura >= desde || f.subtipo === 'No pagado' || sinPagarEnInfo_(f.info);
     });
 
     resultado.sort(function (a, b) { return a.fechaFactura < b.fechaFactura ? 1 : (a.fechaFactura > b.fechaFactura ? -1 : 0); });
@@ -1350,20 +1350,26 @@ var FORMA_PAGO_LABEL_ = { tarjeta: 'Tarjeta', transferencia: 'Transferencia', ef
 var FORMA_PAGO_MODALIDAD_ = { tarjeta: 'TARJETA', transferencia: 'TRANSFERENCIA', efectivo_antiguo: 'EFECTIVO' };
 var INFO_TAGS_CONOCIDAS_ = ['TARJETA', 'NO PAGADO', 'TRANSFERENCIA'];
 
+// Saca del principio de Info las etiquetas de pago, en cualquier orden y
+// aunque estén repetidas: TARJETA / NO PAGADO / TRANSFERENCIA y un "PAGADO
+// <MODALIDAD> <fecha>" de una vez anterior (para no duplicarlo si se cambia
+// la forma de pago de nuevo). Queda solo lo que se escribió.
 function quitarTagInfo_(info) {
-  info = String(info || '');
-  // Si ya tenía un "PAGADO <MODALIDAD> <fecha>" puesto de una vez anterior,
-  // lo saca primero (para no duplicarlo si se cambia la forma de pago de
-  // nuevo). Hasta 2 palabras después de PAGADO: modalidad y fecha.
-  var sinPagado = info.replace(/^PAGADO(\s+\S+){0,2}\s*(?:·\s*)?/, '');
-  if (sinPagado !== info) info = sinPagado;
-  for (var i = 0; i < INFO_TAGS_CONOCIDAS_.length; i++) {
-    var tag = INFO_TAGS_CONOCIDAS_[i];
-    if (info === tag) return '';
-    var prefijo = tag + ' · ';
-    if (info.indexOf(prefijo) === 0) return info.slice(prefijo.length);
+  var partes = String(info || '').split(' · ');
+  while (partes.length) {
+    var p = partes[0].trim();
+    if (INFO_TAGS_CONOCIDAS_.indexOf(p) > -1 || /^PAGADO(\s+\S+){0,2}$/.test(p)) partes.shift();
+    else break;
   }
-  return info;
+  return partes.join(' · ');
+}
+
+// Un gasto cargado con tarjeta (u otra forma) pero con "SIN PAGAR" o "NO
+// PAGADO" escrito en Info, y sin "PAGADO …" después: todavía no se pagó.
+function sinPagarEnInfo_(info) {
+  info = String(info || '');
+  if (/(?:^|·\s*)PAGADO\b/.test(info)) return false;
+  return /SIN\s+PAGAR|NO\s+PAGAD[OA]/i.test(info);
 }
 
 // Desde la pantalla de Albaranes: al tocar un albarán "No pagado" y elegir

@@ -199,17 +199,19 @@ var FORMA_PAGO_ALBARAN_ = {
 // pago) de un gasto. Una factura que estaba "No pagado" y se pagó después
 // tiene en Info "PAGADO <MODALIDAD> <fecha> · ..." (ver
 // cambiarFormaPagoAlbaran_): el día de pago es esa fecha. Si se pagó en el
-// momento, es la fecha de la caja en la que se cargó; si no está pagada,
-// queda vacío.
+// momento, es la fecha de la caja en la que se cargó; si no está pagada
+// (No pagado, o escrito "SIN PAGAR" en Info), queda vacío. El "PAGADO …"
+// puede venir detrás de la etiqueta de la forma de pago ("TARJETA · PAGADO
+// …") si el movimiento se volvió a guardar desde la app.
 function pagoDeGasto_(m, fechaCajaISO) {
   var info = String(m.info || '');
-  var pagado = /^PAGADO(?:\s+([A-Z]+))?(?:\s+(\d{4}-\d{2}-\d{2}))?/.exec(info);
+  var pagado = /(?:^|·\s*)PAGADO(?:\s+([A-Z]+))?(?:\s+(\d{4}-\d{2}-\d{2}))?/.exec(info);
   var forma = FORMA_PAGO_ALBARAN_[m.subtipo] || '';
   var dia = '';
   if (pagado) {
     forma = pagado[1] || forma;
     dia = pagado[2] || '';
-  } else if (m.subtipo !== 'no_pagado') {
+  } else if (m.subtipo !== 'no_pagado' && !sinPagarEnInfo_(info)) {
     dia = fechaCajaISO || '';
   }
   return { forma: forma, dia: dia, obs: quitarTagInfo_(info) };

@@ -1480,9 +1480,18 @@
       var info = quitarTagInfoGasto(m.info, m.subtipo);
       // Lo que ponía solo el escaneo de facturas ("Base imponible: … · IVA …%")
       // no se muestra: si no hay otro comentario, no aparece nada.
+      var otroDia = m.fecha && /^\d{4}-\d{2}-\d{2}$/.test(m.fecha) && m.fecha !== state.fecha;
+      var mPago = /(?:^|·\s*)PAGADO(?:\s+[A-Z]+)?\s+(\d{4}-\d{2}-\d{2})/.exec(info);
       info = info.split(' · ').filter(function(p){
+        if(otroDia && (p.indexOf('Pago de factura ') === 0 || /^PAGADO\b/.test(p))) return false;
         return !/^Base imponible:/.test(p) && !/^IVA [\d.,]+\s*%$/.test(p);
       }).join(' · ');
+      // Factura de otro día (pagada en esta caja, o cargada hoy con su
+      // fecha): en vez del número, la fecha de la factura y la del pago.
+      if(otroDia){
+        var sinPagar = m.subtipo === 'no_pagado' || (!pagadoEnInfo(m.info) && /SIN\s+PAGAR|NO\s+PAGAD[OA]/i.test(m.info||''));
+        partes.push('Factura del ' + fechaCorta(m.fecha) + (sinPagar ? '' : ' · pagada el ' + fechaCorta(mPago ? mPago[1] : state.fecha)));
+      }
       if(info) partes.push(info);
     } else if(m.tipo !== 'empanadas'){
       if(m.motivo) partes.push(m.motivo);
@@ -2801,7 +2810,10 @@
     var infoFinal = data.info || '';
     if(currentTipo === 'gasto'){
       var tagGasto = GASTO_INFO_TAG[currentSubtipo];
-      if(tagGasto) infoFinal = tagGasto + (infoFinal ? ' · ' + infoFinal : '');
+      // Un albarán pagado después ("PAGADO <MODALIDAD> <fecha> · …") se deja
+      // como está: con la etiqueta delante, el Sheet no encontraba la fecha
+      // de pago.
+      if(tagGasto && !/^PAGADO\b/.test(infoFinal)) infoFinal = tagGasto + (infoFinal ? ' · ' + infoFinal : '');
     }
 
     var mov = {
@@ -3012,7 +3024,15 @@
   // "Todos" o "No pagados" (botones de arriba de la lista).
   var albaranesFiltro = 'todos';
   var albaranesUltimos = [];
-  function esAlbaranNoPagado(f){ return f.subtipo === 'No pagado'; }
+  // "No pagado", o cargado con otra forma de pago pero con "SIN PAGAR" /
+  // "NO PAGADO" escrito en Info (y sin "PAGADO …" después). Igual que
+  // sinPagarEnInfo_ del Apps Script.
+  function pagadoEnInfo(info){ return /(?:^|·\s*)PAGADO\b/.test(String(info||'')); }
+  function esAlbaranNoPagado(f){
+    if(f.subtipo === 'No pagado') return true;
+    var info = String(f.info||'');
+    return !pagadoEnInfo(info) && /SIN\s+PAGAR|NO\s+PAGAD[OA]/i.test(info);
+  }
   function textoCantidadAlbaranes(facturas){
     if(albaranesFiltro === 'nopagados'){
       var n = facturas.filter(esAlbaranNoPagado).length;
@@ -3062,18 +3082,18 @@
     document.getElementById('albaranesVarios').style.display = hayVarios ? 'flex' : 'none';
     if(!facturas.length){ empty.style.display = 'block'; return; }
     // Resumen de lo que falta pagar, arriba de la lista.
-    var sinPagar = facturas.filter(function(f){ return f.subtipo === 'No pagado'; });
+    var sinPagar = facturas.filter(esAlbaranNoPagado);
     if(sinPagar.length){
       var totalSinPagar = sinPagar.reduce(function(s, f){ return s + num(f.importe); }, 0);
       body.insertAdjacentHTML('beforeend', '<div class="alb-resumen">'+sinPagar.length+' sin pagar · '+fmt(totalSinPagar)+' pendientes</div>');
     }
     empty.style.display = 'none';
     facturas.forEach(function(f){
-      var noPagado = f.subtipo === 'No pagado';
+      var noPagado = esAlbaranNoPagado(f);
       // Info queda como "PAGADO <MODALIDAD> <fecha> · <resto>" — se toma
       // todo lo que sigue a PAGADO hasta el primer " · " para mostrarlo tal
       // cual (modalidad + fecha juntas).
-      var mPagado = /^PAGADO\s*([^·]*)/.exec(f.info||'');
+      var mPagado = /(?:^|·\s*)PAGADO\s*([^·]*)/.exec(f.info||'');
       var pagadoTexto = mPagado ? (mPagado[1]||'').trim() : '';
       var turnoKey = /noche/i.test(String(f.turno||'')) ? 'noche' : (/medio/i.test(String(f.turno||'')) ? 'mediodia' : null);
       var fechaFactura = f.fechaFactura || f.fecha || '';
@@ -3282,8 +3302,23 @@
   // qué día se pagó. No afecta al efectivo, y en el Sheet no cuenta como un
   // albarán nuevo (Albaranes la salta por el "Pago de factura"). Si la
   // factura es de la misma caja, no hace falta: ya está ahí.
+  // ¿La caja de hoy ya tiene la línea del pago de esta factura? (si se tocó
+  // dos veces, o la lista de Albaranes todavía la mostraba sin pagar).
+  function yaHayPagoEnCaja(f){
+    var fact = String(f.factura || '').trim();
+    var prov = String(f.proveedorTexto || '');
+    return TURNOS.some(function(t){
+      return (state[t].movimientos || []).some(function(m){
+        if(m.tipo !== 'gasto' || String(m.info || '').indexOf('Pago de factura ') !== 0) return false;
+        var provM = m.proveedor + (m.proveedorDetalle ? ' — ' + m.proveedorDetalle : '');
+        return String(m.factura || '').trim() === fact && Math.abs(num(m.importe) - num(f.importe)) < 0.005 &&
+          (provM === prov || prov.indexOf(m.proveedor) === 0);
+      });
+    });
+  }
+
   function anotarPagoEnCaja(f, forma){
-    if(!f || f.fecha === state.fecha) return false;
+    if(!f || f.fecha === state.fecha || yaHayPagoEnCaja(f)) return false;
     var turno = turnoPorHora();
     var proveedorFinal = f.proveedorTexto || '';
     var proveedorDetalle = '';
@@ -3355,6 +3390,11 @@
     if(!f) return;
     cerrarPagoAlbaran();
     var fechaPago = state.fecha; // la caja en la que se paga (hoy, la que está en pantalla)
+    if(yaHayPagoEnCaja(f)){
+      toast('Esta factura ya está pagada en la caja de hoy');
+      buscarAlbaranes();
+      return;
+    }
 
     var proveedorFinal = f.proveedorTexto || '';
     var proveedorDetalle = '';
@@ -3370,11 +3410,11 @@
       tipo: 'gasto',
       subtipo: 'efectivo_antiguo',
       importe: f.importe,
-      fecha: state.fecha,
+      fecha: f.fechaFactura || f.fecha || state.fecha,
       proveedor: proveedorFinal,
       proveedorDetalle: proveedorDetalle,
       factura: f.factura || '',
-      info: 'Pago de factura ' + (f.factura||'(s/n)') + ' del ' + (f.fechaFactura||f.fecha||''),
+      info: 'Pago de factura ' + (f.factura||'(s/n)') + ' del ' + fechaCorta(f.fechaFactura||f.fecha||state.fecha),
       iva: (f.iva != null && f.iva !== '') ? f.iva : null,
       motivo: '',
       responsable: ''
@@ -3415,13 +3455,15 @@
   // dispositivo se pisaría en el Sheet el "PAGADO …".
   var FORMA_PAGO_MODALIDAD = { tarjeta:'TARJETA', transferencia:'TRANSFERENCIA', efectivo_antiguo:'EFECTIVO' };
   function infoPagadoAlbaran(infoActual, subtipoNuevo, fechaPago){
-    // Igual que quitarTagInfo_ del Apps Script.
-    var info = String(infoActual || '').replace(/^PAGADO(\s+\S+){0,2}\s*(?:·\s*)?/, '');
-    ['TARJETA', 'NO PAGADO', 'TRANSFERENCIA'].some(function(tag){
-      if(info === tag){ info = ''; return true; }
-      if(info.indexOf(tag + ' · ') === 0){ info = info.slice((tag + ' · ').length); return true; }
-      return false;
-    });
+    // Igual que quitarTagInfo_ del Apps Script: saca del principio las
+    // etiquetas de pago, en cualquier orden.
+    var partes = String(infoActual || '').split(' · ');
+    while(partes.length){
+      var p0 = partes[0].trim();
+      if(['TARJETA', 'NO PAGADO', 'TRANSFERENCIA'].indexOf(p0) > -1 || /^PAGADO(\s+\S+){0,2}$/.test(p0)) partes.shift();
+      else break;
+    }
+    var info = partes.join(' · ');
     var modalidad = FORMA_PAGO_MODALIDAD[subtipoNuevo] || '';
     return 'PAGADO' + (modalidad ? ' ' + modalidad : '') + (fechaPago ? ' ' + fechaPago : '') + (info ? ' · ' + info : '');
   }
