@@ -1775,6 +1775,7 @@
     currentTipo = 'gasto';
     var gExisting = existing && existing.tipo === 'gasto' ? existing : null;
     currentSubtipo = gExisting ? gExisting.subtipo : null;
+    pagoEdicion = datosPagoEdicion(gExisting);
     document.getElementById('scanSlot').innerHTML = scanBoxHTML() + dictarBoxHTML('gasto');
     wireScanUI();
     wireDictarUI();
@@ -1832,6 +1833,35 @@
     return vals;
   }
 
+  // Pago de una factura que no se pagó el día de la factura: en Info queda
+  // "PAGADO <MODALIDAD> <fecha>" (o es la línea "Pago de factura …" de la
+  // caja del día del pago). Al abrirla, esa fecha va en su propio campo
+  // "Fecha de pago" y en Info queda solo lo que se escribió; al guardar se
+  // vuelve a armar igual.
+  var pagoEdicion = null;
+  function separarPagoInfo(info){
+    var r = { pagado:'', pagoFactura:'', resto:[] };
+    String(info||'').split(' · ').forEach(function(p){
+      if(!r.pagado && /^PAGADO(\s+\S+){0,2}$/.test(p.trim())) r.pagado = p.trim();
+      else if(!r.pagoFactura && p.indexOf('Pago de factura ') === 0) r.pagoFactura = p;
+      else if(p) r.resto.push(p);
+    });
+    r.resto = r.resto.join(' · ');
+    return r;
+  }
+  function datosPagoEdicion(m){
+    if(!m) return null;
+    var sep = separarPagoInfo(m.info);
+    var fecha = '', editable = false;
+    var mf = /(\d{4}-\d{2}-\d{2})$/.exec(sep.pagado);
+    if(sep.pagado){ fecha = mf ? mf[1] : ''; editable = true; }
+    else if(m.subtipo !== 'no_pagado' && !(/SIN\s+PAGAR|NO\s+PAGAD[OA]/i.test(m.info||''))) fecha = state.fecha;
+    sep.fecha = fecha;
+    sep.editable = editable;
+    sep.mostrar = !!fecha && fecha !== (m.fecha || state.fecha);
+    return sep;
+  }
+
   function renderFormFields(tipo, existing){
     var container = document.getElementById('formFields');
     var f = existing || {};
@@ -1842,7 +1872,11 @@
         field('Nº de factura','factura','text', f.factura||'') +
         field('Fecha factura','fecha','date', f.fecha||state.fecha) +
       '</div>';
-      html += '<div class="form-grid"><div class="field span-2"><label>Info</label><input type="text" data-field="info" value="'+(f.info?escapeHtml(quitarTagInfoGasto(f.info, f.subtipo)):'')+'" placeholder="Detalle, observación, lo que haga falta anotar"></div>' + responsableField(f.responsable||'') + '</div>';
+      if(pagoEdicion && pagoEdicion.mostrar){
+        html += '<div class="form-grid"><div class="field"><label>Fecha de pago</label><input type="date" data-field="fechaPago" value="'+escapeHtml(f.fechaPago||pagoEdicion.fecha)+'"'+(pagoEdicion.editable?'':' readonly')+'></div></div>';
+      }
+      var infoVisible = separarPagoInfo(f.info).resto;
+      html += '<div class="form-grid"><div class="field span-2"><label>Info</label><input type="text" data-field="info" value="'+(infoVisible?escapeHtml(quitarTagInfoGasto(infoVisible, f.subtipo)):'')+'" placeholder="Detalle, observación, lo que haga falta anotar"></div>' + responsableField(f.responsable||'') + '</div>';
       html += importeBlock(f.importe, field('IVA (€)','iva','number', (f.iva!=null?f.iva:''), '0,00', 'iva'));
     } else if(tipo === 'ingreso' || tipo === 'egreso'){
       if(tipo === 'ingreso' && currentSubtipo === 'cambio'){
@@ -2813,7 +2847,14 @@
       // Un albarán pagado después ("PAGADO <MODALIDAD> <fecha> · …") se deja
       // como está: con la etiqueta delante, el Sheet no encontraba la fecha
       // de pago.
-      if(tagGasto && !/^PAGADO\b/.test(infoFinal)) infoFinal = tagGasto + (infoFinal ? ' · ' + infoFinal : '');
+      var pe = pagoEdicion || {};
+      var pagadoSeg = pe.pagado || '';
+      if(pagadoSeg && data.fechaPago) pagadoSeg = pagadoSeg.replace(/\s+\d{4}-\d{2}-\d{2}$/, '') + ' ' + data.fechaPago;
+      if(pe.pagoFactura || pagadoSeg){
+        // "Pago de factura" va primero (así el Sheet sabe que no es un
+        // albarán nuevo), y ninguno de los dos lleva la etiqueta delante.
+        infoFinal = [pe.pagoFactura, pagadoSeg, infoFinal].filter(String).join(' · ');
+      } else if(tagGasto && !/^PAGADO\b/.test(infoFinal)) infoFinal = tagGasto + (infoFinal ? ' · ' + infoFinal : '');
     }
 
     var mov = {
