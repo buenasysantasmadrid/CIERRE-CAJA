@@ -59,10 +59,11 @@
 
 var INDICE_SHEET_ID_ = '1ZqE4UZqXIYmnmwu-uNLgHDhRpl62WbbRNKY9i2ePyEY';
 
-// Cuántos meses hacia atrás (incluyendo el actual) se buscan por defecto en
+// Cuántos meses hacia atrás (incluyendo el actual: 2 = este y el anterior,
+// para que la app vaya rápida) se buscan por defecto en
 // los listados que cruzan meses: calendario de días con datos, fondo fijo
 // sugerido del turno anterior y, más adelante, Albaranes.
-var MESES_HISTORIAL_ = 6;
+var MESES_HISTORIAL_ = 2;
 
 function hoyISO_() {
   return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');

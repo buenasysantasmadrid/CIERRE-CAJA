@@ -1054,6 +1054,19 @@
       return raw ? JSON.parse(raw) : {};
     }catch(e){ return {}; }
   }
+  // Este dispositivo guarda solo los días de este mes y del anterior (lo
+  // mismo que trae el Sheet): menos datos que leer cada vez, la app va
+  // más rápida. Los días más viejos siguen en el Sheet.
+  function podarDiasViejos(){
+    var hoy = todayISO().split('-');
+    var anterior = new Date(parseInt(hoy[0],10), parseInt(hoy[1],10) - 2, 1, 12);
+    var desde = anterior.getFullYear() + '-' + String(anterior.getMonth() + 1).padStart(2,'0') + '-01';
+    var store = getDiasStore(), quitados = 0;
+    Object.keys(store).forEach(function(f){
+      if(/^\d{4}-\d{2}-\d{2}$/.test(f) && f < desde){ delete store[f]; quitados++; }
+    });
+    if(quitados) saveDiasStore(store);
+  }
   function saveDiasStore(store){
     try{ localStorage.setItem(LS_DIAS, JSON.stringify(store)); }catch(e){}
   }
@@ -5743,6 +5756,7 @@
     document.getElementById('loginOverlay').classList.add('oculto');
     if(appIniciada) return;
     appIniciada = true;
+    podarDiasViejos();
     init();
   }
 
