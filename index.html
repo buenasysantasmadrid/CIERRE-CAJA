@@ -3069,9 +3069,42 @@
     }catch(e){}
   }
 
+  // Pagos hechos en este dispositivo que el Sheet todavía puede no mostrar
+  // (tarda en escribirlos): durante 15 minutos se muestran ya como pagados,
+  // hasta que la lista del Sheet los traiga con su "PAGADO …".
+  var LS_PAGOS_LOCALES = 'cierreCaja_pagosAlbaranes_v1';
+  function leerPagosLocales(){
+    try{ return JSON.parse(localStorage.getItem(LS_PAGOS_LOCALES) || '{}') || {}; }catch(e){ return {}; }
+  }
+  function guardarPagosLocales(p){ try{ localStorage.setItem(LS_PAGOS_LOCALES, JSON.stringify(p)); }catch(e){} }
+  var SUBTIPO_PAGO_LABEL = { tarjeta:'Tarjeta', transferencia:'Transferencia', efectivo_antiguo:'Efectivo antiguo' };
+  function marcarPagoLocal(f, forma, fechaPago){
+    var p = leerPagosLocales();
+    p[f.idMovimiento] = { subtipo: SUBTIPO_PAGO_LABEL[forma] || forma, info: infoPagadoAlbaran(f.info, forma, fechaPago), hasta: Date.now() + 15*60*1000 };
+    guardarPagosLocales(p);
+    renderAlbaranesTabla(albaranesUltimos);
+  }
+  function quitarPagoLocal(f){
+    var p = leerPagosLocales();
+    delete p[f.idMovimiento];
+    guardarPagosLocales(p);
+  }
+  function aplicarPagosLocales(facturas){
+    var p = leerPagosLocales(), cambio = false, ahora = Date.now();
+    var salida = facturas.map(function(f){
+      var pl = p[f.idMovimiento];
+      if(!pl) return f;
+      if(pl.hasta < ahora || pagadoEnInfo(f.info)){ delete p[f.idMovimiento]; cambio = true; return f; }
+      return Object.assign({}, f, { subtipo: pl.subtipo, info: pl.info });
+    });
+    if(cambio) guardarPagosLocales(p);
+    return salida;
+  }
+
   function renderAlbaranesTabla(facturas){
     var body = document.getElementById('albaranesBody');
     var empty = document.getElementById('albaranesEmpty');
+    facturas = aplicarPagosLocales(facturas);
     albaranesUltimos = facturas;
     if(albaranesFiltro === 'nopagados') facturas = facturas.filter(esAlbaranNoPagado);
     body.innerHTML = '';
@@ -3203,6 +3236,7 @@
     albaranesPagandoVarios = true;
     salirDePagarVarios(true);
     document.getElementById('albaranesVarios').style.display = 'none';
+    lista.forEach(function(f){ marcarPagoLocal(f, forma, fechaPago); });
     var cadena = Promise.resolve();
     lista.forEach(function(f, i){
       cadena = cadena.then(function(){
@@ -3218,8 +3252,8 @@
             var tp = anotarPagoEnCaja(f, forma);
             if(tp) turnosConPago[tp] = true;
           }
-          else mal.push((f.proveedorTexto || '') + ' ' + (f.factura || ''));
-        }).catch(function(){ mal.push((f.proveedorTexto || '') + ' ' + (f.factura || '')); });
+          else { quitarPagoLocal(f); mal.push((f.proveedorTexto || '') + ' ' + (f.factura || '')); }
+        }).catch(function(){ quitarPagoLocal(f); mal.push((f.proveedorTexto || '') + ' ' + (f.factura || '')); });
       });
     });
     cadena.then(function(){
@@ -3361,6 +3395,7 @@
     var fechaPago = state.fecha; // la caja en la que se paga (hoy, la que está en pantalla)
     var url = loadSheetUrl();
     if(!hasValidSheetUrl(url)){ toast('No hay conexión configurada con el Sheet'); return; }
+    marcarPagoLocal(f, forma, fechaPago);
     fetch(url, {
       method: 'POST',
       headers: {'Content-Type':'text/plain;charset=utf-8'},
@@ -3373,10 +3408,12 @@
         var t1 = anotarPagoEnCaja(f, forma);
         if(t1){ var tt = {}; tt[t1] = true; guardarPagosEnCaja(tt); }
       } else {
+        quitarPagoLocal(f);
         toast('No se pudo actualizar el albarán: ' + ((res&&res.error)||'error desconocido'));
       }
       buscarAlbaranes();
     }).catch(function(err){
+      quitarPagoLocal(f);
       toast('No se pudo conectar con el Sheet (' + err.message + ')');
       buscarAlbaranes();
     });
@@ -3426,6 +3463,7 @@
     recalc(turno);
     toast('Efectivo antiguo agregado a la caja de hoy (' + TURNO_LABEL[turno] + ')');
 
+    marcarPagoLocal(f, 'efectivo_antiguo', fechaPago);
     var url = loadSheetUrl();
     if(!hasValidSheetUrl(url)){ buscarAlbaranes(); return; }
     fetch(url, {

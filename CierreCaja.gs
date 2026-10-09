@@ -70,8 +70,12 @@ function doPost(e) {
     invalidarCacheListados_();
 
     if (data.accionCambiarFormaPago) {
+      var resultadoPago = cambiarFormaPagoAlbaran_(data);
+      // Otra vez al terminar: una lista pedida mientras se escribía el pago
+      // quedó guardada todavía sin pagar.
+      invalidarCacheListados_();
       return ContentService
-        .createTextOutput(JSON.stringify(cambiarFormaPagoAlbaran_(data)))
+        .createTextOutput(JSON.stringify(resultadoPago))
         .setMimeType(ContentService.MimeType.JSON);
     }
 
