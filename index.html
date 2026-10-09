@@ -5592,8 +5592,12 @@
     var total = 0;
     Object.keys(fechas).forEach(function(f){
       var dia = f === state.fecha ? state : store[f];
-      if(dia) total += tpv1DelDia(dia.mediodia && dia.mediodia.tpv1, dia.noche && dia.noche.tpv1);
-      else if(cierresSheet[f]) total += tpv1DelDia(cierresSheet[f].tpv1Mediodia, cierresSheet[f].tpv1Noche);
+      var local = dia ? tpv1DelDia(dia.mediodia && dia.mediodia.tpv1, dia.noche && dia.noche.tpv1) : 0;
+      var delSheet = cierresSheet[f] ? tpv1DelDia(cierresSheet[f].tpv1Mediodia, cierresSheet[f].tpv1Noche) : 0;
+      // La copia de este dispositivo puede ser vieja (ej. se abrió el día
+      // antes de que otro dispositivo anotara el TPV 1 de la noche): vale
+      // la lectura más alta de las dos.
+      total += Math.max(local, delSheet);
     });
     return Math.round(total * 100) / 100;
   }
