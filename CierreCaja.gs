@@ -405,6 +405,19 @@ function escribirHojaDelDiaExacta_(ss, data) {
   var nombre = nombreHojaDia_(data.fecha);
   var hoja = ss.getSheetByName(nombre);
 
+  // Pestaña del día hecha con la plantilla vieja (sin TPV 3) cuando la "1"
+  // ya tiene TPV 3: se vuelve a armar con la plantilla nueva, en el mismo
+  // lugar (todo lo que muestra sale de los datos de la app).
+  var posicionVieja = 0;
+  if (hoja && !celdasHojaDia_(hoja).conTpv3) {
+    var plantillaNueva = ss.getSheetByName('1');
+    if (plantillaNueva && celdasHojaDia_(plantillaNueva).conTpv3) {
+      posicionVieja = hoja.getIndex();
+      ss.deleteSheet(hoja);
+      hoja = null;
+    }
+  }
+
   if (!hoja) {
     // De a un guardado por vez: si llegan dos del mismo día juntos (ej. dos
     // dispositivos, o uno que vuelve a mandar una caja recién borrada), los
@@ -430,7 +443,7 @@ function escribirHojaDelDiaExacta_(ss, data) {
           if (!hoja) throw errNombre;
         }
         ss.setActiveSheet(hoja);
-        ss.moveActiveSheet(ss.getNumSheets());
+        ss.moveActiveSheet(posicionVieja || ss.getNumSheets());
         SpreadsheetApp.flush();
       }
     } finally {
@@ -2189,6 +2202,7 @@ function onOpen(e) {
     .createMenu('Cierre de Caja — Pruebas')
     .addItem('Borrar un día completo…', 'borrarDiaCompleto')
     .addItem('Albaranes: reenviar un mes desde Cierre de Caja…', 'reenviarMesAAlbaranesDesdeMenu')
+    .addItem('Cierre de Caja: pasar los días a 3 TPV…', 'pasarCierresATresTpvDesdeMenu')
     .addToUi();
 }
 
