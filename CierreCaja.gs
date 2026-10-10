@@ -113,7 +113,7 @@ function doPost(e) {
     // Registro/Movimientos (arriba) ya se guardaron bien.
     var hojaDia = { ok: true };
     try {
-      escribirHojaDelDiaExacta_(ss, data);
+      hojaDia = escribirHojaDelDiaComprobada_(ss, data);
     } catch (errHoja) {
       hojaDia = { ok: false, error: String(errHoja) };
       Logger.log('escribirHojaDelDiaExacta_ error: ' + errHoja);
@@ -545,9 +545,52 @@ function escribirFormulasDiferencia_(hoja, celdas) {
   hoja.getRange('C91').setFormula('=C89+C86-F72+J45+J102-J34-J93');
 }
 
+// Diferencias que dice la pestaña del día comparadas con las de la app
+// (la que se ve en la barra de cada turno; la de Noche es la del día
+// entero). Solo los turnos que la app da por completos (con total facturado
+// y efectivo contado). Devuelve los que no coinciden: [] si está todo bien.
+function comprobarHojaDelDia_(ss, data) {
+  var hoja = ss.getSheetByName(nombreHojaDia_(data.fecha));
+  if (!hoja) return ['no está la pestaña del día'];
+  SpreadsheetApp.flush();
+  var md = data.mediodia || {}, nc = data.noche || {};
+  var cmd = md.calc || {}, cnc = nc.calc || {};
+  var mdCompleto = !!(md.totalFacturado && cmd.totalContado);
+  var ncCompleto = !!(nc.totalFacturado && cnc.totalContado);
+  var problemas = [];
+  function comparar(turno, celda, app) {
+    var hojaVal = Number(hoja.getRange(celda).getValue()) || 0;
+    if (Math.abs(hojaVal - app) > 0.01) {
+      problemas.push(turno + ': la pestaña dice ' + hojaVal.toFixed(2) + ' y la app ' + app.toFixed(2));
+    }
+  }
+  if (mdCompleto) comparar('Mediodía', 'C50', Number(cmd.diferencia) || 0);
+  if (ncCompleto) comparar('Noche (día entero)', 'C92', (Number(cnc.diferencia) || 0) + (mdCompleto ? Number(cmd.diferencia) || 0 : 0));
+  return problemas;
+}
+
+// Escribe la pestaña del día y comprueba que dé la misma diferencia que la
+// app. Si no, la vuelve a armar desde la plantilla (por si quedó a medio
+// escribir) y comprueba otra vez; si sigue sin dar, lo dice (la app avisa).
+function escribirHojaDelDiaComprobada_(ss, data) {
+  escribirHojaDelDiaExacta_(ss, data);
+  var problemas = comprobarHojaDelDia_(ss, data);
+  if (!problemas.length) return { ok: true };
+  var hoja = ss.getSheetByName(nombreHojaDia_(data.fecha));
+  var posicion = hoja ? hoja.getIndex() : 0;
+  if (hoja) ss.deleteSheet(hoja);
+  escribirHojaDelDiaExacta_(ss, data);
+  var nueva = ss.getSheetByName(nombreHojaDia_(data.fecha));
+  if (nueva && posicion) { ss.setActiveSheet(nueva); ss.moveActiveSheet(posicion); }
+  problemas = comprobarHojaDelDia_(ss, data);
+  if (!problemas.length) return { ok: true, rehecha: true };
+  return { ok: false, error: 'la diferencia no coincide con la app — ' + problemas.join('; ') };
+}
+
 // Vuelve a escribir todas las pestañas de los días de un mes con lo que
 // tiene la app (desde el menú del Índice): arregla las fórmulas de la
-// diferencia y las pestañas que quedaron a medio escribir.
+// diferencia y las pestañas que quedaron a medio escribir, y dice qué días
+// siguen sin coincidir con la app.
 function reescribirDiasDelMesDesdeMenu() {
   var ui = SpreadsheetApp.getUi();
   var resp = ui.prompt('Cierre de Caja: volver a escribir los días de un mes', 'Mes (formato AAAA-MM, ej. 2026-10):', ui.ButtonSet.OK_CANCEL);
@@ -576,13 +619,13 @@ function reescribirDiasDelMes(periodo) {
       try {
         var dia = obtenerDiaJSON_(ss, fecha);
         if (!dia || !dia.encontrado) return;
-        escribirHojaDelDiaExacta_(ss, {
+        var r = escribirHojaDelDiaComprobada_(ss, {
           fecha: fecha,
           negocio: dia.negocio,
           mediodia: turnoParaHojaExacta_(dia.mediodia),
           noche: turnoParaHojaExacta_(dia.noche)
         });
-        resumen.push(fecha + ': listo');
+        resumen.push(fecha + ': ' + (r.ok ? 'bien, igual que la app' : 'NO COINCIDE — ' + r.error));
       } catch (err) {
         resumen.push(fecha + ': ERROR — ' + err);
       }
