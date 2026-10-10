@@ -2092,6 +2092,12 @@
     });
   }
 
+  // Info del cambio: qué entró ("1 blister de 1€", "10 billetes de 5€"),
+  // sin el total, que ya va en el importe.
+  function cantidadCambioTexto(cantidad, singular, plural){
+    return cantidad + ' ' + (cantidad === 1 ? singular : plural) + ' de ' + cambioState.denom.toLocaleString('es-ES') + '€';
+  }
+
   function actualizarResultadoCambio(){
     var resultEl = document.getElementById('cambioResultVal');
     if(!resultEl) return;
@@ -2099,15 +2105,15 @@
 
     if(cambioState.modo === 'billete' && cambioState.denom != null && cambioState.cantidad){
       total = cambioState.denom * cambioState.cantidad;
-      infoTexto = cambioState.cantidad + ' billetes ' + total.toLocaleString('es-ES') + '€';
+      infoTexto = cantidadCambioTexto(cambioState.cantidad, 'billete', 'billetes');
     } else if(cambioState.modo === 'moneda' && cambioState.denom != null && cambioState.subModo && cambioState.cantidad){
       if(cambioState.subModo === 'blister'){
         var valorRollo = ROLL_VALUE[cambioState.denom] || 0;
         total = valorRollo * cambioState.cantidad;
-        infoTexto = cambioState.cantidad + ' blister de ' + cambioState.denom.toLocaleString('es-ES') + '€ ' + total.toLocaleString('es-ES') + '€';
+        infoTexto = cantidadCambioTexto(cambioState.cantidad, 'blister', 'blister');
       } else {
         total = cambioState.denom * cambioState.cantidad;
-        infoTexto = cambioState.cantidad + ' monedas ' + total.toLocaleString('es-ES') + '€';
+        infoTexto = cantidadCambioTexto(cambioState.cantidad, 'moneda', 'monedas');
       }
     }
 
