@@ -1265,7 +1265,15 @@ function alEditarAlbaranes(e) {
   try {
     if (!e || !e.range) return;
     var hoja = e.range.getSheet();
-    if (hoja.getName() !== INFORME_MES_PESTANA_ || e.range.getRow() !== 2) return;
+    if (hoja.getName() !== INFORME_MES_PESTANA_) {
+      // Un cambio a mano en una pestaña de proveedor (o en TOTALES): que
+      // PROVEEDORES de Contabilidad lo refleje.
+      if (hoja.getName() === ALBARANES_HOJA_IDS_) return;
+      SpreadsheetApp.flush();
+      actualizarProveedoresContabilidad_(anioDePlanillaAlbaranes_(hoja.getParent()));
+      return;
+    }
+    if (e.range.getRow() !== 2) return;
     var col = e.range.getColumn();
     if (col !== 2 && col !== 5) return;
     if (col === 5) hoja.getRange('E2').setValue(false);

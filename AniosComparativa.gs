@@ -54,17 +54,31 @@ function actualizarAniosComparativa_(anio, mesIndex) {
   }
   // PROVEEDORES de todos los meses (un albarán puede ser de un mes anterior
   // al de la caja en la que se cargó).
-  if (hojas.anios && proveedores.length) {
-    var S = filaBloqueAnio_(hojas.anios, anio);
-    if (S) {
-      var col = hojas.anios.getRange(S + 2, 19, mesIndex + 1, 1).getValues();
-      var dias = hojas.anios.getRange(S + 2, 2, mesIndex + 1, 1).getValues();
-      hojas.anios.getRange(S + 2, 19, mesIndex + 1, 1).setValues(col.map(function (f, i) {
-        return [dias[i][0] !== '' && proveedores[i] ? redondear_(proveedores[i]) : f[0]];
-      }));
-    }
-  }
+  escribirProveedoresAnios_(hojas, anio, proveedores, mesIndex);
   return true;
+}
+
+// Columna PROVEEDORES (S) de "años", meses 0..hastaMes: solo los meses que
+// ya tienen días trabajados.
+function escribirProveedoresAnios_(hojas, anio, proveedores, hastaMes) {
+  if (!hojas.anios || !proveedores.length) return;
+  var S = filaBloqueAnio_(hojas.anios, anio);
+  if (!S) return;
+  var col = hojas.anios.getRange(S + 2, 19, hastaMes + 1, 1).getValues();
+  var dias = hojas.anios.getRange(S + 2, 2, hastaMes + 1, 1).getValues();
+  hojas.anios.getRange(S + 2, 19, hastaMes + 1, 1).setValues(col.map(function (f, i) {
+    return [dias[i][0] !== '' && proveedores[i] ? redondear_(proveedores[i]) : f[0]];
+  }));
+}
+
+// Al cambiar algo a mano en el archivo de Albaranes (ver alEditarAlbaranes):
+// PROVEEDORES de Contabilidad se pone al día sin esperar a que se guarde un
+// día en la app.
+function actualizarProveedoresContabilidad_(anio) {
+  var idCont = buscarEnIndice_('CONTABILIDAD', String(anio));
+  if (!idCont) return;
+  var hojas = hojasAniosComparativa_(SpreadsheetApp.openById(idCont));
+  escribirProveedoresAnios_(hojas, anio, proveedoresPorMesAlbaranes_(anio), 11);
 }
 
 // Año nuevo: la planilla de Contabilidad sale de la plantilla y puede venir
