@@ -536,8 +536,9 @@
         <button type="button" data-menu-archivo="carniceria" class="menu-con-ico"><span data-icon="carne"></span>Comparativa</button>
         <button type="button" id="menuVariosBtn" class="menu-varios" aria-expanded="false">Varios <span class="menu-flecha" data-icon="chevronRight"></span></button>
         <div class="menu-sub" id="menuVarios">
-          <button type="button" data-menu-archivo="tinta">Cambio de tinta</button>
-          <button type="button" data-menu-archivo="arreglos">Arreglo electrodomésticos</button>
+          <button type="button" data-menu-archivo="tinta" class="menu-con-ico"><span data-icon="impresora"></span>Cambio de tinta</button>
+          <button type="button" data-menu-archivo="arreglos" class="menu-con-ico"><span data-icon="nevera"></span>Arreglo electrodomésticos</button>
+          <button type="button" data-menu-archivo="cajita" class="menu-con-ico"><span data-icon="cajita"></span>Cajita</button>
         </div>
       </nav>
     </div>
@@ -870,6 +871,9 @@
     truck: ['M5 17a2 2 0 1 0 4 0a2 2 0 1 0 -4 0','M15 17a2 2 0 1 0 4 0a2 2 0 1 0 -4 0','M5 17h-2v-11a1 1 0 0 1 1 -1h9v12m-4 0h6m4 0h2v-6h-8m0 -5h5l3 5'],
     arrowDown: ['M12 5v14','M18 13l-6 6','M6 13l6 6'],
     arrowUp: ['M12 19v-14','M18 11l-6 -6','M6 11l6 -6'],
+    impresora: ['M17 17h2a2 2 0 0 0 2 -2v-4a2 2 0 0 0 -2 -2h-14a2 2 0 0 0 -2 2v4a2 2 0 0 0 2 2h2','M17 9v-4a2 2 0 0 0 -2 -2h-6a2 2 0 0 0 -2 2v4','M7 15a2 2 0 0 1 2 -2h6a2 2 0 0 1 2 2v4a2 2 0 0 1 -2 2h-6a2 2 0 0 1 -2 -2z'],
+    nevera: ['M5 5a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2z','M5 10h14','M9 13v3','M9 6v1'],
+    cajita: ['M12 3l8 4.5v9l-8 4.5l-8 -4.5v-9l8 -4.5','M12 12l8 -4.5','M12 12v9','M12 12l-8 -4.5'],
     empanada: ['M3 16h18a9 9 0 0 0 -18 0z','M7.5 11.5l1 1','M12 8.5v1.5','M16.5 11.5l-1 1'],
     carne: ['M13.62 8.382l1.966 -1.967a2 2 0 1 1 3.414 -1.415a2 2 0 1 1 -1.413 3.414l-1.82 1.821','M5.904 18.596c2.733 2.734 5.9 4 7.07 2.829c1.172 -1.172 -.094 -4.338 -2.828 -7.071c-2.733 -2.734 -5.9 -4 -7.07 -2.829c-1.172 1.172 .094 4.338 2.828 7.071z','M7.5 16l1 1','M12.975 21.425c3.905 -3.906 4.855 -9.288 2.121 -12.021c-2.733 -2.734 -8.115 -1.784 -12.02 2.121'],
     x: ['M18 6l-12 12','M6 6l12 12'],
@@ -4166,7 +4170,8 @@
     btnMenu.setAttribute('aria-expanded', 'false');
     abrirSubmenuVarios(false); // el menú vuelve a abrirse con "Varios" cerrado
   }
-  // "Varios": submenú con Cambio de tinta y Arreglo electrodomésticos.
+  // "Varios": submenú con Cambio de tinta, Arreglo electrodomésticos y
+  // Cajita (Cajita todavía no tiene archivo).
   function abrirSubmenuVarios(abrir){
     document.getElementById('menuVarios').classList.toggle('open', abrir);
     document.getElementById('menuVariosBtn').setAttribute('aria-expanded', abrir ? 'true' : 'false');
@@ -4189,6 +4194,7 @@
     if(PANTALLAS_DIARIAS[cual]) abrirDiaria(cual);
     else if(cual === 'tinta') abrirTinta();
     else if(cual === 'arreglos') abrirArreglos();
+    else if(cual === 'cajita') toast('Cajita: todavía no tiene archivo');
   });
 
   // ---------- pantallas del menú ----------
