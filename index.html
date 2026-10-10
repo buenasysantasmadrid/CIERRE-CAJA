@@ -462,10 +462,6 @@
   .arreglo-top span{font-variant-numeric:tabular-nums;white-space:nowrap;}
   .arreglo-sub{font-size:.86rem;margin-top:2px;}
   .arreglo-det{font-size:.88rem;margin-top:6px;}
-  .cajita-total{display:flex;justify-content:space-between;align-items:baseline;gap:10px;background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-top:14px;}
-  .cajita-total b{font-family:var(--serif);font-weight:400;font-size:1.6rem;font-variant-numeric:tabular-nums;}
-  .cajita-mas{color:var(--green);}
-  .cajita-menos{color:var(--red);}
   .tinta-card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-top:14px;}
   .tinta-card h3{font-family:var(--serif);font-weight:400;font-size:1.3rem;margin:0 0 8px;}
   .tinta-fila{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--line);}
@@ -746,19 +742,15 @@
   </div>
   <div class="screen-body">
     <div class="screen-inner">
-      <div class="cajita-total"><span>Hay en la cajita</span><b id="cajitaTotal">—</b></div>
-      <div class="menu-grupo">Nuevo movimiento</div>
-      <div class="form-grid">
-        <div class="field"><label for="cajitaTipo">Tipo</label><select id="cajitaTipo"><option value="">Elige…</option><option value="ingreso">INGRESO</option><option value="egreso">EGRESO</option></select></div>
+      <div class="form-grid" style="margin-top:14px;">
+        <div class="field span-2"><label>Tipo</label><div id="cajitaTipoBox"></div></div>
         <div class="field"><label for="cajitaFecha">Fecha</label><input type="date" id="cajitaFecha"></div>
-        <div class="field span-2"><label for="cajitaMotivo">Motivo (obligatorio)</label><input type="text" id="cajitaMotivo" placeholder="Para qué entra o sale el dinero"></div>
         <div class="field"><label for="cajitaImporte">Importe (€)</label><input type="number" inputmode="decimal" step="0.01" min="0" id="cajitaImporte" placeholder="0,00"></div>
-        <div class="field"><label for="cajitaResponsable">Responsable</label><select id="cajitaResponsable"></select></div>
+        <div class="field span-2"><label for="cajitaMotivo">Motivo (obligatorio)</label><input type="text" id="cajitaMotivo" placeholder="Para qué entra o sale el dinero"></div>
+        <div class="field span-2"><label>Responsable</label><div id="cajitaResponsableBox"></div></div>
       </div>
       <div class="scan-actions" style="margin-top:12px;"><button type="button" class="btn-primary" id="cajitaGuardar">Guardar en la cajita</button></div>
       <div id="cajitaEstado" class="menu-estado"></div>
-      <div class="menu-grupo">Últimos movimientos</div>
-      <div id="cajitaLista"></div>
     </div>
   </div>
 </div>
@@ -4568,44 +4560,26 @@
     }).finally(function(){ btn.disabled = false; });
   });
 
-  // Cajita (la caja de seguridad): arriba lo que hay ahora, un formulario
-  // para apuntar un INGRESO (entra en la cajita) o un EGRESO (sale de ella,
-  // en negativo en el archivo), y abajo los últimos movimientos. Lo que va
-  // y viene de la caja del día se anota en la caja (Ingreso o Retiro
+  // Cajita (la caja de seguridad): se apunta un INGRESO (entra en la
+  // cajita) o un EGRESO (sale de ella, en negativo en el archivo). Lo que
+  // va y viene de la caja del día se anota en la caja (Ingreso o Retiro
   // "Cajita") y el Sheet lo pasa solo al archivo.
+  var CAJITA_RESPONSABLES = ['Yamila', 'Luciana', 'Ramiro', 'Clara'];
   function abrirCajita(){
     document.getElementById('cajitaFecha').value = todayISO();
-    var sel = document.getElementById('cajitaResponsable');
-    if(!sel.options.length){
-      sel.innerHTML = '<option value="">Elige…</option>' + RESPONSABLES_CONOCIDOS.filter(function(r){ return r !== 'Otros'; })
-        .map(function(r){ return '<option>' + escapeHtml(r) + '</option>'; }).join('');
-    }
+    ['cajitaMotivo', 'cajitaImporte'].forEach(function(id){ document.getElementById(id).value = ''; });
+    var tipoBox = document.getElementById('cajitaTipoBox');
+    var respBox = document.getElementById('cajitaResponsableBox');
+    tipoBox.innerHTML = chipSelectHTML('cajitaTipo', 'cajitaTipo', ['INGRESO', 'EGRESO'], '');
+    respBox.innerHTML = chipSelectHTML('cajitaResponsable', 'cajitaResponsable', CAJITA_RESPONSABLES, '');
+    wireChipSelects(tipoBox);
+    wireChipSelects(respBox);
+    estadoMenu('cajitaEstado', '');
     abrirPantallaMenu('cajitaScreen');
-    estadoMenu('cajitaEstado', 'Cargando…', true);
-    pedirAlSheet({ accionCajitaLeer: true }).then(function(d){
-      estadoMenu('cajitaEstado', '');
-      pintarCajita(d);
-    }).catch(function(err){
-      estadoMenu('cajitaEstado', 'No se pudo abrir la planilla de la cajita. (' + err.message + ')', false, true);
-    });
-  }
-  function pintarCajita(d){
-    document.getElementById('cajitaTotal').textContent = fmt(d.total || 0);
-    var lista = d.movimientos || [];
-    document.getElementById('cajitaLista').innerHTML = lista.length ? lista.map(function(m){
-      var fecha = /^d{4}-d{2}-d{2}$/.test(m.fecha) ? fechaCorta(m.fecha) : String(m.fecha || '');
-      var importe = m.ingreso != null ? '<span class="cajita-mas">+' + fmt(m.ingreso) + '</span>'
-        : (m.egreso != null ? '<span class="cajita-menos">' + fmt(m.egreso) + '</span>' : '<span>' + fmt(m.total || 0) + '</span>');
-      return '<div class="arreglo-item">' +
-        '<div class="arreglo-top"><b>' + escapeHtml(m.motivo || '') + '</b>' + importe + '</div>' +
-        '<div class="arreglo-sub">' + escapeHtml(fecha) + (m.responsable ? ' · ' + escapeHtml(m.responsable) : '') +
-          (m.total != null ? ' · queda ' + fmt(m.total) : '') + '</div>' +
-      '</div>';
-    }).join('') : '<div class="empty-row">Todavía no hay movimientos.</div>';
   }
   document.getElementById('cajitaGuardar').addEventListener('click', function(){
     var mov = {
-      tipo: document.getElementById('cajitaTipo').value,
+      tipo: document.getElementById('cajitaTipo').value.toLowerCase(),
       fecha: document.getElementById('cajitaFecha').value,
       motivo: document.getElementById('cajitaMotivo').value.trim(),
       importe: num(document.getElementById('cajitaImporte').value),
@@ -4620,9 +4594,7 @@
     btn.disabled = true;
     estadoMenu('cajitaEstado', 'Guardando…', true);
     pedirAlSheet({ accionCajitaGuardar: true, movimiento: mov }).then(function(d){
-      estadoMenu('cajitaEstado', '');
-      ['cajitaTipo', 'cajitaMotivo', 'cajitaImporte'].forEach(function(id){ document.getElementById(id).value = ''; });
-      pintarCajita(d);
+      abrirCajita();
       toast(mov.tipo === 'ingreso' ? 'Ingreso apuntado en la cajita' : 'Egreso apuntado en la cajita');
     }).catch(function(err){
       estadoMenu('cajitaEstado', 'No se pudo guardar. (' + err.message + ')', false, true);

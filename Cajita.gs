@@ -89,7 +89,7 @@ function guardarCajita_(m) {
   escribirFilaCajita_(hoja, primera, r, {
     fecha: fecha, motivo: motivo, importe: m.tipo === 'egreso' ? -importe : importe, responsable: m.responsable
   }, '');
-  return leerCajita_();
+  return { ok: true };
 }
 
 // Movimientos "Cajita" de la caja del día, ya con el signo de la cajita:
