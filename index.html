@@ -462,6 +462,10 @@
   .arreglo-top span{font-variant-numeric:tabular-nums;white-space:nowrap;}
   .arreglo-sub{font-size:.86rem;margin-top:2px;}
   .arreglo-det{font-size:.88rem;margin-top:6px;}
+  .cajita-total{display:flex;justify-content:space-between;align-items:baseline;gap:10px;background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-top:14px;}
+  .cajita-total b{font-family:var(--serif);font-weight:400;font-size:1.6rem;font-variant-numeric:tabular-nums;}
+  .cajita-mas{color:var(--green);}
+  .cajita-menos{color:var(--red);}
   .tinta-card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-top:14px;}
   .tinta-card h3{font-family:var(--serif);font-weight:400;font-size:1.3rem;margin:0 0 8px;}
   .tinta-fila{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--line);}
@@ -725,6 +729,36 @@
       <div class="menu-grupo">Arreglos anteriores</div>
       <input type="search" id="arreglosBuscar" placeholder="Buscar: nevera, Elias, freidora…" class="arreglos-buscar">
       <div id="arreglosLista"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Cajita: la caja de seguridad (menú de tres rayas) -->
+<div class="screen" id="cajitaScreen">
+  <div class="screen-head">
+    <div class="screen-head-inner">
+      <div>
+        <div class="eyebrow">Caja de seguridad</div>
+        <h2>Cajita</h2>
+      </div>
+      <button type="button" class="x-btn" data-cerrar-menu-screen aria-label="Cerrar" data-icon="x"></button>
+    </div>
+  </div>
+  <div class="screen-body">
+    <div class="screen-inner">
+      <div class="cajita-total"><span>Hay en la cajita</span><b id="cajitaTotal">—</b></div>
+      <div class="menu-grupo">Nuevo movimiento</div>
+      <div class="form-grid">
+        <div class="field"><label for="cajitaTipo">Tipo</label><select id="cajitaTipo"><option value="">Elige…</option><option value="ingreso">INGRESO</option><option value="egreso">EGRESO</option></select></div>
+        <div class="field"><label for="cajitaFecha">Fecha</label><input type="date" id="cajitaFecha"></div>
+        <div class="field span-2"><label for="cajitaMotivo">Motivo (obligatorio)</label><input type="text" id="cajitaMotivo" placeholder="Para qué entra o sale el dinero"></div>
+        <div class="field"><label for="cajitaImporte">Importe (€)</label><input type="number" inputmode="decimal" step="0.01" min="0" id="cajitaImporte" placeholder="0,00"></div>
+        <div class="field"><label for="cajitaResponsable">Responsable</label><select id="cajitaResponsable"></select></div>
+      </div>
+      <div class="scan-actions" style="margin-top:12px;"><button type="button" class="btn-primary" id="cajitaGuardar">Guardar en la cajita</button></div>
+      <div id="cajitaEstado" class="menu-estado"></div>
+      <div class="menu-grupo">Últimos movimientos</div>
+      <div id="cajitaLista"></div>
     </div>
   </div>
 </div>
@@ -1485,8 +1519,8 @@
       if(PROVEEDORES_CON_DETALLE_LIBRE.indexOf(m.proveedor) > -1 && m.proveedorDetalle) nombre = m.proveedorDetalle;
       return nombre;
     }
-    if(m.tipo === 'ingreso') return SUBTIPO_LABEL[m.subtipo] || 'Ingreso';
-    if(m.tipo === 'egreso') return 'Retiro';
+    if(m.tipo === 'ingreso') return m.subtipo === 'cajita' ? 'De la cajita' : (SUBTIPO_LABEL[m.subtipo] || 'Ingreso');
+    if(m.tipo === 'egreso') return m.subtipo === 'cajita' ? 'Retiro a la cajita' : 'Retiro';
     if(m.tipo === 'empanadas') return m.proveedor || 'Empanadas';
     return TIPO_LABEL[m.tipo] || '';
   }
@@ -1679,6 +1713,12 @@
     {k:'empleados',l:'Empleados'},
     {k:'cajita',l:'Cajita'}
   ];
+  // Retiro: "Varios" (el de siempre, subtipo 'retiro') o "Cajita" (el dinero
+  // va a la caja de seguridad: se suma en el archivo Cajita).
+  var EGRESO_SUBTYPES = [
+    {k:'retiro',l:'Varios'},
+    {k:'cajita',l:'Cajita'}
+  ];
   var EMPANADA_PAGO_OPTS = [
     {k:'no_pago', l:'No pago'},
     {k:'pago', l:'Pago'}
@@ -1824,7 +1864,13 @@
         renderFormFields(tipo, Object.assign({}, existing, valoresActuales));
       });
     } else if(tipo === 'egreso'){
-      currentSubtipo = 'retiro';
+      currentSubtipo = existing && existing.subtipo ? existing.subtipo : null;
+      l3Label.textContent = 'Tipo de retiro';
+      renderChipRow(l3, EGRESO_SUBTYPES, currentSubtipo, function(k){
+        var valoresActuales = capturarValoresFormActuales();
+        currentSubtipo = k;
+        renderFormFields(tipo, Object.assign({}, existing, valoresActuales));
+      });
     } else if(tipo === 'empanadas'){
       currentSubtipo = 'empanadas';
       empanadaPago = existing ? (existing.pareja ? 'pago' : 'no_pago') : null;
@@ -1902,7 +1948,7 @@
       }
       html += '<div class="form-grid">' +
         responsableField(f.responsable||'') +
-        '<div class="field span-2"><label>'+(tipo === 'egreso' ? 'Info (motivo)' : 'Info')+'</label><input type="text" data-field="motivo" value="'+(f.motivo?escapeHtml(f.motivo):'')+'" placeholder="'+(tipo === 'egreso' ? 'Motivo del retiro' : 'Detalle, observación')+'"></div>' +
+        '<div class="field span-2"><label>'+(currentSubtipo === 'cajita' ? 'Motivo (obligatorio)' : (tipo === 'egreso' ? 'Info (motivo)' : 'Info'))+'</label><input type="text" data-field="motivo" value="'+(f.motivo?escapeHtml(f.motivo):'')+'" placeholder="'+(currentSubtipo === 'cajita' ? 'Para qué sale o entra el dinero de la cajita' : (tipo === 'egreso' ? 'Motivo del retiro' : 'Detalle, observación'))+'"></div>' +
       '</div>';
       html += importeBlock(f.importe);
     } else if(tipo === 'empanadas'){
@@ -2336,6 +2382,10 @@
     if(currentTipo === 'ingreso' && INGRESO_SUBTYPES.some(function(s){ return s.k === d.subtipo; })){
       var chipIng = document.querySelector('#levelThreeRow [data-k="' + d.subtipo + '"]');
       if(chipIng) chipIng.click();
+    }
+    if(currentTipo === 'egreso' && (d.subtipo === 'cajita' || d.subtipo === 'varios')){
+      var chipEgr = document.querySelector('#levelThreeRow [data-k="' + (d.subtipo === 'cajita' ? 'cajita' : 'retiro') + '"]');
+      if(chipEgr) chipEgr.click();
     }
     if(currentTipo === 'empanadas'){
       var pago = d.pagado === 'si' ? 'pago' : (d.pagado === 'no' ? 'no_pago' : null);
@@ -2825,11 +2875,14 @@
     if(!modalTurno){ toast('Error interno: no se sabe a qué turno pertenece'); return; }
     if(currentTipo === 'gasto' && !currentSubtipo){ toast('Elegí el tipo de pago (efectivo, tarjeta, etc.)'); return; }
     if(currentTipo === 'ingreso' && !currentSubtipo){ toast('Elegí el tipo de ingreso'); return; }
+    if(currentTipo === 'egreso' && !currentSubtipo){ toast('Elige Varios o Cajita'); return; }
     if(currentTipo === 'empanadas' && !empanadaPago){ toast('Elegí Pago o No pago'); return; }
     var data = collectForm();
     var importe = num(data.importe);
     if(!importe){ toast('Ingresá un importe válido'); return; }
     if(currentTipo === 'empanadas' && !(data.proveedor||'').trim()){ toast('Elige el cliente'); return; }
+    // Lo que entra o sale de la cajita siempre lleva el motivo.
+    if(currentSubtipo === 'cajita' && !(data.motivo||'').trim()){ toast('Escribe el motivo'); return; }
 
     var tipoFinal = currentTipo;
     var subtipoFinal = currentSubtipo;
@@ -4172,7 +4225,7 @@
     abrirSubmenuVarios(false); // el menú vuelve a abrirse con "Varios" cerrado
   }
   // "Varios": submenú con Cambio de tinta, Arreglo electrodomésticos y
-  // Cajita (Cajita todavía no tiene archivo).
+  // Cajita.
   function abrirSubmenuVarios(abrir){
     document.getElementById('menuVarios').classList.toggle('open', abrir);
     document.getElementById('menuVariosBtn').setAttribute('aria-expanded', abrir ? 'true' : 'false');
@@ -4195,7 +4248,7 @@
     if(PANTALLAS_DIARIAS[cual]) abrirDiaria(cual);
     else if(cual === 'tinta') abrirTinta();
     else if(cual === 'arreglos') abrirArreglos();
-    else if(cual === 'cajita') toast('Cajita: todavía no tiene archivo');
+    else if(cual === 'cajita') abrirCajita();
   });
 
   // ---------- pantallas del menú ----------
@@ -4512,6 +4565,67 @@
       toast('Arreglo apuntado');
     }).catch(function(err){
       estadoMenu('arreglosEstado', 'No se pudo guardar. (' + err.message + ')', false, true);
+    }).finally(function(){ btn.disabled = false; });
+  });
+
+  // Cajita (la caja de seguridad): arriba lo que hay ahora, un formulario
+  // para apuntar un INGRESO (entra en la cajita) o un EGRESO (sale de ella,
+  // en negativo en el archivo), y abajo los últimos movimientos. Lo que va
+  // y viene de la caja del día se anota en la caja (Ingreso o Retiro
+  // "Cajita") y el Sheet lo pasa solo al archivo.
+  function abrirCajita(){
+    document.getElementById('cajitaFecha').value = todayISO();
+    var sel = document.getElementById('cajitaResponsable');
+    if(!sel.options.length){
+      sel.innerHTML = '<option value="">Elige…</option>' + RESPONSABLES_CONOCIDOS.filter(function(r){ return r !== 'Otros'; })
+        .map(function(r){ return '<option>' + escapeHtml(r) + '</option>'; }).join('');
+    }
+    abrirPantallaMenu('cajitaScreen');
+    estadoMenu('cajitaEstado', 'Cargando…', true);
+    pedirAlSheet({ accionCajitaLeer: true }).then(function(d){
+      estadoMenu('cajitaEstado', '');
+      pintarCajita(d);
+    }).catch(function(err){
+      estadoMenu('cajitaEstado', 'No se pudo abrir la planilla de la cajita. (' + err.message + ')', false, true);
+    });
+  }
+  function pintarCajita(d){
+    document.getElementById('cajitaTotal').textContent = fmt(d.total || 0);
+    var lista = d.movimientos || [];
+    document.getElementById('cajitaLista').innerHTML = lista.length ? lista.map(function(m){
+      var fecha = /^d{4}-d{2}-d{2}$/.test(m.fecha) ? fechaCorta(m.fecha) : String(m.fecha || '');
+      var importe = m.ingreso != null ? '<span class="cajita-mas">+' + fmt(m.ingreso) + '</span>'
+        : (m.egreso != null ? '<span class="cajita-menos">' + fmt(m.egreso) + '</span>' : '<span>' + fmt(m.total || 0) + '</span>');
+      return '<div class="arreglo-item">' +
+        '<div class="arreglo-top"><b>' + escapeHtml(m.motivo || '') + '</b>' + importe + '</div>' +
+        '<div class="arreglo-sub">' + escapeHtml(fecha) + (m.responsable ? ' · ' + escapeHtml(m.responsable) : '') +
+          (m.total != null ? ' · queda ' + fmt(m.total) : '') + '</div>' +
+      '</div>';
+    }).join('') : '<div class="empty-row">Todavía no hay movimientos.</div>';
+  }
+  document.getElementById('cajitaGuardar').addEventListener('click', function(){
+    var mov = {
+      tipo: document.getElementById('cajitaTipo').value,
+      fecha: document.getElementById('cajitaFecha').value,
+      motivo: document.getElementById('cajitaMotivo').value.trim(),
+      importe: num(document.getElementById('cajitaImporte').value),
+      responsable: document.getElementById('cajitaResponsable').value
+    };
+    if(!mov.tipo){ toast('Elige INGRESO o EGRESO'); return; }
+    if(!mov.fecha){ toast('Pon la fecha'); return; }
+    if(!mov.motivo){ toast('Escribe el motivo'); return; }
+    if(!(mov.importe > 0)){ toast('Pon el importe'); return; }
+    if(!mov.responsable){ toast('Elige el responsable'); return; }
+    var btn = this;
+    btn.disabled = true;
+    estadoMenu('cajitaEstado', 'Guardando…', true);
+    pedirAlSheet({ accionCajitaGuardar: true, movimiento: mov }).then(function(d){
+      estadoMenu('cajitaEstado', '');
+      ['cajitaTipo', 'cajitaMotivo', 'cajitaImporte'].forEach(function(id){ document.getElementById(id).value = ''; });
+      pintarCajita(d);
+      toast(mov.tipo === 'ingreso' ? 'Ingreso apuntado en la cajita' : 'Egreso apuntado en la cajita');
+    }).catch(function(err){
+      estadoMenu('cajitaEstado', 'No se pudo guardar. (' + err.message + ')', false, true);
     }).finally(function(){ btn.disabled = false; });
   });
 

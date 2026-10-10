@@ -127,9 +127,10 @@ function doPost(e) {
     var contabilidad = escribirContabilidad_(data);
     var albaranes = escribirAlbaranes_(data); // ver Albaranes.gs
     var glovo = escribirGlovo_(data); // ver Glovo.gs
+    var cajita = escribirCajita_(data); // ver Cajita.gs
 
     return ContentService
-      .createTextOutput(JSON.stringify({ ok: true, actualizadoEn: ahora.toISOString(), hojaDia: hojaDia, contabilidad: contabilidad, albaranes: albaranes, glovo: glovo }))
+      .createTextOutput(JSON.stringify({ ok: true, actualizadoEn: ahora.toISOString(), hojaDia: hojaDia, contabilidad: contabilidad, albaranes: albaranes, glovo: glovo, cajita: cajita }))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
@@ -2430,6 +2431,14 @@ function borrarDiaEnTodosLados_(fecha) {
     resumen.glovo = 'error: ' + errGlovo;
   }
 
+  // Cajita: sacar los movimientos de ese día (solo los que cargó la app).
+  try {
+    var rCajita = sincronizarCajitaDelDia_(fecha, []);
+    resumen.cajita = rCajita.ok ? 'listo' : 'error: ' + rCajita.error;
+  } catch (errCajita) {
+    resumen.cajita = 'error: ' + errCajita;
+  }
+
   return resumen;
 }
 
@@ -2662,7 +2671,7 @@ function dictarMovimiento_(data) {
     'Un empleado de un restaurante dictó por voz ' + tipoTexto + '.\n' +
     'Empleados: ' + (data.responsables || []).join(', ') + '.\n' +
     'Extrae:\n' +
-    '- subtipo: solo si es un ingreso: cambio (entra cambio/sencillo para la caja), empanadas_ing (pago de empanadas), empleados (dinero que pone un empleado), cajita (dinero que entra de la cajita) o varios (cualquier otro). Si no es un ingreso, vacío.\n' +
+    '- subtipo: solo si es un ingreso: cambio (entra cambio/sencillo para la caja), empanadas_ing (pago de empanadas), empleados (dinero que pone un empleado), cajita (dinero que entra de la cajita) o varios (cualquier otro). Si es un retiro: cajita si el dinero va a la cajita (la caja de seguridad), si no varios. Si es otra cosa, vacío.\n' +
     '- pagado: solo si son empanadas: si (pagaron) o no (no pagaron, quedan debiendo). Si no se dijo o no son empanadas, vacío.\n' +
     '- cliente: solo si son empanadas: uno de ' + (data.clientesEmpanadas || []).join(', ') + ' si coincide (escríbelo igual), si no el nombre tal como se dijo.\n' +
     '- importe: importe en euros (con punto decimal, sin símbolo, ej. 45.50).\n' +
