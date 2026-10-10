@@ -496,7 +496,6 @@ function escribirHojaDelDiaExacta_(ss, data) {
   hoja.getRange('C87').setValue(nc.totalFacturado || 0); // "TOTAL CIERRE SISTEMA" (noche)
   hoja.getRange('I61').setValue(nc.tpv1 || 0);
   hoja.getRange('K61').setValue(nc.tpv2 || 0);
-  hoja.getRange('C86').setValue(nc.fondoFijo || 0);
 
   var tpv1NochePropio = Math.max(0, (nc.tpv1 || 0) - (md.tpv1 || 0));
   var tpv2NochePropio = Math.max(0, (nc.tpv2 || 0) - (md.tpv2 || 0));
@@ -514,7 +513,9 @@ function escribirHojaDelDiaExacta_(ss, data) {
   hoja.getRange('I67').setValue( // TOT TARJETA del día (si Noche no cargó un TPV, vale el de Mediodía)
     Math.max(md.tpv1 || 0, nc.tpv1 || 0) + Math.max(md.tpv2 || 0, nc.tpv2 || 0) + Math.max(md.tpv3 || 0, nc.tpv3 || 0));
 
-  escribirFilasFijas_(hoja, 63, 10, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtipo_(movsNc, 'Efectivo').map(filaGasto_));
+  // Gastos en efectivo de Noche: filas 63 a 70 (en F71 y F72 están las
+  // sumas; antes se escribían 10 filas y se borraban esas fórmulas).
+  escribirFilasFijas_(hoja, 63, 8, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtipo_(movsNc, 'Efectivo').map(filaGasto_));
   escribirFilasFijas_(hoja, 63, 6, celdas.colsEfectivoAntiguo, filtrarPorSubtipo_(movsNc, 'Efectivo antiguo').map(filaGasto_));
   escribirFilasFijas_(hoja, 75, 8, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtiposNoEfectivo_(movsNc).map(filaGasto_));
   escribirFilasFijas_(hoja, 88, 5, ['H', 'I', 'J'], filtrarPorTipo_(movsNc, 'Egreso').map(filaMotivoImporte_));
@@ -522,6 +523,72 @@ function escribirHojaDelDiaExacta_(ss, data) {
   escribirFilasFijas_(hoja, 106, 5, ['H', 'I', 'J'], filtrarPorTipo_(movsNc, 'Empanadas').map(filaEmpanada_));
   escribirDenomBilletes_(hoja, nc.denom, 71);
   escribirDenomMonedas_(hoja, nc.denom, 76);
+  escribirFormulasDiferencia_(hoja, celdas);
+}
+
+// Las fórmulas de la DIFERENCIA, para que den lo mismo que la app (y para
+// arreglar las pestañas en las que se habían roto):
+//  - Mediodía (C49): resta también el EFECTIVO ANTIGUO (F23 = F22 + su
+//    total), que sale de la caja igual que los gastos en efectivo.
+//  - Noche (C86:C91): es la cuenta del día entero, como la barra de Noche
+//    de la app (Mediodía + Noche): el fondo es el de Mediodía (C43), lo
+//    que hay en la caja es el efectivo contado de Noche + las tarjetas del
+//    día entero (I67), y se restan los gastos en efectivo de los dos turnos
+//    (F72).
+function escribirFormulasDiferencia_(hoja, celdas) {
+  var colAntiguo = celdas.colsEfectivoAntiguo[celdas.colsEfectivoAntiguo.length - 1];
+  hoja.getRange('C49').setFormula('=C47+C43-F23+J45-J34');
+  hoja.getRange('F71').setFormula('=SUM(F63:F70)');
+  hoja.getRange('F72').setFormula('=F71+' + colAntiguo + '69+F23');
+  hoja.getRange('C86').setFormula('=C43');
+  hoja.getRange('C90').setFormula('=K82+I67');
+  hoja.getRange('C91').setFormula('=C89+C86-F72+J45+J102-J34-J93');
+}
+
+// Vuelve a escribir todas las pestañas de los días de un mes con lo que
+// tiene la app (desde el menú del Índice): arregla las fórmulas de la
+// diferencia y las pestañas que quedaron a medio escribir.
+function reescribirDiasDelMesDesdeMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.prompt('Cierre de Caja: volver a escribir los días de un mes', 'Mes (formato AAAA-MM, ej. 2026-10):', ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var periodo = String(resp.getResponseText() || '').trim();
+  if (!/^\d{4}-\d{2}$/.test(periodo)) { ui.alert('Formato inválido. Tiene que ser AAAA-MM, ej. 2026-10.'); return; }
+  ui.alert('Listo', reescribirDiasDelMes(periodo).join('\n'), ui.ButtonSet.OK);
+}
+
+function reescribirDiasDelMes(periodo) {
+  var resumen = [];
+  planillasDelTipo_('CIERRE_CAJA').forEach(function (p) {
+    var ss = SpreadsheetApp.openById(p.id);
+    var registro = ss.getSheetByName('Registro');
+    if (!registro) return;
+    var valores = registro.getDataRange().getValues();
+    var idxFecha = valores[0].indexOf('Fecha');
+    if (idxFecha === -1) return;
+    var fechas = {};
+    for (var i = 1; i < valores.length; i++) {
+      var raw = valores[i][idxFecha];
+      var f = raw instanceof Date ? Utilities.formatDate(raw, Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(raw || '');
+      if (f.indexOf(periodo + '-') === 0) fechas[f] = true;
+    }
+    Object.keys(fechas).sort().forEach(function (fecha) {
+      try {
+        var dia = obtenerDiaJSON_(ss, fecha);
+        if (!dia || !dia.encontrado) return;
+        escribirHojaDelDiaExacta_(ss, {
+          fecha: fecha,
+          negocio: dia.negocio,
+          mediodia: turnoParaHojaExacta_(dia.mediodia),
+          noche: turnoParaHojaExacta_(dia.noche)
+        });
+        resumen.push(fecha + ': listo');
+      } catch (err) {
+        resumen.push(fecha + ': ERROR — ' + err);
+      }
+    });
+  });
+  return resumen.length ? resumen : ['No hay días de ' + periodo + ' en las planillas de Cierre de Caja.'];
 }
 
 function escribirFilasFijas_(hoja, startRow, maxFilas, colLetras, filas) {
@@ -2204,6 +2271,7 @@ function onOpen(e) {
     .addItem('Borrar un día completo…', 'borrarDiaCompleto')
     .addItem('Albaranes: reenviar un mes desde Cierre de Caja…', 'reenviarMesAAlbaranesDesdeMenu')
     .addItem('Cierre de Caja: pasar los días a 3 TPV…', 'pasarCierresATresTpvDesdeMenu')
+    .addItem('Cierre de Caja: volver a escribir los días de un mes…', 'reescribirDiasDelMesDesdeMenu')
     .addToUi();
 }
 
