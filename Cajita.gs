@@ -124,16 +124,22 @@ function guardarCajita_(m) {
 }
 
 // Movimientos "Cajita" de la caja del día, ya con el signo de la cajita:
-// el Ingreso sale de ella (negativo) y el Retiro entra (positivo).
+// el Ingreso sale de ella (negativo) y el Retiro entra (positivo). El
+// motivo es el del desplegable de la pantalla Cajita ("Ingreso en caja del
+// día" / "Retiro caja del día"), con lo escrito en la caja entre paréntesis.
 function movimientosCajitaDelDia_(data) {
   var lista = [];
+  var motivo = function (base, m) {
+    var extra = String(m.motivo || '').trim();
+    return extra ? base + ' (' + extra + ')' : base;
+  };
   ['mediodia', 'noche'].forEach(function (k) {
     var t = data && data[k];
     (t && t.movimientos || []).forEach(function (m) {
       if (!m || !m.id || m.subtipo !== 'cajita') return;
       var imp = Math.abs(Number(m.importe) || 0);
-      if (m.tipo === 'ingreso') lista.push({ id: m.id, importe: -imp, motivo: m.motivo, responsable: m.responsable });
-      else if (m.tipo === 'egreso') lista.push({ id: m.id, importe: imp, motivo: m.motivo, responsable: m.responsable });
+      if (m.tipo === 'ingreso') lista.push({ id: m.id, importe: -imp, motivo: motivo('Ingreso en caja del día', m), responsable: m.responsable });
+      else if (m.tipo === 'egreso') lista.push({ id: m.id, importe: imp, motivo: motivo('Retiro caja del día', m), responsable: m.responsable });
     });
   });
   return lista;
