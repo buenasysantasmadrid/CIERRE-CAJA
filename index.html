@@ -4724,6 +4724,9 @@
   }
   function mostrarCajita(d){
     document.getElementById('cajitaTotalValor').textContent = fmt(d.total);
+    // Último fallo al pasar movimientos desde la caja del día (queda hasta
+    // que un guardado salga bien).
+    if(d.ultimoError) estadoMenu('cajitaEstado', 'Falló al pasar desde la caja: ' + d.ultimoError, false, true);
     (function(){
       var lista = (d.movimientos || []).filter(function(m){ return m.ingreso != null || m.egreso != null; });
       cajitaMovimientos = lista;

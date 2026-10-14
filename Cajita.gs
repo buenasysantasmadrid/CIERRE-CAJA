@@ -144,7 +144,7 @@ function leerCajitaCompleta_() {
       total: typeof f[4] === 'number' ? f[4] : null, responsable: String(f[5] || '')
     });
   });
-  return { ok: true, total: total, movimientos: movimientos.slice(0, 30) };
+  return { ok: true, total: total, movimientos: movimientos.slice(0, 30), ultimoError: PropertiesService.getScriptProperties().getProperty('cajita_ultimo_error') || '' };
 }
 
 // Ingreso o egreso apuntado desde la pantalla Cajita. Con `m.fila` es una
@@ -258,10 +258,19 @@ function sincronizarCajitaDelDia_(fechaISO, movs) {
 }
 
 // Lo que corre en cada guardado de la app (ver doPost).
+// Si falla, el error queda guardado (con la línea del programa) y la
+// pantalla Sobrecito lo muestra hasta el próximo guardado que salga bien.
 function escribirCajita_(data) {
+  var props = PropertiesService.getScriptProperties();
   try {
-    return sincronizarCajitaDelDia_(data.fecha, movimientosCajitaDelDia_(data));
+    var r = sincronizarCajitaDelDia_(data.fecha, movimientosCajitaDelDia_(data));
+    if (!r.nada) props.deleteProperty('cajita_ultimo_error');
+    return r;
   } catch (err) {
+    var texto = String(err) + (err && err.stack ? ' | ' + String(err.stack).split(/\r?\n/).slice(0, 4).join(' / ') : '');
+    try {
+      props.setProperty('cajita_ultimo_error', Utilities.formatDate(new Date(), 'Europe/Madrid', 'dd/MM HH:mm') + ' (caja del ' + data.fecha + '): ' + texto.substring(0, 800));
+    } catch (e) {}
     return { ok: false, error: String(err) };
   }
 }
