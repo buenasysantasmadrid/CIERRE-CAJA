@@ -750,7 +750,8 @@
         <div class="field span-2"><label>Tipo</label><div id="cajitaTipoBox"></div></div>
         <div class="field"><label for="cajitaFecha">Fecha</label><input type="date" id="cajitaFecha"></div>
         <div class="field"><label for="cajitaImporte">Importe (€)</label><input type="number" inputmode="decimal" step="0.01" min="0" id="cajitaImporte" placeholder="0,00"></div>
-        <div class="field span-2"><label for="cajitaMotivo">Motivo (obligatorio)</label><input type="text" id="cajitaMotivo" placeholder="Para qué entra o sale el dinero"></div>
+        <div class="field span-2"><label for="cajitaMotivoSelect">Motivo</label><select id="cajitaMotivoSelect"><option value="">Elige primero ingreso o egreso</option></select></div>
+        <div class="field span-2" id="cajitaMotivoOtroBox" style="display:none;"><label for="cajitaMotivo">¿Cuál? (obligatorio)</label><input type="text" id="cajitaMotivo" placeholder="Para qué entra o sale el dinero"></div>
         <div class="field span-2"><label>Responsable</label><div id="cajitaResponsableBox"></div></div>
       </div>
       <div class="scan-actions" style="margin-top:12px;"><button type="button" id="cajitaCancelarEdicion" style="display:none;">Cancelar</button><button type="button" class="btn-primary" id="cajitaGuardar">Guardar en la cajita</button></div>
@@ -4644,17 +4645,51 @@
   // El formulario de arriba: vacío para apuntar uno nuevo, o con el
   // movimiento que se tocó en la lista para corregirlo (cajitaEditando).
   var cajitaEditando = null;
+  // Tipo (botones) y motivo (desplegable según el tipo). "Otros"/"Otro"
+  // pide escribir el motivo, y eso es lo que se guarda.
+  var CAJITA_TIPOS = { 'INGRESO EN CAJA DE SEGURIDAD': 'ingreso', 'EGRESO DE CAJA DE SEGURIDAD': 'egreso' };
+  var CAJITA_MOTIVOS = {
+    ingreso: ['Retiro caja del día', 'Verde Rebelde', 'Otros'],
+    egreso: ['Ingreso en caja del día', 'Nóminas', 'Ingreso en banco', 'Otro']
+  };
+  function esMotivoOtro(v){ return v === 'Otros' || v === 'Otro'; }
+  function tipoCajitaElegido(){
+    return CAJITA_TIPOS[document.getElementById('cajitaTipo').value] || '';
+  }
+  function ponerMotivosCajita(tipo, motivo){
+    var sel = document.getElementById('cajitaMotivoSelect');
+    var lista = CAJITA_MOTIVOS[tipo] || [];
+    var elegido = '', texto = '';
+    if(motivo){
+      if(lista.indexOf(motivo) > -1 && !esMotivoOtro(motivo)) elegido = motivo;
+      else { elegido = lista[lista.length - 1] || ''; texto = motivo; }
+    }
+    sel.innerHTML = lista.length
+      ? '<option value="">Elige el motivo</option>' + lista.map(function(o){ return '<option' + (o === elegido ? ' selected' : '') + '>' + escapeHtml(o) + '</option>'; }).join('')
+      : '<option value="">Elige primero ingreso o egreso</option>';
+    sel.disabled = !lista.length;
+    document.getElementById('cajitaMotivo').value = texto;
+    document.getElementById('cajitaMotivoOtroBox').style.display = esMotivoOtro(elegido) ? '' : 'none';
+  }
+  document.getElementById('cajitaMotivoSelect').addEventListener('change', function(){
+    var otro = esMotivoOtro(this.value);
+    document.getElementById('cajitaMotivoOtroBox').style.display = otro ? '' : 'none';
+    if(otro) document.getElementById('cajitaMotivo').focus();
+  });
   function llenarFormCajita(m){
     cajitaEditando = m;
     document.getElementById('cajitaFecha').value = m && /^\d{4}-\d{2}-\d{2}$/.test(m.fecha) ? m.fecha : todayISO();
-    document.getElementById('cajitaMotivo').value = m ? m.motivo : '';
     document.getElementById('cajitaImporte').value = m ? Math.abs(m.ingreso != null ? m.ingreso : m.egreso) : '';
     var tipoBox = document.getElementById('cajitaTipoBox');
     var respBox = document.getElementById('cajitaResponsableBox');
-    tipoBox.innerHTML = chipSelectHTML('cajitaTipo', 'cajitaTipo', ['INGRESO', 'EGRESO'], m ? (m.ingreso != null ? 'INGRESO' : 'EGRESO') : '');
+    var tipo = m ? (m.ingreso != null ? 'ingreso' : 'egreso') : '';
+    var etiquetas = Object.keys(CAJITA_TIPOS);
+    tipoBox.innerHTML = chipSelectHTML('cajitaTipo', 'cajitaTipo', etiquetas, etiquetas.filter(function(k){ return CAJITA_TIPOS[k] === tipo; })[0] || '');
     respBox.innerHTML = chipSelectHTML('cajitaResponsable', 'cajitaResponsable', CAJITA_RESPONSABLES, m ? m.responsable : '');
     wireChipSelects(tipoBox);
     wireChipSelects(respBox);
+    ponerMotivosCajita(tipo, m ? m.motivo : '');
+    document.getElementById('cajitaTipo').addEventListener('change', function(){ ponerMotivosCajita(tipoCajitaElegido(), ''); });
     document.getElementById('cajitaGuardar').textContent = m ? 'Guardar cambios' : 'Guardar en la cajita';
     document.getElementById('cajitaCancelarEdicion').style.display = m ? '' : 'none';
     document.querySelectorAll('#cajitaLista .cajita-item').forEach(function(el){
@@ -4697,15 +4732,18 @@
   }
   document.getElementById('cajitaGuardar').addEventListener('click', function(){
     var mov = {
-      tipo: document.getElementById('cajitaTipo').value.toLowerCase(),
+      tipo: tipoCajitaElegido(),
       fecha: document.getElementById('cajitaFecha').value,
-      motivo: document.getElementById('cajitaMotivo').value.trim(),
+      motivo: (function(){
+        var v = document.getElementById('cajitaMotivoSelect').value;
+        return esMotivoOtro(v) ? document.getElementById('cajitaMotivo').value.trim() : v;
+      })(),
       importe: num(document.getElementById('cajitaImporte').value),
       responsable: document.getElementById('cajitaResponsable').value
     };
-    if(!mov.tipo){ toast('Elige INGRESO o EGRESO'); return; }
+    if(!mov.tipo){ toast('Elige ingreso o egreso de la caja de seguridad'); return; }
     if(!mov.fecha){ toast('Pon la fecha'); return; }
-    if(!mov.motivo){ toast('Escribe el motivo'); return; }
+    if(!mov.motivo){ toast(esMotivoOtro(document.getElementById('cajitaMotivoSelect').value) ? 'Escribe el motivo' : 'Elige el motivo'); return; }
     if(!(mov.importe > 0)){ toast('Pon el importe'); return; }
     if(!mov.responsable){ toast('Elige el responsable'); return; }
     var btn = this;
