@@ -395,6 +395,7 @@ function sincronizarAlbaranesDelDiaEnAnio_(anio, fechaISO, gastos, soloSiExiste)
   // se haya cargado ningún servicio.
   try { asegurarPestanaServiciosAlbaranes_(ss); } catch (errServicios) { Logger.log('SERVICIOS: ' + errServicios); }
   try { asegurarPestanaInformeMes_(ss); } catch (errInforme) { Logger.log('INFORME MES: ' + errInforme); }
+  try { totalSinServiciosNiExtras_(ss); } catch (errTotal) { Logger.log('TOTAL sin SERVICIOS/EXTRAS: ' + errTotal); }
   var hojaIds = getOrCrearHojaIdsAlbaranes_(ss);
   var valoresIds = hojaIds.getDataRange().getValues();
 
@@ -792,6 +793,41 @@ function arreglarTotalesAlbaranes_(ss, nuevas) {
     resumen.push('TOTALES: no hubo fila libre para ' + nombre + ' — agregala a mano.');
   });
   return resumen;
+}
+
+// En TOTALES, la fila TOTAL no suma SERVICIOS ni EXTRAS: cada
+// =SUM(C3:C28) de esa fila pasa a restar lo de las filas con ese nombre en
+// la columna B (SUMIF, así da igual en qué fila estén o si se agregan
+// después). Una sola vez por planilla (marca en las propiedades).
+var ALBARANES_FUERA_DEL_TOTAL_ = ['SERVICIOS', 'EXTRAS'];
+function totalSinServiciosNiExtras_(ss) {
+  var props = PropertiesService.getScriptProperties();
+  var marca = 'totales_sin_servicios_extras_' + ss.getId();
+  if (props.getProperty(marca)) return;
+  var hoja = ss.getSheetByName('TOTALES');
+  if (!hoja) return;
+  var ultima = hoja.getLastRow();
+  var b = hoja.getRange(1, 2, ultima, 1).getValues();
+  var filaTotal = 0;
+  for (var r = 1; r <= ultima; r++) if (normalizarClave_(b[r - 1][0]) === 'TOTAL') { filaTotal = r; break; }
+  if (!filaTotal) return;
+  var ancho = hoja.getLastColumn();
+  var formulas = hoja.getRange(filaTotal, 1, 1, ancho).getFormulas()[0];
+  var cambiadas = 0;
+  formulas.forEach(function (f, i) {
+    // Solo una suma de la misma columna hacia arriba: =SUM(C3:C28).
+    var m = /^=\s*SUM\(\s*\$?([A-Z]+)\$?(\d+)\s*:\s*\$?([A-Z]+)\$?(\d+)\s*\)\s*$/i.exec(f || '');
+    if (!m || m[1].toUpperCase() !== m[3].toUpperCase() || m[2] === m[4]) return;
+    var rango = m[1] + m[2] + ':' + m[3] + m[4];
+    var nombres = '$B$' + m[2] + ':$B$' + m[4];
+    var nueva = '=SUM(' + rango + ')' + ALBARANES_FUERA_DEL_TOTAL_.map(function (n) {
+      return '-SUMIF(' + nombres + ',"' + n + '",' + rango + ')';
+    }).join('');
+    hoja.getRange(filaTotal, i + 1).setFormula(formulaLocal_(hoja, nueva));
+    cambiadas++;
+  });
+  if (cambiadas) props.setProperty(marca, '1');
+  else Logger.log('TOTALES de ' + ss.getName() + ': la fila TOTAL no tiene sumas =SUM(C3:C28); no se cambió nada');
 }
 
 function albaranesPasarAFormatoNuevo() {
