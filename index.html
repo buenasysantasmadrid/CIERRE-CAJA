@@ -5335,6 +5335,18 @@
           if(res.cajita && res.cajita.ok === false){
             logSheetStatus('La planilla del sobrecito no se pudo actualizar: ' + res.cajita.error, true);
             avisarFalloSyncUnaVez('No se pudo actualizar la planilla del sobrecito: ' + res.cajita.error);
+          } else {
+            // Si la caja tiene movimientos Sobrecito, decir qué hizo el Sheet
+            // con ellos (una vez por cada cambio en cuántos son).
+            var nSobre = 0;
+            TURNOS.forEach(function(t){ (dia[t] && dia[t].movimientos || []).forEach(function(m){ if(m.subtipo === 'cajita') nSobre++; }); });
+            var claveSobre = dia.fecha + ':' + nSobre + ':' + (res.cajita ? res.cajita.escritos : 'x');
+            if(nSobre && claveSobre !== ultimoAvisoSobrecito){
+              ultimoAvisoSobrecito = claveSobre;
+              toast(!res.cajita ? 'El Sheet no contestó nada del sobrecito' :
+                res.cajita.escritos === nSobre ? 'Anotado en el sobrecito (' + nSobre + ')' :
+                'Sobrecito: la caja tiene ' + nSobre + ' y el Sheet anotó ' + (res.cajita.escritos || 0));
+            }
           }
         } else {
           var detalleErr = res && res.error ? res.error : JSON.stringify(res);
@@ -5352,6 +5364,7 @@
   // cada 20 segundos — así, si hay muchos cambios seguidos sin conexión, no
   // se llena la pantalla de avisos repetidos.
   var ultimoAvisoFalloSync = 0;
+  var ultimoAvisoSobrecito = ""; // ver syncDraftToSheet
   function avisarFalloSyncUnaVez(msg){
     var ahora = Date.now();
     if(ahora - ultimoAvisoFalloSync < 20000) return;
