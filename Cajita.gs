@@ -83,6 +83,15 @@ function filaNuevaCajita_(hoja, cab) {
 // más viejo parte del fondo fijo, que tiene debajo).
 function rehacerTotalesCajita_(hoja) {
   var u = ubicarCajita_(hoja);
+  // El TOTAL del fondo fijo es su propio importe. Una versión anterior le
+  // escribió una fórmula que apuntaba a otras filas (y daba error): se
+  // cambia por su ingreso/egreso.
+  var fFondo = hoja.getRange(u.fondo, 5).getFormula();
+  var propia = '=N(C' + u.fondo + ')+N(D' + u.fondo + ')';
+  var otrasFilas = (fFondo.match(/\$?[A-Z]+\$?\d+/gi) || []).some(function (ref) {
+    return Number(ref.replace(/\D/g, '')) !== u.fondo;
+  });
+  if (fFondo && otrasFilas) hoja.getRange(u.fondo, 5).setFormula(propia);
   var n = u.fondo - u.cab - 1;
   if (n <= 0) return;
   hoja.getRange(u.cab + 1, 5, n, 1).setFormulaR1C1('=R[1]C+N(RC[-2])+N(RC[-1])');
@@ -117,6 +126,8 @@ function comprobarClaveCajita_(clave) {
 
 function leerCajitaCompleta_() {
   var hoja = hojaCajita_();
+  // Las fórmulas de TOTAL al día (por si se movieron filas a mano).
+  conCandadoCajita_(function () { rehacerTotalesCajita_(hoja); });
   SpreadsheetApp.flush();
   var u = ubicarCajita_(hoja);
   var movimientos = [], total = 0;
