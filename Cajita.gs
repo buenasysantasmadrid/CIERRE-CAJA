@@ -78,10 +78,12 @@ function leerCajitaCompleta_() {
   var movimientos = [], total = 0;
   if (ultima >= primera) {
     var v = hoja.getRange(primera, 1, ultima - primera + 1, CAJITA_ANCHO_).getValues();
-    v.forEach(function (f) {
+    var ids = hoja.getRange(primera, CAJITA_COL_ID_, ultima - primera + 1, 1).getValues();
+    v.forEach(function (f, i) {
       if (f[0] === '' && f[1] === '' && f[2] === '' && f[3] === '') return;
       if (typeof f[4] === 'number') total = f[4];
       movimientos.push({
+        fila: primera + i, desdeCaja: !!ids[i][0],
         fecha: textoFechaIds_(f[0]), motivo: String(f[1] || ''),
         ingreso: typeof f[2] === 'number' ? f[2] : null, egreso: typeof f[3] === 'number' ? f[3] : null,
         total: typeof f[4] === 'number' ? f[4] : null, responsable: String(f[5] || '')
@@ -91,7 +93,9 @@ function leerCajitaCompleta_() {
   return { ok: true, total: total, movimientos: movimientos.reverse().slice(0, 30) };
 }
 
-// Ingreso o egreso apuntado desde la pantalla Cajita.
+// Ingreso o egreso apuntado desde la pantalla Cajita. Con `m.fila` es una
+// corrección de esa fila: antes se comprueba que siga siendo el movimiento
+// que se tocó (`m.original`), por si las filas se movieron entretanto.
 function guardarCajita_(m) {
   var fecha = String(m.fecha || '');
   var motivo = String(m.motivo || '').trim();
@@ -103,6 +107,16 @@ function guardarCajita_(m) {
   var hoja = hojaCajita_();
   var primera = filaEncabezadosCajita_(hoja) + 1;
   var r = Math.max(hoja.getLastRow(), primera) + 1;
+  if (m.fila) {
+    r = Number(m.fila);
+    var o = m.original || {};
+    if (!(r > primera && r <= hoja.getLastRow())) throw new Error('Ese movimiento ya no está en la cajita; vuelve a abrirla');
+    var f = hoja.getRange(r, 1, 1, CAJITA_ANCHO_).getValues()[0];
+    var mismo = textoFechaIds_(f[0]) === o.fecha && String(f[1] || '') === o.motivo &&
+      (typeof f[2] === 'number' ? f[2] : null) === o.ingreso && (typeof f[3] === 'number' ? f[3] : null) === o.egreso;
+    if (!mismo) throw new Error('La cajita cambió mientras tanto; vuelve a abrirla y tócalo otra vez');
+    if (hoja.getRange(r, CAJITA_COL_ID_).getValue()) throw new Error('Este viene de la caja del día: se cambia desde esa caja');
+  }
   escribirFilaCajita_(hoja, primera, r, {
     fecha: fecha, motivo: motivo, importe: m.tipo === 'egreso' ? -importe : importe, responsable: m.responsable
   }, '');

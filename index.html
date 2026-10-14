@@ -464,6 +464,8 @@
   .arreglo-det{font-size:.88rem;margin-top:6px;}
   .cajita-mas{color:var(--green);}
   .cajita-menos{color:var(--red);}
+  .cajita-item{cursor:pointer;}
+  .cajita-item.editando{border-color:var(--green);box-shadow:0 0 0 2px var(--green) inset;}
   .tinta-card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-top:14px;}
   .tinta-card h3{font-family:var(--serif);font-weight:400;font-size:1.3rem;margin:0 0 8px;}
   .tinta-fila{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--line);}
@@ -751,7 +753,7 @@
         <div class="field span-2"><label for="cajitaMotivo">Motivo (obligatorio)</label><input type="text" id="cajitaMotivo" placeholder="Para qué entra o sale el dinero"></div>
         <div class="field span-2"><label>Responsable</label><div id="cajitaResponsableBox"></div></div>
       </div>
-      <div class="scan-actions" style="margin-top:12px;"><button type="button" class="btn-primary" id="cajitaGuardar">Guardar en la cajita</button></div>
+      <div class="scan-actions" style="margin-top:12px;"><button type="button" id="cajitaCancelarEdicion" style="display:none;">Cancelar</button><button type="button" class="btn-primary" id="cajitaGuardar">Guardar en la cajita</button></div>
       <div id="cajitaEstado" class="menu-estado"></div>
       <div class="scan-actions" style="margin-top:12px;"><button type="button" id="cajitaVerTotal">Ver total</button></div>
       <div id="cajitaTotalBox" style="display:none;margin-top:10px;">
@@ -4598,14 +4600,7 @@
   // "Cajita") y el Sheet lo pasa solo al archivo.
   var CAJITA_RESPONSABLES = ['Yamila', 'Luciana', 'Ramiro', 'Clara'];
   function abrirCajita(){
-    document.getElementById('cajitaFecha').value = todayISO();
-    ['cajitaMotivo', 'cajitaImporte'].forEach(function(id){ document.getElementById(id).value = ''; });
-    var tipoBox = document.getElementById('cajitaTipoBox');
-    var respBox = document.getElementById('cajitaResponsableBox');
-    tipoBox.innerHTML = chipSelectHTML('cajitaTipo', 'cajitaTipo', ['INGRESO', 'EGRESO'], '');
-    respBox.innerHTML = chipSelectHTML('cajitaResponsable', 'cajitaResponsable', CAJITA_RESPONSABLES, '');
-    wireChipSelects(tipoBox);
-    wireChipSelects(respBox);
+    llenarFormCajita(null);
     ocultarTotalCajita();
     abrirPantallaMenu('cajitaScreen');
     cargarCajita();
@@ -4646,18 +4641,54 @@
   document.getElementById('cajitaClave').addEventListener('keydown', function(e){
     if(e.key === 'Enter'){ e.preventDefault(); mostrarTotalCajita(); }
   });
-  // Los últimos movimientos de la cajita (el más nuevo primero), sin el total.
+  // El formulario de arriba: vacío para apuntar uno nuevo, o con el
+  // movimiento que se tocó en la lista para corregirlo (cajitaEditando).
+  var cajitaEditando = null;
+  function llenarFormCajita(m){
+    cajitaEditando = m;
+    document.getElementById('cajitaFecha').value = m && /^\d{4}-\d{2}-\d{2}$/.test(m.fecha) ? m.fecha : todayISO();
+    document.getElementById('cajitaMotivo').value = m ? m.motivo : '';
+    document.getElementById('cajitaImporte').value = m ? Math.abs(m.ingreso != null ? m.ingreso : m.egreso) : '';
+    var tipoBox = document.getElementById('cajitaTipoBox');
+    var respBox = document.getElementById('cajitaResponsableBox');
+    tipoBox.innerHTML = chipSelectHTML('cajitaTipo', 'cajitaTipo', ['INGRESO', 'EGRESO'], m ? (m.ingreso != null ? 'INGRESO' : 'EGRESO') : '');
+    respBox.innerHTML = chipSelectHTML('cajitaResponsable', 'cajitaResponsable', CAJITA_RESPONSABLES, m ? m.responsable : '');
+    wireChipSelects(tipoBox);
+    wireChipSelects(respBox);
+    document.getElementById('cajitaGuardar').textContent = m ? 'Guardar cambios' : 'Guardar en la cajita';
+    document.getElementById('cajitaCancelarEdicion').style.display = m ? '' : 'none';
+    document.querySelectorAll('#cajitaLista .cajita-item').forEach(function(el){
+      el.classList.toggle('editando', !!m && Number(el.getAttribute('data-fila')) === m.fila);
+    });
+  }
+  document.getElementById('cajitaCancelarEdicion').addEventListener('click', function(){ llenarFormCajita(null); });
+  var cajitaMovimientos = [];
+  document.getElementById('cajitaLista').addEventListener('click', function(e){
+    var item = e.target.closest('[data-fila]');
+    if(!item) return;
+    var m = cajitaMovimientos.find(function(x){ return x.fila === Number(item.getAttribute('data-fila')); });
+    if(!m) return;
+    // Los que vienen de la caja de un día se reescriben en cada guardado de
+    // esa caja: hay que cambiarlos allí, si no el cambio se perdería.
+    if(m.desdeCaja){ toast('Este viene de la caja del ' + fechaCorta(m.fecha) + ': se cambia desde esa caja'); return; }
+    llenarFormCajita(m);
+    document.getElementById('cajitaTipoBox').scrollIntoView({behavior:'smooth', block:'center'});
+  });
+
+  // Los últimos movimientos de la cajita (el más nuevo primero), sin el
+  // total. Tocando uno se edita.
   function cargarCajita(){
     estadoMenu('cajitaEstado', 'Cargando…', true);
     pedirAlSheet({ accionCajitaLeer: true }).then(function(d){
       estadoMenu('cajitaEstado', '');
       var lista = (d.movimientos || []).filter(function(m){ return m.ingreso != null || m.egreso != null; });
+      cajitaMovimientos = lista;
       document.getElementById('cajitaLista').innerHTML = lista.length ? lista.map(function(m){
         var fecha = /^\d{4}-\d{2}-\d{2}$/.test(m.fecha) ? fechaCorta(m.fecha) : String(m.fecha || '');
         var importe = m.ingreso != null ? '<span class="cajita-mas">+' + fmt(m.ingreso) + '</span>' : '<span class="cajita-menos">' + fmt(m.egreso) + '</span>';
-        return '<div class="arreglo-item">' +
+        return '<div class="arreglo-item cajita-item" data-fila="' + m.fila + '">' +
           '<div class="arreglo-top"><b>' + escapeHtml(m.motivo || '') + '</b>' + importe + '</div>' +
-          '<div class="arreglo-sub">' + escapeHtml(fecha) + (m.responsable ? ' · ' + escapeHtml(m.responsable) : '') + '</div>' +
+          '<div class="arreglo-sub">' + escapeHtml(fecha) + (m.responsable ? ' · ' + escapeHtml(m.responsable) : '') + (m.desdeCaja ? ' · desde la caja del día' : '') + '</div>' +
         '</div>';
       }).join('') : '<div class="empty-row">Todavía no hay movimientos.</div>';
     }).catch(function(err){
@@ -4680,9 +4711,12 @@
     var btn = this;
     btn.disabled = true;
     estadoMenu('cajitaEstado', 'Guardando…', true);
+    var editado = cajitaEditando;
+    if(editado){ mov.fila = editado.fila; mov.original = editado; }
     pedirAlSheet({ accionCajitaGuardar: true, movimiento: mov }).then(function(d){
-      abrirCajita();
-      toast(mov.tipo === 'ingreso' ? 'Ingreso apuntado en la cajita' : 'Egreso apuntado en la cajita');
+      llenarFormCajita(null);
+      cargarCajita();
+      toast(editado ? 'Movimiento de la cajita corregido' : (mov.tipo === 'ingreso' ? 'Ingreso apuntado en la cajita' : 'Egreso apuntado en la cajita'));
     }).catch(function(err){
       estadoMenu('cajitaEstado', 'No se pudo guardar. (' + err.message + ')', false, true);
     }).finally(function(){ btn.disabled = false; });
