@@ -746,6 +746,13 @@
   </div>
   <div class="screen-body">
     <div class="screen-inner">
+      <div id="cajitaCandado" style="margin-top:14px;">
+        <div class="field"><label for="cajitaClave">Contraseña</label><input type="password" id="cajitaClave" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+        <div class="scan-actions" style="margin-top:10px;"><button type="button" class="btn-primary" id="cajitaClaveOk">Entrar</button></div>
+        <div id="cajitaCandadoEstado" class="menu-estado"></div>
+      </div>
+      <div id="cajitaContenido" style="display:none;">
+      <div id="cajitaTotal" class="calc-total"><span>Total en la cajita</span><span id="cajitaTotalValor"></span></div>
       <div class="form-grid" style="margin-top:14px;">
         <div class="field span-2"><label>Tipo</label><div id="cajitaTipoBox"></div></div>
         <div class="field"><label for="cajitaFecha">Fecha</label><input type="date" id="cajitaFecha"></div>
@@ -756,14 +763,9 @@
       </div>
       <div class="scan-actions" style="margin-top:12px;"><button type="button" id="cajitaCancelarEdicion" style="display:none;">Cancelar</button><button type="button" class="btn-primary" id="cajitaGuardar">Guardar en la cajita</button></div>
       <div id="cajitaEstado" class="menu-estado"></div>
-      <div class="scan-actions" style="margin-top:12px;"><button type="button" id="cajitaVerTotal">Ver total</button></div>
-      <div id="cajitaTotalBox" style="display:none;margin-top:10px;">
-        <div class="field"><label for="cajitaClave">Contraseña</label><input type="password" id="cajitaClave" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
-        <div class="scan-actions" style="margin-top:8px;"><button type="button" class="btn-primary" id="cajitaClaveOk">Mostrar</button></div>
-      </div>
-      <div id="cajitaTotal" class="calc-total" style="display:none;"><span>Total en la cajita</span><span id="cajitaTotalValor"></span></div>
       <div class="menu-grupo">Últimos movimientos</div>
       <div id="cajitaLista"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -4600,47 +4602,48 @@
   // va y viene de la caja del día se anota en la caja (Ingreso o Retiro
   // "Cajita") y el Sheet lo pasa solo al archivo.
   var CAJITA_RESPONSABLES = ['Yamila', 'Luciana', 'Ramiro', 'Clara'];
+  // Para entrar en la Cajita se pide la contraseña. La comprueba el Sheet
+  // (no está en la app) en cada lectura y guardado; la app la recuerda solo
+  // mientras la pantalla está abierta. El campo es de tipo contraseña, para
+  // que no se lea al escribirla.
+  var cajitaClave = '';
   function abrirCajita(){
+    cajitaClave = '';
     llenarFormCajita(null);
-    ocultarTotalCajita();
-    abrirPantallaMenu('cajitaScreen');
-    cargarCajita();
-  }
-  // Total de la cajita: solo con contraseña. La comprueba el Sheet (no está
-  // en la app) y el campo es de tipo contraseña, para que no se lea al
-  // escribirla. Al volver a abrir la pantalla el total se oculta de nuevo.
-  function ocultarTotalCajita(){
-    document.getElementById('cajitaTotalBox').style.display = 'none';
-    document.getElementById('cajitaTotal').style.display = 'none';
+    document.getElementById('cajitaContenido').style.display = 'none';
+    document.getElementById('cajitaCandado').style.display = '';
+    document.getElementById('cajitaLista').innerHTML = '';
     document.getElementById('cajitaTotalValor').textContent = '';
-    document.getElementById('cajitaClave').value = '';
+    estadoMenu('cajitaCandadoEstado', '');
+    var claveEl = document.getElementById('cajitaClave');
+    claveEl.value = '';
+    abrirPantallaMenu('cajitaScreen');
+    setTimeout(function(){ try{ claveEl.focus(); }catch(e){} }, 50);
   }
-  document.getElementById('cajitaVerTotal').addEventListener('click', function(){
-    if(document.getElementById('cajitaTotal').style.display !== 'none'){ ocultarTotalCajita(); return; }
-    var box = document.getElementById('cajitaTotalBox');
-    box.style.display = box.style.display === 'none' ? '' : 'none';
-    if(box.style.display !== 'none') document.getElementById('cajitaClave').focus();
-  });
-  function mostrarTotalCajita(){
+  function entrarCajita(){
     var claveEl = document.getElementById('cajitaClave');
     var clave = claveEl.value;
     if(!clave){ toast('Escribe la contraseña'); return; }
     var btn = document.getElementById('cajitaClaveOk');
     btn.disabled = true;
-    pedirAlSheet({ accionCajitaTotal: true, clave: clave }).then(function(d){
+    estadoMenu('cajitaCandadoEstado', 'Comprobando…', true);
+    pedirAlSheet({ accionCajitaLeer: true, clave: clave }).then(function(d){
       claveEl.value = '';
       claveEl.blur();
-      document.getElementById('cajitaTotalBox').style.display = 'none';
-      document.getElementById('cajitaTotalValor').textContent = fmt(d.total);
-      document.getElementById('cajitaTotal').style.display = '';
+      cajitaClave = clave;
+      estadoMenu('cajitaCandadoEstado', '');
+      document.getElementById('cajitaCandado').style.display = 'none';
+      document.getElementById('cajitaContenido').style.display = '';
+      mostrarCajita(d);
     }).catch(function(err){
       claveEl.value = '';
-      toast(/contrase/i.test(err.message) ? 'Contraseña incorrecta' : 'No se pudo ver el total (' + err.message + ')');
+      if(/contrase/i.test(err.message)){ estadoMenu('cajitaCandadoEstado', ''); toast('Contraseña incorrecta'); claveEl.focus(); }
+      else estadoMenu('cajitaCandadoEstado', 'No se pudo abrir la planilla de la cajita. (' + err.message + ')', false, true);
     }).finally(function(){ btn.disabled = false; });
   }
-  document.getElementById('cajitaClaveOk').addEventListener('click', mostrarTotalCajita);
+  document.getElementById('cajitaClaveOk').addEventListener('click', entrarCajita);
   document.getElementById('cajitaClave').addEventListener('keydown', function(e){
-    if(e.key === 'Enter'){ e.preventDefault(); mostrarTotalCajita(); }
+    if(e.key === 'Enter'){ e.preventDefault(); entrarCajita(); }
   });
   // El formulario de arriba: vacío para apuntar uno nuevo, o con el
   // movimiento que se tocó en la lista para corregirlo (cajitaEditando).
@@ -4714,8 +4717,16 @@
   // total. Tocando uno se edita.
   function cargarCajita(){
     estadoMenu('cajitaEstado', 'Cargando…', true);
-    pedirAlSheet({ accionCajitaLeer: true }).then(function(d){
+    pedirAlSheet({ accionCajitaLeer: true, clave: cajitaClave }).then(function(d){
       estadoMenu('cajitaEstado', '');
+      mostrarCajita(d);
+    }).catch(function(err){
+      estadoMenu('cajitaEstado', 'No se pudo abrir la planilla de la cajita. (' + err.message + ')', false, true);
+    });
+  }
+  function mostrarCajita(d){
+    document.getElementById('cajitaTotalValor').textContent = fmt(d.total);
+    (function(){
       var lista = (d.movimientos || []).filter(function(m){ return m.ingreso != null || m.egreso != null; });
       cajitaMovimientos = lista;
       document.getElementById('cajitaLista').innerHTML = lista.length ? lista.map(function(m){
@@ -4726,9 +4737,7 @@
           '<div class="arreglo-sub">' + escapeHtml(fecha) + (m.responsable ? ' · ' + escapeHtml(m.responsable) : '') + (m.desdeCaja ? ' · desde la caja del día' : '') + '</div>' +
         '</div>';
       }).join('') : '<div class="empty-row">Todavía no hay movimientos.</div>';
-    }).catch(function(err){
-      estadoMenu('cajitaEstado', 'No se pudo abrir la planilla de la cajita. (' + err.message + ')', false, true);
-    });
+    })();
   }
   document.getElementById('cajitaGuardar').addEventListener('click', function(){
     var mov = {
@@ -4751,7 +4760,7 @@
     estadoMenu('cajitaEstado', 'Guardando…', true);
     var editado = cajitaEditando;
     if(editado){ mov.fila = editado.fila; mov.original = editado; }
-    pedirAlSheet({ accionCajitaGuardar: true, movimiento: mov }).then(function(d){
+    pedirAlSheet({ accionCajitaGuardar: true, movimiento: mov, clave: cajitaClave }).then(function(d){
       llenarFormCajita(null);
       cargarCajita();
       toast(editado ? 'Movimiento de la cajita corregido' : (mov.tipo === 'ingreso' ? 'Ingreso apuntado en la cajita' : 'Egreso apuntado en la cajita'));

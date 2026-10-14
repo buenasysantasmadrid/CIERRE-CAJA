@@ -51,23 +51,22 @@ function escribirFilaCajita_(hoja, primera, r, mov, id) {
   hoja.getRange(r, CAJITA_COL_ID_).setValue(id || '');
 }
 
-// Lo que muestra la pantalla Cajita: los últimos movimientos (el más nuevo
-// primero). El total no va: solo con contraseña (ver totalCajita_).
-function leerCajita_() {
-  var r = leerCajitaCompleta_();
-  return { ok: true, movimientos: r.movimientos };
+// Lo que muestra la pantalla Cajita: el total y los últimos movimientos
+// (el más nuevo primero). Solo con la contraseña (ver comprobarClaveCajita_).
+function leerCajita_(clave) {
+  comprobarClaveCajita_(clave);
+  return leerCajitaCompleta_();
 }
 
-// El total de la cajita, con contraseña. La contraseña está en CAJITA_CLAVE_,
-// en CajitaClave.gs: ese archivo no va al repositorio (es público), así que
-// solo existe en este ordenador y en Apps Script.
-function totalCajita_(clave) {
+// La contraseña de la Cajita está en CAJITA_CLAVE_, en CajitaClave.gs: ese
+// archivo no va al repositorio (es público), así que solo existe en este
+// ordenador y en Apps Script.
+function comprobarClaveCajita_(clave) {
   if (typeof CAJITA_CLAVE_ === 'undefined' || !CAJITA_CLAVE_) throw new Error('Falta la contraseña de la cajita en Apps Script (CajitaClave.gs)');
   if (String(clave || '') !== CAJITA_CLAVE_) {
     Utilities.sleep(1000); // para que no se puedan probar muchas seguidas
     throw new Error('Contraseña incorrecta');
   }
-  return { ok: true, total: leerCajitaCompleta_().total };
 }
 
 function leerCajitaCompleta_() {
@@ -96,7 +95,8 @@ function leerCajitaCompleta_() {
 // Ingreso o egreso apuntado desde la pantalla Cajita. Con `m.fila` es una
 // corrección de esa fila: antes se comprueba que siga siendo el movimiento
 // que se tocó (`m.original`), por si las filas se movieron entretanto.
-function guardarCajita_(m) {
+function guardarCajita_(m, clave) {
+  comprobarClaveCajita_(clave);
   var fecha = String(m.fecha || '');
   var motivo = String(m.motivo || '').trim();
   var importe = Math.abs(Number(m.importe) || 0);
