@@ -1751,6 +1751,7 @@
     renderCategoryButtons();
     renderTurnoSheet();
     document.querySelector('#modalOverlay .sheet').scrollTop = 0;
+    modalTocado = false; // ver "Tocar fuera de la hoja" más abajo
   }
   function closeModal(){
     document.getElementById('modalOverlay').classList.remove('open');
@@ -2675,13 +2676,16 @@
   var SERVICIOS_CONOCIDOS = [
     ['Carsan', ['carsan']], ['GSC', ['gsc', 'grupo de software', 'software y consulting', 'software consulting']], ['Prosegur', ['prosegur']],
     ['Logos Energía', ['logos energia', 'logos energy', 'logos']], ['Love Energy', ['love energy', 'love energia', 'love']],
-    ['Endered', ['endered']], ['O2', ['o2']], ['Pluxee', ['pluxee', 'pluxe']], ['Up', ['up']]
+    ['Endered', ['endered', 'edenred']], ['O2', ['o2']], ['Pluxee', ['pluxee', 'pluxe']], ['Up', ['up']],
+    ['AGEDI-AIE', ['agedi']],
+    // Zhjang son dos personas distintas: el detalle es el nombre completo leído.
+    [null, ['zhjang', 'zhang', 'zhiang']]
   ];
   function servicioConocido(nombre){
     var n = ' ' + normalizarNombreProveedor(nombre) + ' ';
     if(!n.trim()) return null;
     for(var i = 0; i < SERVICIOS_CONOCIDOS.length; i++){
-      if(SERVICIOS_CONOCIDOS[i][1].some(function(w){ return n.indexOf(' ' + w + ' ') > -1; })) return SERVICIOS_CONOCIDOS[i][0];
+      if(SERVICIOS_CONOCIDOS[i][1].some(function(w){ return n.indexOf(' ' + w + ' ') > -1; })) return SERVICIOS_CONOCIDOS[i][0] || String(nombre).trim();
     }
     return null;
   }
@@ -2964,8 +2968,25 @@
 
   document.getElementById('modalClose').addEventListener('click', closeModal);
   document.getElementById('modalCancel').addEventListener('click', closeModal);
-  document.getElementById('modalOverlay').addEventListener('click', function(e){
-    if(e.target === this) closeModal();
+  // Tocar fuera de la hoja no la cierra sin más: si ya se cambió algo, se
+  // pregunta. Solo cuenta si el toque empezó fuera: al seleccionar texto
+  // en un campo y soltar el dedo fuera, el navegador manda un "click" al
+  // fondo, y eso cerraba la hoja sin guardar.
+  var modalTocado = false, toqueEmpezoFuera = false;
+  var modalOverlayEl = document.getElementById('modalOverlay');
+  modalOverlayEl.addEventListener('pointerdown', function(e){ toqueEmpezoFuera = e.target === this; });
+  ['input', 'change'].forEach(function(ev){
+    modalOverlayEl.addEventListener(ev, function(){ modalTocado = true; });
+  });
+  modalOverlayEl.addEventListener('click', function(e){
+    if(e.target !== this){
+      if(e.target.closest('button') && !e.target.closest('#modalClose, #modalCancel')) modalTocado = true;
+      return;
+    }
+    if(!toqueEmpezoFuera) return;
+    toqueEmpezoFuera = false;
+    if(!modalTocado){ closeModal(); return; }
+    preguntar('¿Cerrar sin guardar? Se pierde lo que cambiaste.', 'Seguir editando', 'Cerrar sin guardar', null, closeModal);
   });
   // Empanadas pagadas: el movimiento de Empanadas (se resta del cierre) va
   // con un ingreso de Empanadas "pareja" (entra la plata), unidos por
