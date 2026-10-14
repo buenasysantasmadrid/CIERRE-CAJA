@@ -1956,7 +1956,7 @@
       }
       html += '<div class="form-grid">' +
         responsableField(f.responsable||'') +
-        '<div class="field span-2"><label>'+(currentSubtipo === 'cajita' ? 'Motivo (obligatorio)' : (tipo === 'egreso' ? 'Info (motivo)' : 'Info'))+'</label><input type="text" data-field="motivo" value="'+(f.motivo?escapeHtml(f.motivo):'')+'" placeholder="'+(currentSubtipo === 'cajita' ? 'Para qué sale o entra el dinero del sobrecito' : (tipo === 'egreso' ? 'Motivo del retiro' : 'Detalle, observación'))+'"></div>' +
+        '<div class="field span-2"><label>'+(currentSubtipo === 'cajita' ? 'Info (opcional)' : (tipo === 'egreso' ? 'Info (motivo)' : 'Info'))+'</label><input type="text" data-field="motivo" value="'+(f.motivo?escapeHtml(f.motivo):'')+'" placeholder="'+(currentSubtipo === 'cajita' ? 'Detalle, si hace falta' : (tipo === 'egreso' ? 'Motivo del retiro' : 'Detalle, observación'))+'"></div>' +
       '</div>';
       html += importeBlock(f.importe);
     } else if(tipo === 'empanadas'){
@@ -2893,8 +2893,6 @@
     var importe = num(data.importe);
     if(!importe){ toast('Ingresá un importe válido'); return; }
     if(currentTipo === 'empanadas' && !(data.proveedor||'').trim()){ toast('Elige el cliente'); return; }
-    // Lo que entra o sale de la cajita siempre lleva el motivo.
-    if(currentSubtipo === 'cajita' && !(data.motivo||'').trim()){ toast('Escribe el motivo'); return; }
 
     var tipoFinal = currentTipo;
     var subtipoFinal = currentSubtipo;
