@@ -124,10 +124,12 @@ function doPost(e) {
     // Albaranes, que tardan.
     marcarCajaCambiada_(data.fecha, ahora);
 
+    // El sobrecito primero: es rápido y así se ve enseguida en su planilla
+    // (Albaranes es lo que más tarda).
+    var cajita = escribirCajita_(data); // ver Cajita.gs
     var contabilidad = escribirContabilidad_(data);
     var albaranes = escribirAlbaranes_(data); // ver Albaranes.gs
     var glovo = escribirGlovo_(data); // ver Glovo.gs
-    var cajita = escribirCajita_(data); // ver Cajita.gs
 
     return ContentService
       .createTextOutput(JSON.stringify({ ok: true, actualizadoEn: ahora.toISOString(), hojaDia: hojaDia, contabilidad: contabilidad, albaranes: albaranes, glovo: glovo, cajita: cajita }))
