@@ -135,7 +135,9 @@ function movimientosCajitaDelDia_(data) {
   };
   ['mediodia', 'noche'].forEach(function (k) {
     var t = data && data[k];
-    (t && t.movimientos || []).forEach(function (m) {
+    // movimientosRaw: con las claves internas (tipo 'ingreso', subtipo
+    // 'cajita'); en `movimientos` vienen las etiquetas ("Ingreso", "Sobrecito").
+    (t && (t.movimientosRaw || t.movimientos) || []).forEach(function (m) {
       if (!m || !m.id || m.subtipo !== 'cajita') return;
       var imp = Math.abs(Number(m.importe) || 0);
       if (m.tipo === 'ingreso') lista.push({ id: m.id, importe: -imp, motivo: motivo('Ingreso en caja del día', m), responsable: m.responsable });
