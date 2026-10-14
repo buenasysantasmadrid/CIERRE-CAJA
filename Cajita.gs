@@ -1,13 +1,13 @@
 // ============================================================================
-// CAJITA — la caja de seguridad. Su planilla (tipo CAJITA en la pestaña
-// "Archivos" del Índice; si no está, la de CAJITA_ID_) tiene una sola
-// pestaña: fila de encabezados FECHA · MOTIVO · INGRESO · EGRESO · TOTAL ·
-// RESPONSABLE, debajo la fila del FONDO FIJO (TOTAL escrito a mano) y
-// debajo los movimientos, EL MÁS NUEVO ARRIBA: cada uno nuevo se inserta
-// justo debajo del fondo fijo. TOTAL es una fórmula que suma desde abajo:
-// el TOTAL de la fila de debajo (en la más vieja, el fondo fijo) + el
-// ingreso/egreso de esa fila; así el de la primera fila es el total de
-// ahora. Los egresos van en negativo. Las fórmulas se rehacen en cada
+// CAJITA — la caja de seguridad (en la app, "Sobrecito"). Su planilla
+// (tipo CAJITA en la pestaña "Archivos" del Índice; si no está, la de
+// CAJITA_ID_) tiene una sola pestaña: fila de encabezados FECHA · MOTIVO ·
+// INGRESO · EGRESO · TOTAL · RESPONSABLE, debajo los movimientos, EL MÁS
+// NUEVO ARRIBA (cada uno nuevo se inserta justo debajo de los
+// encabezados), y al final la fila del FONDO FIJO (MOTIVO "FONDO FIJO"),
+// que la app no toca nunca. TOTAL de cada movimiento = el TOTAL de la fila
+// de debajo + su ingreso/egreso, así que el de la primera fila es el total
+// de ahora. Los egresos van en negativo. Las fórmulas se rehacen en cada
 // escritura (ver rehacerTotalesCajita_).
 //
 // Se escribe desde dos sitios:
@@ -40,60 +40,53 @@ function filaEncabezadosCajita_(hoja) {
   return 2;
 }
 
+// Dónde está cada cosa: `cab` es la fila de los encabezados y `fondo` la
+// del FONDO FIJO (si no hay ninguna, la última). Los movimientos van entre
+// las dos: de cab + 1 a fondo − 1.
+function ubicarCajita_(hoja) {
+  var cab = filaEncabezadosCajita_(hoja);
+  var ultima = hoja.getLastRow();
+  var fondo = ultima;
+  if (ultima > cab) {
+    var b = hoja.getRange(cab + 1, 2, ultima - cab, 1).getValues();
+    for (var i = b.length - 1; i >= 0; i--) {
+      if (normalizarClave_(b[i][0]) === 'FONDO FIJO') { fondo = cab + 1 + i; break; }
+    }
+  }
+  if (fondo <= cab) fondo = cab + 1;
+  return { hoja: hoja, cab: cab, fondo: fondo };
+}
+
 // Escribe un movimiento en la fila `r` (sin el TOTAL: ver
-// rehacerTotalesCajita_). `fondo` es la fila del fondo fijo, que no se
-// escribe nunca.
-function escribirFilaCajita_(hoja, fondo, r, mov, id) {
+// rehacerTotalesCajita_).
+function escribirFilaCajita_(hoja, r, mov, id) {
   var importe = Math.round((Number(mov.importe) || 0) * 100) / 100;
   hoja.getRange(r, 1, 1, CAJITA_ANCHO_).setValues([[
     fechaComoDate_(mov.fecha), String(mov.motivo || ''),
     importe > 0 ? importe : '', importe < 0 ? importe : '', '', String(mov.responsable || '')
   ]]);
-  hoja.getRange(r, 1).setNumberFormat(hoja.getRange(fondo, 1).getNumberFormat() || 'dd/mm/yyyy');
   hoja.getRange(r, 3, 1, 3).setNumberFormat(CAJITA_FORMATO_IMPORTE_);
   hoja.getRange(r, CAJITA_COL_ID_).setValue(id || '');
 }
 
-// Fila nueva para un movimiento: arriba del todo (debajo del fondo fijo),
-// con el formato del que era el más nuevo.
-function filaNuevaCajita_(hoja, fondo) {
-  var r = fondo + 1;
-  if (hoja.getLastRow() > fondo) {
-    hoja.insertRowBefore(r);
-    hoja.getRange(r + 1, 1, 1, CAJITA_ANCHO_).copyTo(hoja.getRange(r, 1, 1, CAJITA_ANCHO_), { formatOnly: true });
-  }
+// Fila nueva para un movimiento: arriba del todo (justo debajo de los
+// encabezados), con el formato de la que tiene debajo (la del más nuevo o,
+// si no hay ninguno, la del fondo fijo).
+function filaNuevaCajita_(hoja, cab) {
+  var r = cab + 1;
+  hoja.insertRowBefore(r);
+  hoja.getRange(r + 1, 1, 1, CAJITA_ANCHO_).copyTo(hoja.getRange(r, 1, 1, CAJITA_ANCHO_), { formatOnly: true });
   return r;
 }
 
-// TOTAL de cada movimiento: el de la fila de debajo + su ingreso/egreso; el
-// más viejo (la última fila) parte del fondo fijo.
-function rehacerTotalesCajita_(hoja, fondo) {
-  var ultima = hoja.getLastRow();
-  if (ultima <= fondo) return;
-  if (ultima - 1 > fondo) hoja.getRange(fondo + 1, 5, ultima - 1 - fondo, 1).setFormulaR1C1('=R[1]C+N(RC[-2])+N(RC[-1])');
-  hoja.getRange(ultima, 5).setFormula('=$E$' + fondo + '+N(C' + ultima + ')+N(D' + ultima + ')');
-  hoja.getRange(fondo + 1, 5, ultima - fondo, 1).setNumberFormat(CAJITA_FORMATO_IMPORTE_);
-}
-
-// La planilla lista para usar: devuelve la hoja y la fila del fondo fijo.
-// Si los movimientos todavía están en el orden de antes (el más nuevo
-// abajo, TOTAL con SUM), se dan vuelta una sola vez.
-function prepararCajita_() {
-  var hoja = hojaCajita_();
-  var fondo = filaEncabezadosCajita_(hoja) + 1;
-  var ultima = hoja.getLastRow();
-  if (ultima > fondo + 1 && /SUM\(/i.test(hoja.getRange(ultima, 5).getFormula())) {
-    var n = ultima - fondo;
-    var v = hoja.getRange(fondo + 1, 1, n, CAJITA_ANCHO_).getValues().reverse();
-    var ids = hoja.getRange(fondo + 1, CAJITA_COL_ID_, n, 1).getValues().reverse();
-    v.forEach(function (f) { f[4] = ''; });
-    hoja.getRange(fondo + 1, 1, n, CAJITA_ANCHO_).setValues(v);
-    hoja.getRange(fondo + 1, CAJITA_COL_ID_, n, 1).setValues(ids);
-    hoja.getRange(fondo + 1, 1, n, 1).setNumberFormat(hoja.getRange(fondo, 1).getNumberFormat() || 'dd/mm/yyyy');
-    hoja.getRange(fondo + 1, 3, n, 3).setNumberFormat(CAJITA_FORMATO_IMPORTE_);
-    rehacerTotalesCajita_(hoja, fondo);
-  }
-  return { hoja: hoja, fondo: fondo };
+// TOTAL de cada movimiento: el de la fila de debajo + su ingreso/egreso (el
+// más viejo parte del fondo fijo, que tiene debajo).
+function rehacerTotalesCajita_(hoja) {
+  var u = ubicarCajita_(hoja);
+  var n = u.fondo - u.cab - 1;
+  if (n <= 0) return;
+  hoja.getRange(u.cab + 1, 5, n, 1).setFormulaR1C1('=R[1]C+N(RC[-2])+N(RC[-1])');
+  hoja.getRange(u.cab + 1, 5, n, 1).setNumberFormat(CAJITA_FORMATO_IMPORTE_);
 }
 
 // Las escrituras (pantalla y guardado del día) de a una, para que no se
@@ -123,27 +116,23 @@ function comprobarClaveCajita_(clave) {
 }
 
 function leerCajitaCompleta_() {
-  var c = conCandadoCajita_(prepararCajita_);
-  var hoja = c.hoja, fondo = c.fondo;
+  var hoja = hojaCajita_();
   SpreadsheetApp.flush();
-  var ultima = hoja.getLastRow();
+  var u = ubicarCajita_(hoja);
   var movimientos = [], total = 0;
-  if (ultima >= fondo) {
-    var v = hoja.getRange(fondo, 1, ultima - fondo + 1, CAJITA_ANCHO_).getValues();
-    var ids = hoja.getRange(fondo, CAJITA_COL_ID_, ultima - fondo + 1, 1).getValues();
-    if (typeof v[0][4] === 'number') total = v[0][4];
-    if (v.length > 1 && typeof v[1][4] === 'number') total = v[1][4]; // el más nuevo
-    v.forEach(function (f, i) {
-      if (i === 0) return; // el fondo fijo
-      if (f[0] === '' && f[1] === '' && f[2] === '' && f[3] === '') return;
-      movimientos.push({
-        fila: fondo + i, desdeCaja: !!ids[i][0],
-        fecha: textoFechaIds_(f[0]), motivo: String(f[1] || ''),
-        ingreso: typeof f[2] === 'number' ? f[2] : null, egreso: typeof f[3] === 'number' ? f[3] : null,
-        total: typeof f[4] === 'number' ? f[4] : null, responsable: String(f[5] || '')
-      });
+  var v = hoja.getRange(u.cab + 1, 1, u.fondo - u.cab, CAJITA_ANCHO_).getValues(); // movimientos + fondo
+  var ids = hoja.getRange(u.cab + 1, CAJITA_COL_ID_, u.fondo - u.cab, 1).getValues();
+  if (typeof v[0][4] === 'number') total = v[0][4]; // la primera fila: el más nuevo (o el fondo)
+  v.forEach(function (f, i) {
+    if (i === v.length - 1) return; // el fondo fijo
+    if (f[0] === '' && f[1] === '' && f[2] === '' && f[3] === '') return;
+    movimientos.push({
+      fila: u.cab + 1 + i, desdeCaja: !!ids[i][0],
+      fecha: textoFechaIds_(f[0]), motivo: String(f[1] || ''),
+      ingreso: typeof f[2] === 'number' ? f[2] : null, egreso: typeof f[3] === 'number' ? f[3] : null,
+      total: typeof f[4] === 'number' ? f[4] : null, responsable: String(f[5] || '')
     });
-  }
+  });
   return { ok: true, total: total, movimientos: movimientos.slice(0, 30) };
 }
 
@@ -160,24 +149,24 @@ function guardarCajita_(m, clave) {
   if (!motivo) throw new Error('Falta el motivo');
   if (!importe) throw new Error('Falta el importe');
   return conCandadoCajita_(function () {
-    var c = prepararCajita_();
-    var hoja = c.hoja, fondo = c.fondo, r;
+    var hoja = hojaCajita_();
+    var u = ubicarCajita_(hoja), r;
     if (m.fila) {
       r = Number(m.fila);
       var o = m.original || {};
-      if (!(r > fondo && r <= hoja.getLastRow())) throw new Error('Ese movimiento ya no está en el sobrecito; vuelve a abrirlo');
+      if (!(r > u.cab && r < u.fondo)) throw new Error('Ese movimiento ya no está en el sobrecito; vuelve a abrirlo');
       var f = hoja.getRange(r, 1, 1, CAJITA_ANCHO_).getValues()[0];
       var mismo = textoFechaIds_(f[0]) === o.fecha && String(f[1] || '') === o.motivo &&
         (typeof f[2] === 'number' ? f[2] : null) === o.ingreso && (typeof f[3] === 'number' ? f[3] : null) === o.egreso;
       if (!mismo) throw new Error('El sobrecito cambió mientras tanto; vuelve a abrirlo y tócalo otra vez');
       if (hoja.getRange(r, CAJITA_COL_ID_).getValue()) throw new Error('Este viene de la caja del día: se cambia desde esa caja');
     } else {
-      r = filaNuevaCajita_(hoja, fondo);
+      r = filaNuevaCajita_(hoja, u.cab);
     }
-    escribirFilaCajita_(hoja, fondo, r, {
+    escribirFilaCajita_(hoja, r, {
       fecha: fecha, motivo: motivo, importe: m.tipo === 'egreso' ? -importe : importe, responsable: m.responsable
     }, '');
-    rehacerTotalesCajita_(hoja, fondo);
+    rehacerTotalesCajita_(hoja);
     return { ok: true };
   });
 }
@@ -217,17 +206,15 @@ function sincronizarCajitaDelDia_(fechaISO, movs) {
   if (!movs.length && !props.getProperty(marca)) return { ok: true, nada: true };
 
   return conCandadoCajita_(function () {
-    var c = prepararCajita_();
-    var hoja = c.hoja, fondo = c.fondo;
+    var hoja = hojaCajita_();
     var filasDelDia = function () {
-      var filaDeId = {}, ultima = hoja.getLastRow();
-      if (ultima > fondo) {
-        var n = ultima - fondo;
-        var ids = hoja.getRange(fondo + 1, CAJITA_COL_ID_, n, 1).getValues();
-        var fechas = hoja.getRange(fondo + 1, 1, n, 1).getValues();
+      var filaDeId = {}, u = ubicarCajita_(hoja), n = u.fondo - u.cab - 1;
+      if (n > 0) {
+        var ids = hoja.getRange(u.cab + 1, CAJITA_COL_ID_, n, 1).getValues();
+        var fechas = hoja.getRange(u.cab + 1, 1, n, 1).getValues();
         for (var i = 0; i < n; i++) {
           var id = String(ids[i][0] || '');
-          if (id && textoFechaIds_(fechas[i][0]) === fechaISO) filaDeId[id] = fondo + 1 + i;
+          if (id && textoFechaIds_(fechas[i][0]) === fechaISO) filaDeId[id] = u.cab + 1 + i;
         }
       }
       return filaDeId;
@@ -246,12 +233,12 @@ function sincronizarCajitaDelDia_(fechaISO, movs) {
     // ...después se corrigen los que ya estaban y los nuevos van arriba.
     var filaDeId = filasDelDia();
     movs.forEach(function (m) {
-      if (filaDeId[m.id]) escribirFilaCajita_(hoja, fondo, filaDeId[m.id], { fecha: fechaISO, motivo: m.motivo, importe: m.importe, responsable: m.responsable }, m.id);
+      if (filaDeId[m.id]) escribirFilaCajita_(hoja, filaDeId[m.id], { fecha: fechaISO, motivo: m.motivo, importe: m.importe, responsable: m.responsable }, m.id);
     });
     movs.filter(function (m) { return !filaDeId[m.id]; }).forEach(function (m) {
-      escribirFilaCajita_(hoja, fondo, filaNuevaCajita_(hoja, fondo), { fecha: fechaISO, motivo: m.motivo, importe: m.importe, responsable: m.responsable }, m.id);
+      escribirFilaCajita_(hoja, filaNuevaCajita_(hoja, filaEncabezadosCajita_(hoja)), { fecha: fechaISO, motivo: m.motivo, importe: m.importe, responsable: m.responsable }, m.id);
     });
-    rehacerTotalesCajita_(hoja, fondo);
+    rehacerTotalesCajita_(hoja);
 
     if (movs.length && !hoja.isColumnHiddenByUser(CAJITA_COL_ID_)) hoja.hideColumns(CAJITA_COL_ID_);
     if (movs.length) props.setProperty(marca, '1'); else props.deleteProperty(marca);
