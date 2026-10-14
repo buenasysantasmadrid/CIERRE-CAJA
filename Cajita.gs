@@ -110,11 +110,11 @@ function guardarCajita_(m, clave) {
   if (m.fila) {
     r = Number(m.fila);
     var o = m.original || {};
-    if (!(r > primera && r <= hoja.getLastRow())) throw new Error('Ese movimiento ya no está en el sobrecito; vuelve a abrirla');
+    if (!(r > primera && r <= hoja.getLastRow())) throw new Error('Ese movimiento ya no está en el sobrecito; vuelve a abrirlo');
     var f = hoja.getRange(r, 1, 1, CAJITA_ANCHO_).getValues()[0];
     var mismo = textoFechaIds_(f[0]) === o.fecha && String(f[1] || '') === o.motivo &&
       (typeof f[2] === 'number' ? f[2] : null) === o.ingreso && (typeof f[3] === 'number' ? f[3] : null) === o.egreso;
-    if (!mismo) throw new Error('El sobrecito cambió mientras tanto; vuelve a abrirla y tócalo otra vez');
+    if (!mismo) throw new Error('El sobrecito cambió mientras tanto; vuelve a abrirlo y tócalo otra vez');
     if (hoja.getRange(r, CAJITA_COL_ID_).getValue()) throw new Error('Este viene de la caja del día: se cambia desde esa caja');
   }
   escribirFilaCajita_(hoja, primera, r, {
