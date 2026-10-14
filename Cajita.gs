@@ -2,10 +2,13 @@
 // CAJITA — la caja de seguridad. Su planilla (tipo CAJITA en la pestaña
 // "Archivos" del Índice; si no está, la de CAJITA_ID_) tiene una sola
 // pestaña: fila de encabezados FECHA · MOTIVO · INGRESO · EGRESO · TOTAL ·
-// RESPONSABLE, y debajo una fila por movimiento. La primera fila (FONDO
-// FIJO) trae el TOTAL escrito a mano; en las demás TOTAL es una fórmula:
-// ese fondo + todos los ingresos − todos los egresos hasta esa fila. Los
-// egresos van en negativo.
+// RESPONSABLE, debajo la fila del FONDO FIJO (TOTAL escrito a mano) y
+// debajo los movimientos, EL MÁS NUEVO ARRIBA: cada uno nuevo se inserta
+// justo debajo del fondo fijo. TOTAL es una fórmula que suma desde abajo:
+// el TOTAL de la fila de debajo (en la más vieja, el fondo fijo) + el
+// ingreso/egreso de esa fila; así el de la primera fila es el total de
+// ahora. Los egresos van en negativo. Las fórmulas se rehacen en cada
+// escritura (ver rehacerTotalesCajita_).
 //
 // Se escribe desde dos sitios:
 //  - El cierre de caja (en cada guardado del día, ver doPost): un Ingreso
@@ -37,18 +40,68 @@ function filaEncabezadosCajita_(hoja) {
   return 2;
 }
 
-// Escribe un movimiento en la fila `r` (la fila del fondo fijo es la de
-// debajo de los encabezados y no se escribe nunca).
-function escribirFilaCajita_(hoja, primera, r, mov, id) {
+// Escribe un movimiento en la fila `r` (sin el TOTAL: ver
+// rehacerTotalesCajita_). `fondo` es la fila del fondo fijo, que no se
+// escribe nunca.
+function escribirFilaCajita_(hoja, fondo, r, mov, id) {
   var importe = Math.round((Number(mov.importe) || 0) * 100) / 100;
   hoja.getRange(r, 1, 1, CAJITA_ANCHO_).setValues([[
     fechaComoDate_(mov.fecha), String(mov.motivo || ''),
     importe > 0 ? importe : '', importe < 0 ? importe : '', '', String(mov.responsable || '')
   ]]);
-  hoja.getRange(r, 1).setNumberFormat(hoja.getRange(primera, 1).getNumberFormat() || 'dd/mm/yyyy');
+  hoja.getRange(r, 1).setNumberFormat(hoja.getRange(fondo, 1).getNumberFormat() || 'dd/mm/yyyy');
   hoja.getRange(r, 3, 1, 3).setNumberFormat(CAJITA_FORMATO_IMPORTE_);
-  hoja.getRange(r, 5).setFormula('=$E$' + primera + '+SUM(C$' + (primera + 1) + ':C' + r + ')+SUM(D$' + (primera + 1) + ':D' + r + ')');
   hoja.getRange(r, CAJITA_COL_ID_).setValue(id || '');
+}
+
+// Fila nueva para un movimiento: arriba del todo (debajo del fondo fijo),
+// con el formato del que era el más nuevo.
+function filaNuevaCajita_(hoja, fondo) {
+  var r = fondo + 1;
+  if (hoja.getLastRow() > fondo) {
+    hoja.insertRowBefore(r);
+    hoja.getRange(r + 1, 1, 1, CAJITA_ANCHO_).copyTo(hoja.getRange(r, 1, 1, CAJITA_ANCHO_), { formatOnly: true });
+  }
+  return r;
+}
+
+// TOTAL de cada movimiento: el de la fila de debajo + su ingreso/egreso; el
+// más viejo (la última fila) parte del fondo fijo.
+function rehacerTotalesCajita_(hoja, fondo) {
+  var ultima = hoja.getLastRow();
+  if (ultima <= fondo) return;
+  if (ultima - 1 > fondo) hoja.getRange(fondo + 1, 5, ultima - 1 - fondo, 1).setFormulaR1C1('=R[1]C+N(RC[-2])+N(RC[-1])');
+  hoja.getRange(ultima, 5).setFormula('=$E$' + fondo + '+N(C' + ultima + ')+N(D' + ultima + ')');
+  hoja.getRange(fondo + 1, 5, ultima - fondo, 1).setNumberFormat(CAJITA_FORMATO_IMPORTE_);
+}
+
+// La planilla lista para usar: devuelve la hoja y la fila del fondo fijo.
+// Si los movimientos todavía están en el orden de antes (el más nuevo
+// abajo, TOTAL con SUM), se dan vuelta una sola vez.
+function prepararCajita_() {
+  var hoja = hojaCajita_();
+  var fondo = filaEncabezadosCajita_(hoja) + 1;
+  var ultima = hoja.getLastRow();
+  if (ultima > fondo + 1 && /SUM\(/i.test(hoja.getRange(ultima, 5).getFormula())) {
+    var n = ultima - fondo;
+    var v = hoja.getRange(fondo + 1, 1, n, CAJITA_ANCHO_).getValues().reverse();
+    var ids = hoja.getRange(fondo + 1, CAJITA_COL_ID_, n, 1).getValues().reverse();
+    v.forEach(function (f) { f[4] = ''; });
+    hoja.getRange(fondo + 1, 1, n, CAJITA_ANCHO_).setValues(v);
+    hoja.getRange(fondo + 1, CAJITA_COL_ID_, n, 1).setValues(ids);
+    hoja.getRange(fondo + 1, 1, n, 1).setNumberFormat(hoja.getRange(fondo, 1).getNumberFormat() || 'dd/mm/yyyy');
+    hoja.getRange(fondo + 1, 3, n, 3).setNumberFormat(CAJITA_FORMATO_IMPORTE_);
+    rehacerTotalesCajita_(hoja, fondo);
+  }
+  return { hoja: hoja, fondo: fondo };
+}
+
+// Las escrituras (pantalla y guardado del día) de a una, para que no se
+// pisen las filas.
+function conCandadoCajita_(fn) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try { return fn(); } finally { lock.releaseLock(); }
 }
 
 // Lo que muestra la pantalla Cajita: el total y los últimos movimientos
@@ -70,26 +123,28 @@ function comprobarClaveCajita_(clave) {
 }
 
 function leerCajitaCompleta_() {
-  var hoja = hojaCajita_();
+  var c = conCandadoCajita_(prepararCajita_);
+  var hoja = c.hoja, fondo = c.fondo;
   SpreadsheetApp.flush();
-  var primera = filaEncabezadosCajita_(hoja) + 1;
   var ultima = hoja.getLastRow();
   var movimientos = [], total = 0;
-  if (ultima >= primera) {
-    var v = hoja.getRange(primera, 1, ultima - primera + 1, CAJITA_ANCHO_).getValues();
-    var ids = hoja.getRange(primera, CAJITA_COL_ID_, ultima - primera + 1, 1).getValues();
+  if (ultima >= fondo) {
+    var v = hoja.getRange(fondo, 1, ultima - fondo + 1, CAJITA_ANCHO_).getValues();
+    var ids = hoja.getRange(fondo, CAJITA_COL_ID_, ultima - fondo + 1, 1).getValues();
+    if (typeof v[0][4] === 'number') total = v[0][4];
+    if (v.length > 1 && typeof v[1][4] === 'number') total = v[1][4]; // el más nuevo
     v.forEach(function (f, i) {
+      if (i === 0) return; // el fondo fijo
       if (f[0] === '' && f[1] === '' && f[2] === '' && f[3] === '') return;
-      if (typeof f[4] === 'number') total = f[4];
       movimientos.push({
-        fila: primera + i, desdeCaja: !!ids[i][0],
+        fila: fondo + i, desdeCaja: !!ids[i][0],
         fecha: textoFechaIds_(f[0]), motivo: String(f[1] || ''),
         ingreso: typeof f[2] === 'number' ? f[2] : null, egreso: typeof f[3] === 'number' ? f[3] : null,
         total: typeof f[4] === 'number' ? f[4] : null, responsable: String(f[5] || '')
       });
     });
   }
-  return { ok: true, total: total, movimientos: movimientos.reverse().slice(0, 30) };
+  return { ok: true, total: total, movimientos: movimientos.slice(0, 30) };
 }
 
 // Ingreso o egreso apuntado desde la pantalla Cajita. Con `m.fila` es una
@@ -104,23 +159,27 @@ function guardarCajita_(m, clave) {
   if (m.tipo !== 'ingreso' && m.tipo !== 'egreso') throw new Error('Elige INGRESO o EGRESO');
   if (!motivo) throw new Error('Falta el motivo');
   if (!importe) throw new Error('Falta el importe');
-  var hoja = hojaCajita_();
-  var primera = filaEncabezadosCajita_(hoja) + 1;
-  var r = Math.max(hoja.getLastRow(), primera) + 1;
-  if (m.fila) {
-    r = Number(m.fila);
-    var o = m.original || {};
-    if (!(r > primera && r <= hoja.getLastRow())) throw new Error('Ese movimiento ya no está en el sobrecito; vuelve a abrirlo');
-    var f = hoja.getRange(r, 1, 1, CAJITA_ANCHO_).getValues()[0];
-    var mismo = textoFechaIds_(f[0]) === o.fecha && String(f[1] || '') === o.motivo &&
-      (typeof f[2] === 'number' ? f[2] : null) === o.ingreso && (typeof f[3] === 'number' ? f[3] : null) === o.egreso;
-    if (!mismo) throw new Error('El sobrecito cambió mientras tanto; vuelve a abrirlo y tócalo otra vez');
-    if (hoja.getRange(r, CAJITA_COL_ID_).getValue()) throw new Error('Este viene de la caja del día: se cambia desde esa caja');
-  }
-  escribirFilaCajita_(hoja, primera, r, {
-    fecha: fecha, motivo: motivo, importe: m.tipo === 'egreso' ? -importe : importe, responsable: m.responsable
-  }, '');
-  return { ok: true };
+  return conCandadoCajita_(function () {
+    var c = prepararCajita_();
+    var hoja = c.hoja, fondo = c.fondo, r;
+    if (m.fila) {
+      r = Number(m.fila);
+      var o = m.original || {};
+      if (!(r > fondo && r <= hoja.getLastRow())) throw new Error('Ese movimiento ya no está en el sobrecito; vuelve a abrirlo');
+      var f = hoja.getRange(r, 1, 1, CAJITA_ANCHO_).getValues()[0];
+      var mismo = textoFechaIds_(f[0]) === o.fecha && String(f[1] || '') === o.motivo &&
+        (typeof f[2] === 'number' ? f[2] : null) === o.ingreso && (typeof f[3] === 'number' ? f[3] : null) === o.egreso;
+      if (!mismo) throw new Error('El sobrecito cambió mientras tanto; vuelve a abrirlo y tócalo otra vez');
+      if (hoja.getRange(r, CAJITA_COL_ID_).getValue()) throw new Error('Este viene de la caja del día: se cambia desde esa caja');
+    } else {
+      r = filaNuevaCajita_(hoja, fondo);
+    }
+    escribirFilaCajita_(hoja, fondo, r, {
+      fecha: fecha, motivo: motivo, importe: m.tipo === 'egreso' ? -importe : importe, responsable: m.responsable
+    }, '');
+    rehacerTotalesCajita_(hoja, fondo);
+    return { ok: true };
+  });
 }
 
 // Movimientos "Cajita" de la caja del día, ya con el signo de la cajita:
@@ -148,47 +207,56 @@ function movimientosCajitaDelDia_(data) {
 }
 
 // Deja la cajita igual a lo que tiene la app para la caja de `fechaISO`:
-// actualiza los que ya estaban, agrega los nuevos al final y borra la fila
-// de los que ya no están. `movs` vacío = borrar lo que la app había escrito
-// de ese día. Para no abrir la planilla en cada guardado, una marca por día
-// dice si la app escribió algo ese día.
+// borra la fila de los que ya no están, actualiza los que ya estaban y
+// agrega los nuevos arriba. `movs` vacío = borrar lo que la app había
+// escrito de ese día. Para no abrir la planilla en cada guardado, una marca
+// por día dice si la app escribió algo ese día.
 function sincronizarCajitaDelDia_(fechaISO, movs) {
   var props = PropertiesService.getScriptProperties();
   var marca = 'cajita_' + fechaISO;
   if (!movs.length && !props.getProperty(marca)) return { ok: true, nada: true };
 
-  var hoja = hojaCajita_();
-  var primera = filaEncabezadosCajita_(hoja) + 1;
-  var ultima = hoja.getLastRow();
-  var filaDeId = {};
-  if (ultima > primera) {
-    var n = ultima - primera;
-    var ids = hoja.getRange(primera + 1, CAJITA_COL_ID_, n, 1).getValues();
-    var fechas = hoja.getRange(primera + 1, 1, n, 1).getValues();
-    for (var i = 0; i < n; i++) {
-      var id = String(ids[i][0] || '');
-      if (id && textoFechaIds_(fechas[i][0]) === fechaISO) filaDeId[id] = primera + 1 + i;
-    }
-  }
+  return conCandadoCajita_(function () {
+    var c = prepararCajita_();
+    var hoja = c.hoja, fondo = c.fondo;
+    var filasDelDia = function () {
+      var filaDeId = {}, ultima = hoja.getLastRow();
+      if (ultima > fondo) {
+        var n = ultima - fondo;
+        var ids = hoja.getRange(fondo + 1, CAJITA_COL_ID_, n, 1).getValues();
+        var fechas = hoja.getRange(fondo + 1, 1, n, 1).getValues();
+        for (var i = 0; i < n; i++) {
+          var id = String(ids[i][0] || '');
+          if (id && textoFechaIds_(fechas[i][0]) === fechaISO) filaDeId[id] = fondo + 1 + i;
+        }
+      }
+      return filaDeId;
+    };
 
-  var actuales = {};
-  movs.forEach(function (m) {
-    actuales[m.id] = true;
-    var r = filaDeId[m.id];
-    if (!r) r = ++ultima;
-    escribirFilaCajita_(hoja, primera, r, { fecha: fechaISO, motivo: m.motivo, importe: m.importe, responsable: m.responsable }, m.id);
+    // Primero se borran los que ya no están en la app (de abajo arriba,
+    // para no mover las filas que faltan por borrar)...
+    var actuales = {};
+    movs.forEach(function (m) { actuales[m.id] = true; });
+    var antes = filasDelDia();
+    Object.keys(antes).filter(function (id) { return !actuales[id]; })
+      .map(function (id) { return antes[id]; })
+      .sort(function (a, b) { return b - a; })
+      .forEach(function (r) { hoja.deleteRow(r); });
+
+    // ...después se corrigen los que ya estaban y los nuevos van arriba.
+    var filaDeId = filasDelDia();
+    movs.forEach(function (m) {
+      if (filaDeId[m.id]) escribirFilaCajita_(hoja, fondo, filaDeId[m.id], { fecha: fechaISO, motivo: m.motivo, importe: m.importe, responsable: m.responsable }, m.id);
+    });
+    movs.filter(function (m) { return !filaDeId[m.id]; }).forEach(function (m) {
+      escribirFilaCajita_(hoja, fondo, filaNuevaCajita_(hoja, fondo), { fecha: fechaISO, motivo: m.motivo, importe: m.importe, responsable: m.responsable }, m.id);
+    });
+    rehacerTotalesCajita_(hoja, fondo);
+
+    if (movs.length && !hoja.isColumnHiddenByUser(CAJITA_COL_ID_)) hoja.hideColumns(CAJITA_COL_ID_);
+    if (movs.length) props.setProperty(marca, '1'); else props.deleteProperty(marca);
+    return { ok: true, escritos: movs.length };
   });
-
-  // Los que se borraron en la app: de abajo arriba, para no mover las filas
-  // que faltan por borrar.
-  Object.keys(filaDeId).filter(function (id) { return !actuales[id]; })
-    .map(function (id) { return filaDeId[id]; })
-    .sort(function (a, b) { return b - a; })
-    .forEach(function (r) { hoja.deleteRow(r); });
-
-  if (movs.length && !hoja.isColumnHiddenByUser(CAJITA_COL_ID_)) hoja.hideColumns(CAJITA_COL_ID_);
-  if (movs.length) props.setProperty(marca, '1'); else props.deleteProperty(marca);
-  return { ok: true, escritos: movs.length };
 }
 
 // Lo que corre en cada guardado de la app (ver doPost).
