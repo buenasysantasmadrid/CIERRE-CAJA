@@ -51,9 +51,26 @@ function escribirFilaCajita_(hoja, primera, r, mov, id) {
   hoja.getRange(r, CAJITA_COL_ID_).setValue(id || '');
 }
 
-// Lo que muestra la pantalla Cajita: el total de ahora y los últimos
-// movimientos (el más nuevo primero).
+// Lo que muestra la pantalla Cajita: los últimos movimientos (el más nuevo
+// primero). El total no va: solo con contraseña (ver totalCajita_).
 function leerCajita_() {
+  var r = leerCajitaCompleta_();
+  return { ok: true, movimientos: r.movimientos };
+}
+
+// El total de la cajita, con contraseña. La contraseña está en CAJITA_CLAVE_,
+// en CajitaClave.gs: ese archivo no va al repositorio (es público), así que
+// solo existe en este ordenador y en Apps Script.
+function totalCajita_(clave) {
+  if (typeof CAJITA_CLAVE_ === 'undefined' || !CAJITA_CLAVE_) throw new Error('Falta la contraseña de la cajita en Apps Script (CajitaClave.gs)');
+  if (String(clave || '') !== CAJITA_CLAVE_) {
+    Utilities.sleep(1000); // para que no se puedan probar muchas seguidas
+    throw new Error('Contraseña incorrecta');
+  }
+  return { ok: true, total: leerCajitaCompleta_().total };
+}
+
+function leerCajitaCompleta_() {
   var hoja = hojaCajita_();
   SpreadsheetApp.flush();
   var primera = filaEncabezadosCajita_(hoja) + 1;

@@ -753,6 +753,12 @@
       </div>
       <div class="scan-actions" style="margin-top:12px;"><button type="button" class="btn-primary" id="cajitaGuardar">Guardar en la cajita</button></div>
       <div id="cajitaEstado" class="menu-estado"></div>
+      <div class="scan-actions" style="margin-top:12px;"><button type="button" id="cajitaVerTotal">Ver total</button></div>
+      <div id="cajitaTotalBox" style="display:none;margin-top:10px;">
+        <div class="field"><label for="cajitaClave">Contraseña</label><input type="password" id="cajitaClave" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+        <div class="scan-actions" style="margin-top:8px;"><button type="button" class="btn-primary" id="cajitaClaveOk">Mostrar</button></div>
+      </div>
+      <div id="cajitaTotal" class="calc-total" style="display:none;"><span>Total en la cajita</span><span id="cajitaTotalValor"></span></div>
       <div class="menu-grupo">Últimos movimientos</div>
       <div id="cajitaLista"></div>
     </div>
@@ -4599,9 +4605,46 @@
     respBox.innerHTML = chipSelectHTML('cajitaResponsable', 'cajitaResponsable', CAJITA_RESPONSABLES, '');
     wireChipSelects(tipoBox);
     wireChipSelects(respBox);
+    ocultarTotalCajita();
     abrirPantallaMenu('cajitaScreen');
     cargarCajita();
   }
+  // Total de la cajita: solo con contraseña. La comprueba el Sheet (no está
+  // en la app) y el campo es de tipo contraseña, para que no se lea al
+  // escribirla. Al volver a abrir la pantalla el total se oculta de nuevo.
+  function ocultarTotalCajita(){
+    document.getElementById('cajitaTotalBox').style.display = 'none';
+    document.getElementById('cajitaTotal').style.display = 'none';
+    document.getElementById('cajitaTotalValor').textContent = '';
+    document.getElementById('cajitaClave').value = '';
+  }
+  document.getElementById('cajitaVerTotal').addEventListener('click', function(){
+    if(document.getElementById('cajitaTotal').style.display !== 'none'){ ocultarTotalCajita(); return; }
+    var box = document.getElementById('cajitaTotalBox');
+    box.style.display = box.style.display === 'none' ? '' : 'none';
+    if(box.style.display !== 'none') document.getElementById('cajitaClave').focus();
+  });
+  function mostrarTotalCajita(){
+    var claveEl = document.getElementById('cajitaClave');
+    var clave = claveEl.value;
+    if(!clave){ toast('Escribe la contraseña'); return; }
+    var btn = document.getElementById('cajitaClaveOk');
+    btn.disabled = true;
+    pedirAlSheet({ accionCajitaTotal: true, clave: clave }).then(function(d){
+      claveEl.value = '';
+      claveEl.blur();
+      document.getElementById('cajitaTotalBox').style.display = 'none';
+      document.getElementById('cajitaTotalValor').textContent = fmt(d.total);
+      document.getElementById('cajitaTotal').style.display = '';
+    }).catch(function(err){
+      claveEl.value = '';
+      toast(/contrase/i.test(err.message) ? 'Contraseña incorrecta' : 'No se pudo ver el total (' + err.message + ')');
+    }).finally(function(){ btn.disabled = false; });
+  }
+  document.getElementById('cajitaClaveOk').addEventListener('click', mostrarTotalCajita);
+  document.getElementById('cajitaClave').addEventListener('keydown', function(e){
+    if(e.key === 'Enter'){ e.preventDefault(); mostrarTotalCajita(); }
+  });
   // Los últimos movimientos de la cajita (el más nuevo primero), sin el total.
   function cargarCajita(){
     estadoMenu('cajitaEstado', 'Cargando…', true);

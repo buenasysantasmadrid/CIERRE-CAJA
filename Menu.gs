@@ -37,6 +37,7 @@ function accionDelMenu_(data) {
   else if (data.accionArreglosLeer) fn = function () { return leerArreglos_(); };
   else if (data.accionArreglosGuardar) fn = function () { return guardarArreglo_(data.arreglo || {}); };
   else if (data.accionCajitaLeer) fn = function () { return leerCajita_(); };
+  else if (data.accionCajitaTotal) fn = function () { return totalCajita_(data.clave); };
   else if (data.accionCajitaGuardar) fn = function () { return guardarCajita_(data.movimiento || {}); };
   else if (data.accionDictarMenu) fn = function () { return dictarMenu_(data); };
   if (!fn) return null;
