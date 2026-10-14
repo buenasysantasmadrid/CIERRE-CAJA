@@ -1450,7 +1450,7 @@ var SUBTIPO_LABEL_MAP_ = {
   efectivo: 'Efectivo', no_efectivo: 'No efectivo', efectivo_antiguo: 'Efectivo antiguo',
   tarjeta: 'Tarjeta', no_pagado: 'No pagado', transferencia: 'Transferencia',
   cambio: 'Cambio', ingreso_arroba: 'Ingreso @', empanadas_ing: 'Empanadas', empleados: 'Empleados',
-  varios: 'Varios', cajita: 'Cajita', retiro: 'Retiro de dinero', empanadas: 'Empanadas'
+  varios: 'Varios', cajita: 'Sobrecito', retiro: 'Retiro de dinero', empanadas: 'Empanadas'
 };
 function turnoParaHojaExacta_(turno) {
   if (!turno) return null;
@@ -2782,7 +2782,7 @@ function dictarMovimiento_(data) {
     'Un empleado de un restaurante dictó por voz ' + tipoTexto + '.\n' +
     'Empleados: ' + (data.responsables || []).join(', ') + '.\n' +
     'Extrae:\n' +
-    '- subtipo: solo si es un ingreso: cambio (entra cambio/sencillo para la caja), empanadas_ing (pago de empanadas), empleados (dinero que pone un empleado), cajita (dinero que entra de la cajita) o varios (cualquier otro). Si es un retiro: cajita si el dinero va a la cajita (la caja de seguridad), si no varios. Si es otra cosa, vacío.\n' +
+    '- subtipo: solo si es un ingreso: cambio (entra cambio/sencillo para la caja), empanadas_ing (pago de empanadas), empleados (dinero que pone un empleado), cajita (dinero que entra del sobrecito, también llamado cajita) o varios (cualquier otro). Si es un retiro: cajita si el dinero va al sobrecito (o cajita, la caja de seguridad), si no varios. Si es otra cosa, vacío.\n' +
     '- pagado: solo si son empanadas: si (pagaron) o no (no pagaron, quedan debiendo). Si no se dijo o no son empanadas, vacío.\n' +
     '- cliente: solo si son empanadas: uno de ' + (data.clientesEmpanadas || []).join(', ') + ' si coincide (escríbelo igual), si no el nombre tal como se dijo.\n' +
     '- importe: importe en euros (con punto decimal, sin símbolo, ej. 45.50).\n' +

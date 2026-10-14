@@ -62,7 +62,7 @@ function leerCajita_(clave) {
 // archivo no va al repositorio (es público), así que solo existe en este
 // ordenador y en Apps Script.
 function comprobarClaveCajita_(clave) {
-  if (typeof CAJITA_CLAVE_ === 'undefined' || !CAJITA_CLAVE_) throw new Error('Falta la contraseña de la cajita en Apps Script (CajitaClave.gs)');
+  if (typeof CAJITA_CLAVE_ === 'undefined' || !CAJITA_CLAVE_) throw new Error('Falta la contraseña del sobrecito en Apps Script (CajitaClave.gs)');
   if (String(clave || '') !== CAJITA_CLAVE_) {
     Utilities.sleep(1000); // para que no se puedan probar muchas seguidas
     throw new Error('Contraseña incorrecta');
@@ -110,11 +110,11 @@ function guardarCajita_(m, clave) {
   if (m.fila) {
     r = Number(m.fila);
     var o = m.original || {};
-    if (!(r > primera && r <= hoja.getLastRow())) throw new Error('Ese movimiento ya no está en la cajita; vuelve a abrirla');
+    if (!(r > primera && r <= hoja.getLastRow())) throw new Error('Ese movimiento ya no está en el sobrecito; vuelve a abrirla');
     var f = hoja.getRange(r, 1, 1, CAJITA_ANCHO_).getValues()[0];
     var mismo = textoFechaIds_(f[0]) === o.fecha && String(f[1] || '') === o.motivo &&
       (typeof f[2] === 'number' ? f[2] : null) === o.ingreso && (typeof f[3] === 'number' ? f[3] : null) === o.egreso;
-    if (!mismo) throw new Error('La cajita cambió mientras tanto; vuelve a abrirla y tócalo otra vez');
+    if (!mismo) throw new Error('El sobrecito cambió mientras tanto; vuelve a abrirla y tócalo otra vez');
     if (hoja.getRange(r, CAJITA_COL_ID_).getValue()) throw new Error('Este viene de la caja del día: se cambia desde esa caja');
   }
   escribirFilaCajita_(hoja, primera, r, {

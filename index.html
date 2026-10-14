@@ -542,7 +542,7 @@
         <div class="menu-sub" id="menuVarios">
           <button type="button" data-menu-archivo="tinta" class="menu-con-ico"><span data-icon="impresora"></span>Cambio de tinta</button>
           <button type="button" data-menu-archivo="arreglos" class="menu-con-ico"><span data-icon="nevera"></span>Arreglo electrodomésticos</button>
-          <button type="button" data-menu-archivo="cajita" class="menu-con-ico"><span data-icon="cajita"></span>Cajita</button>
+          <button type="button" data-menu-archivo="cajita" class="menu-con-ico"><span data-icon="cajita"></span>Sobrecito</button>
         </div>
       </nav>
     </div>
@@ -739,7 +739,7 @@
     <div class="screen-head-inner">
       <div>
         <div class="eyebrow">Caja de seguridad</div>
-        <h2>Cajita</h2>
+        <h2>Sobrecito</h2>
       </div>
       <button type="button" class="x-btn" data-cerrar-menu-screen aria-label="Cerrar" data-icon="x"></button>
     </div>
@@ -752,7 +752,7 @@
         <div id="cajitaCandadoEstado" class="menu-estado"></div>
       </div>
       <div id="cajitaContenido" style="display:none;">
-      <div id="cajitaTotal" class="calc-total"><span>Total en la cajita</span><span id="cajitaTotalValor"></span></div>
+      <div id="cajitaTotal" class="calc-total"><span>Total en el sobrecito</span><span id="cajitaTotalValor"></span></div>
       <div class="form-grid" style="margin-top:14px;">
         <div class="field span-2"><label>Tipo</label><div id="cajitaTipoBox"></div></div>
         <div class="field"><label for="cajitaFecha">Fecha</label><input type="date" id="cajitaFecha"></div>
@@ -761,7 +761,7 @@
         <div class="field span-2" id="cajitaMotivoOtroBox" style="display:none;"><label for="cajitaMotivo">¿Cuál? (obligatorio)</label><input type="text" id="cajitaMotivo" placeholder="Para qué entra o sale el dinero"></div>
         <div class="field span-2"><label>Responsable</label><div id="cajitaResponsableBox"></div></div>
       </div>
-      <div class="scan-actions" style="margin-top:12px;"><button type="button" id="cajitaCancelarEdicion" style="display:none;">Cancelar</button><button type="button" class="btn-primary" id="cajitaGuardar">Guardar en la cajita</button></div>
+      <div class="scan-actions" style="margin-top:12px;"><button type="button" id="cajitaCancelarEdicion" style="display:none;">Cancelar</button><button type="button" class="btn-primary" id="cajitaGuardar">Guardar en el sobrecito</button></div>
       <div id="cajitaEstado" class="menu-estado"></div>
       <div class="menu-grupo">Últimos movimientos</div>
       <div id="cajitaLista"></div>
@@ -1485,7 +1485,7 @@
     efectivo:'Efectivo', no_efectivo:'No efectivo', efectivo_antiguo:'Efectivo antiguo',
     tarjeta:'Tarjeta', no_pagado:'No pagado', transferencia:'Transferencia',
     cambio:'Cambio', ingreso_arroba:'Ingreso @', empanadas_ing:'Empanadas', empleados:'Empleados',
-    varios:'Varios', cajita:'Cajita', retiro:'Retiro de dinero', empanadas:'Empanadas'
+    varios:'Varios', cajita:'Sobrecito', retiro:'Retiro de dinero', empanadas:'Empanadas'
   };
 
   // ---------- movimientos del día (los dos turnos juntos) ----------
@@ -1526,8 +1526,8 @@
       if(PROVEEDORES_CON_DETALLE_LIBRE.indexOf(m.proveedor) > -1 && m.proveedorDetalle) nombre = m.proveedorDetalle;
       return nombre;
     }
-    if(m.tipo === 'ingreso') return m.subtipo === 'cajita' ? 'De la cajita' : (SUBTIPO_LABEL[m.subtipo] || 'Ingreso');
-    if(m.tipo === 'egreso') return m.subtipo === 'cajita' ? 'Retiro a la cajita' : 'Retiro';
+    if(m.tipo === 'ingreso') return m.subtipo === 'cajita' ? 'Del sobrecito' : (SUBTIPO_LABEL[m.subtipo] || 'Ingreso');
+    if(m.tipo === 'egreso') return m.subtipo === 'cajita' ? 'Retiro al sobrecito' : 'Retiro';
     if(m.tipo === 'empanadas') return m.proveedor || 'Empanadas';
     return TIPO_LABEL[m.tipo] || '';
   }
@@ -1718,13 +1718,13 @@
     {k:'varios',l:'Varios'},
     {k:'empanadas_ing',l:'Empanadas'},
     {k:'empleados',l:'Empleados'},
-    {k:'cajita',l:'Cajita'}
+    {k:'cajita',l:'Sobrecito'}
   ];
   // Retiro: "Varios" (el de siempre, subtipo 'retiro') o "Cajita" (el dinero
   // va a la caja de seguridad: se suma en el archivo Cajita).
   var EGRESO_SUBTYPES = [
     {k:'retiro',l:'Varios'},
-    {k:'cajita',l:'Cajita'}
+    {k:'cajita',l:'Sobrecito'}
   ];
   var EMPANADA_PAGO_OPTS = [
     {k:'no_pago', l:'No pago'},
@@ -1956,7 +1956,7 @@
       }
       html += '<div class="form-grid">' +
         responsableField(f.responsable||'') +
-        '<div class="field span-2"><label>'+(currentSubtipo === 'cajita' ? 'Motivo (obligatorio)' : (tipo === 'egreso' ? 'Info (motivo)' : 'Info'))+'</label><input type="text" data-field="motivo" value="'+(f.motivo?escapeHtml(f.motivo):'')+'" placeholder="'+(currentSubtipo === 'cajita' ? 'Para qué sale o entra el dinero de la cajita' : (tipo === 'egreso' ? 'Motivo del retiro' : 'Detalle, observación'))+'"></div>' +
+        '<div class="field span-2"><label>'+(currentSubtipo === 'cajita' ? 'Motivo (obligatorio)' : (tipo === 'egreso' ? 'Info (motivo)' : 'Info'))+'</label><input type="text" data-field="motivo" value="'+(f.motivo?escapeHtml(f.motivo):'')+'" placeholder="'+(currentSubtipo === 'cajita' ? 'Para qué sale o entra el dinero del sobrecito' : (tipo === 'egreso' ? 'Motivo del retiro' : 'Detalle, observación'))+'"></div>' +
       '</div>';
       html += importeBlock(f.importe);
     } else if(tipo === 'empanadas'){
@@ -2061,7 +2061,7 @@
   }
 
   // ---------- Calculadora de cambio (Ingreso → Cambio) ----------
-  var CAMBIO_BILLETES = [50,20,10,5];
+  var CAMBIO_BILLETES = [20,10,5];
   var CAMBIO_MONEDAS = [2,1,0.5,0.2,0.1];
 
   function cambioCalculatorHTML(){
@@ -2887,7 +2887,7 @@
     if(!modalTurno){ toast('Error interno: no se sabe a qué turno pertenece'); return; }
     if(currentTipo === 'gasto' && !currentSubtipo){ toast('Elegí el tipo de pago (efectivo, tarjeta, etc.)'); return; }
     if(currentTipo === 'ingreso' && !currentSubtipo){ toast('Elegí el tipo de ingreso'); return; }
-    if(currentTipo === 'egreso' && !currentSubtipo){ toast('Elige Varios o Cajita'); return; }
+    if(currentTipo === 'egreso' && !currentSubtipo){ toast('Elige Varios o Sobrecito'); return; }
     if(currentTipo === 'empanadas' && !empanadaPago){ toast('Elegí Pago o No pago'); return; }
     var data = collectForm();
     var importe = num(data.importe);
@@ -4638,7 +4638,7 @@
     }).catch(function(err){
       claveEl.value = '';
       if(/contrase/i.test(err.message)){ estadoMenu('cajitaCandadoEstado', ''); toast('Contraseña incorrecta'); claveEl.focus(); }
-      else estadoMenu('cajitaCandadoEstado', 'No se pudo abrir la planilla de la cajita. (' + err.message + ')', false, true);
+      else estadoMenu('cajitaCandadoEstado', 'No se pudo abrir la planilla del sobrecito. (' + err.message + ')', false, true);
     }).finally(function(){ btn.disabled = false; });
   }
   document.getElementById('cajitaClaveOk').addEventListener('click', entrarCajita);
@@ -4693,7 +4693,7 @@
     wireChipSelects(respBox);
     ponerMotivosCajita(tipo, m ? m.motivo : '');
     document.getElementById('cajitaTipo').addEventListener('change', function(){ ponerMotivosCajita(tipoCajitaElegido(), ''); });
-    document.getElementById('cajitaGuardar').textContent = m ? 'Guardar cambios' : 'Guardar en la cajita';
+    document.getElementById('cajitaGuardar').textContent = m ? 'Guardar cambios' : 'Guardar en el sobrecito';
     document.getElementById('cajitaCancelarEdicion').style.display = m ? '' : 'none';
     document.querySelectorAll('#cajitaLista .cajita-item').forEach(function(el){
       el.classList.toggle('editando', !!m && Number(el.getAttribute('data-fila')) === m.fila);
@@ -4721,7 +4721,7 @@
       estadoMenu('cajitaEstado', '');
       mostrarCajita(d);
     }).catch(function(err){
-      estadoMenu('cajitaEstado', 'No se pudo abrir la planilla de la cajita. (' + err.message + ')', false, true);
+      estadoMenu('cajitaEstado', 'No se pudo abrir la planilla del sobrecito. (' + err.message + ')', false, true);
     });
   }
   function mostrarCajita(d){
@@ -4763,7 +4763,7 @@
     pedirAlSheet({ accionCajitaGuardar: true, movimiento: mov, clave: cajitaClave }).then(function(d){
       llenarFormCajita(null);
       cargarCajita();
-      toast(editado ? 'Movimiento de la cajita corregido' : (mov.tipo === 'ingreso' ? 'Ingreso apuntado en la cajita' : 'Egreso apuntado en la cajita'));
+      toast(editado ? 'Movimiento del sobrecito corregido' : (mov.tipo === 'ingreso' ? 'Ingreso apuntado en el sobrecito' : 'Egreso apuntado en el sobrecito'));
     }).catch(function(err){
       estadoMenu('cajitaEstado', 'No se pudo guardar. (' + err.message + ')', false, true);
     }).finally(function(){ btn.disabled = false; });
@@ -5333,6 +5333,10 @@
           if(res.albaranes && res.albaranes.ok === false){
             logSheetStatus('La planilla de Albaranes no se pudo actualizar: ' + res.albaranes.error, true);
             avisarFalloSyncUnaVez('No se pudo actualizar la planilla de Albaranes: ' + res.albaranes.error);
+          }
+          if(res.cajita && res.cajita.ok === false){
+            logSheetStatus('La planilla del sobrecito no se pudo actualizar: ' + res.cajita.error, true);
+            avisarFalloSyncUnaVez('No se pudo actualizar la planilla del sobrecito: ' + res.cajita.error);
           }
         } else {
           var detalleErr = res && res.error ? res.error : JSON.stringify(res);
