@@ -1062,10 +1062,12 @@
   // El día de la caja cambia a las 4 de la mañana, no a medianoche: así,
   // si se está cerrando la caja de Noche pasadas las 12, sigue siendo "hoy"
   // la caja de ese día y no aparece el cartel de "no es la caja de hoy".
-  var HORA_CAMBIO_DE_DIA = 4;
+  // (Es una función y no una variable porque todayISO se usa al cargar la
+  // página antes de llegar a esta línea.)
+  function HORA_CAMBIO_DE_DIA(){ return 4; }
   function todayISO(){
     var d = new Date();
-    d.setHours(d.getHours() - HORA_CAMBIO_DE_DIA);
+    d.setHours(d.getHours() - HORA_CAMBIO_DE_DIA());
     var tz = d.getTimezoneOffset()*60000;
     return new Date(d - tz).toISOString().slice(0,10);
   }
@@ -1741,7 +1743,7 @@
   // Se puede cambiar a mano en la hoja.
   function turnoPorHora(){
     var d = new Date();
-    if(d.getHours() < HORA_CAMBIO_DE_DIA) return 'noche';
+    if(d.getHours() < HORA_CAMBIO_DE_DIA()) return 'noche';
     return (d.getHours()*60 + d.getMinutes()) < (18*60 + 30) ? 'mediodia' : 'noche';
   }
 
