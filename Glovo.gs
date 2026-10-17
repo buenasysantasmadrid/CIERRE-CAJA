@@ -165,17 +165,55 @@ var ESQUEMA_TICKET_GLOVO = {
 };
 
 var INSTRUCCIONES_TICKET_GLOVO =
-  'Esta es la foto de uno o varios tickets de pedidos de Glovo impresos en un restaurante. ' +
-  'Por cada ticket que se vea, extrae:\n' +
-  '- pedido: el número o código del pedido de Glovo, tal como aparece (sin el "#").\n' +
-  '- importe: el total del pedido.\n' +
-  'Los importes con punto como separador decimal y sin símbolo de euro (ejemplo: 24.30). ' +
-  'Si un dato no se lee con seguridad, déjalo vacío ("") en vez de inventarlo.';
+  'Esta es la foto de uno o varios tickets de pedidos de Glovo impresos en un restaurante ' +
+  '(tiras de papel térmico, pueden estar torcidas, arrugadas, de lado o una al lado de la otra). ' +
+  'Revisa toda la foto y devuelve UN elemento por cada ticket que se vea, en orden de izquierda a ' +
+  'derecha y de arriba abajo. Cada ticket es así:\n' +
+  '- Arriba del todo, en la primera línea: "glovo #359". El número que va después del "#" es el ' +
+  'número de pedido (en este ejemplo, 359). Suele tener 2 a 4 cifras.\n' +
+  '- Debajo vienen el nombre del restaurante, la fecha y hora, y un número largo de unas 12 cifras ' +
+  '(ej. 101805097658): ese número largo NO es el pedido, no lo uses. Tampoco el PIN ni la hora de recogida.\n' +
+  '- Abajo del todo, a la derecha de la palabra "Total", está el importe total (ej. "Total 37,80 €"). ' +
+  'Usa siempre la línea "Total", no "Subtotal" ni los precios de cada plato.\n\n' +
+  'Por cada ticket devuelve:\n' +
+  '- pedido: solo las cifras que van después del "#" (sin el "#").\n' +
+  '- importe: el Total, con punto como separador decimal y sin símbolo de euro (ejemplo: 37.80).\n' +
+  'Si de un ticket se ve solo una parte (ej. está cortado por el borde de la foto o tapado), ' +
+  'devuélvelo igual con el dato que no se lee vacío (""). No inventes ni adivines cifras.';
 
+// Deja el pedido solo con lo que va después del "#" y el importe con
+// punto decimal. El número largo del ticket (unas 12 cifras) no es el
+// pedido: si la IA lo trae por error, se deja vacío para escribirlo a mano.
+function limpiarTicketGlovo_(t) {
+  var pedido = String(t.pedido || '').replace(/^.*#/, '').replace(/\s+/g, '');
+  if (/^\d{7,}$/.test(pedido)) pedido = '';
+  var importe = String(t.importe || '').replace(/[^\d,.]/g, '');
+  if (importe.indexOf(',') > -1) importe = importe.replace(/\./g, '').replace(',', '.');
+  if (!(Number(importe) > 0)) importe = '';
+  return { pedido: pedido, importe: importe };
+}
+
+// Primero se lee rápido; si no aparece ningún ticket o alguno queda sin
+// pedido o sin total, se vuelve a leer con más cuidado y se queda la
+// lectura más completa.
 function escanearTicketGlovo_(data) {
   if (!data.imageBase64) return { ok: false, error: 'No llegó la foto' };
-  return pedirJsonAClaude_([
+  var contenido = [
     { type: 'image', source: { type: 'base64', media_type: data.mediaType || 'image/jpeg', data: data.imageBase64 } },
     { type: 'text', text: INSTRUCCIONES_TICKET_GLOVO }
-  ], ESQUEMA_TICKET_GLOVO);
+  ];
+  function leer(esfuerzo) {
+    var r = pedirJsonAClaude_(contenido, ESQUEMA_TICKET_GLOVO, esfuerzo);
+    if (r.ok) r.tickets = (r.tickets || []).map(limpiarTicketGlovo_).filter(function (t) { return t.pedido || t.importe; });
+    return r;
+  }
+  function completos(r) {
+    return r.ok ? r.tickets.filter(function (t) { return t.pedido && t.importe; }).length : -1;
+  }
+  var r = leer('low');
+  if (r.ok && r.tickets.length && completos(r) === r.tickets.length) return r;
+  var r2 = leer('medium');
+  if (!r.ok) return r2;
+  if (!r2.ok) return r;
+  return completos(r2) > completos(r) || (completos(r2) === completos(r) && r2.tickets.length > r.tickets.length) ? r2 : r;
 }

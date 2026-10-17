@@ -2807,8 +2807,9 @@ function dictarMovimiento_(data) {
 }
 
 // Llama a Claude con el contenido dado y devuelve el JSON que pide el
-// esquema, con ok: true (o { ok: false, error } si algo falla).
-function pedirJsonAClaude_(contenido, esquema) {
+// esquema, con ok: true (o { ok: false, error } si algo falla). esfuerzo:
+// 'low' si no se dice otra cosa (más alto = lee con más cuidado, tarda más).
+function pedirJsonAClaude_(contenido, esquema, esfuerzo) {
   var clave = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
   if (!clave) return { ok: false, error: 'Falta la clave ANTHROPIC_API_KEY en las Propiedades del script' };
 
@@ -2816,7 +2817,7 @@ function pedirJsonAClaude_(contenido, esquema) {
     model: MODELO_ESCANEO,
     max_tokens: 16000,
     output_config: {
-      effort: 'low',
+      effort: esfuerzo || 'low',
       format: { type: 'json_schema', schema: esquema }
     },
     messages: [{ role: 'user', content: contenido }]

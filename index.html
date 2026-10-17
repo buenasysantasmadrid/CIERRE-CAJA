@@ -5016,12 +5016,14 @@
   // lee con Claude. Lo leído se pone en las líneas para revisarlo.
   function leerFotoGlovo(t, file){
     if(!file || !file.type.startsWith('image/')) return;
-    estadoGlovo(t, 'Leyendo el ticket…', true);
+    estadoGlovo(t, 'Leyendo los tickets…', true);
     var reader = new FileReader();
     reader.onload = function(e){
       var img = new Image();
       img.onload = function(){
-        var MAX_DIM = 1600;
+        // Grande (lo más que lee la IA), para que con varios tickets en la
+        // misma foto se sigan leyendo bien el "#pedido" y el "Total".
+        var MAX_DIM = 2576;
         var w = img.width, h = img.height;
         if(w > MAX_DIM || h > MAX_DIM){
           if(w > h){ h = Math.round(h * (MAX_DIM/w)); w = MAX_DIM; }
@@ -5030,7 +5032,7 @@
         var canvas = document.createElement('canvas');
         canvas.width = w; canvas.height = h;
         canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-        var base64 = canvas.toDataURL('image/jpeg', 0.82).split(',')[1];
+        var base64 = canvas.toDataURL('image/jpeg', 0.88).split(',')[1];
         fetch(loadSheetUrl(), {
           method: 'POST',
           headers: {'Content-Type':'text/plain;charset=utf-8'},
@@ -5043,6 +5045,8 @@
           if(!leidos.length) throw new Error('no se ve ningún ticket de Glovo en la foto');
           var r = cargarTicketsLeidosGlovo(t, leidos);
           var texto = r.cargados ? (r.cargados === 1 ? 'Ticket cargado' : r.cargados + ' tickets cargados') + ', revisa que esté bien.' : '';
+          var incompletos = leidos.filter(function(x){ return !x.pedido || !(num(x.importe) > 0); }).length;
+          if(incompletos) texto += ' ' + (incompletos === 1 ? 'A un ticket le falta' : 'A ' + incompletos + ' tickets les falta') + ' el número o el total: complétalo a mano.';
           if(r.repetidos) texto += (texto ? ' ' : '') + (r.repetidos === 1 ? 'Un pedido ya estaba cargado hoy.' : r.repetidos + ' pedidos ya estaban cargados hoy.');
           estadoGlovo(t, texto);
         })
