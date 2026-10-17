@@ -41,6 +41,13 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // Un aviso de la app que tiene que llegar por email (ver Avisos.gs).
+    if (data.accionAviso) {
+      return ContentService
+        .createTextOutput(JSON.stringify(avisoDesdeLaApp_(data)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // Los archivos del menú de tres rayas (Producción, Cambio de tinta...):
     // ver Menu.gs. No tocan los días ni los albaranes.
     var delMenu = accionDelMenu_(data);
@@ -128,12 +135,17 @@ function doPost(e) {
     var albaranes = escribirAlbaranes_(data); // ver Albaranes.gs
     var glovo = escribirGlovo_(data); // ver Glovo.gs
     var cajita = escribirCajita_(data); // ver Cajita.gs
+    avisarFallosDelGuardado_(data, { 'pestaña del día': hojaDia, Contabilidad: contabilidad, Albaranes: albaranes, Glovo: glovo, Sobrecito: cajita }); // ver Avisos.gs
 
     return ContentService
       .createTextOutput(JSON.stringify({ ok: true, actualizadoEn: ahora.toISOString(), hojaDia: hojaDia, contabilidad: contabilidad, albaranes: albaranes, glovo: glovo, cajita: cajita }))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
+    if (data && data.fecha && !data.accionCambiarFormaPago) {
+      avisarPorEmail_('la caja del ' + data.fecha + ' NO se guardó', 'Error al guardar la caja del ' + data.fecha + ':\n' + err +
+        '\n\nLos datos siguen en el dispositivo que la cargó y se vuelven a mandar solos en cada cambio.');
+    }
     return ContentService
       .createTextOutput(JSON.stringify({ ok: false, error: String(err) }))
       .setMimeType(ContentService.MimeType.JSON);

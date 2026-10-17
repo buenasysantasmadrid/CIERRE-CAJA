@@ -5325,6 +5325,7 @@
           if(ultimaEdicionLocalEn <= enviadoEn) dia._sinSubir = false;
           if(dia === state) guardarDiaActual();
           else { var st = getDiasStore(); if(st[dia.fecha]){ st[dia.fecha] = dia; saveDiasStore(st); } }
+          syncVolvioAAndar();
           logSheetStatus('Sincronizado a las ' + new Date().toLocaleTimeString('es-ES') + ' · pestaña "' + fechaTabName(state.fecha) + '"');
           if(res.hojaDia && res.hojaDia.ok === false){
             logSheetStatus('La pestaña del día no se pudo crear/actualizar: ' + res.hojaDia.error, true);
@@ -5351,11 +5352,9 @@
             var nSobre = 0;
             TURNOS.forEach(function(t){ (dia[t] && dia[t].movimientos || []).forEach(function(m){ if(m.subtipo === 'cajita') nSobre++; }); });
             var claveSobre = dia.fecha + ':' + nSobre + ':' + (res.cajita ? res.cajita.escritos : 'x');
-            if(nSobre && claveSobre !== ultimoAvisoSobrecito){
+            if(nSobre && claveSobre !== ultimoAvisoSobrecito && res.cajita && res.cajita.escritos === nSobre){
               ultimoAvisoSobrecito = claveSobre;
-              toast(!res.cajita ? 'El Sheet no contestó nada del sobrecito' :
-                res.cajita.escritos === nSobre ? 'Anotado en el sobrecito (' + nSobre + ')' :
-                'Sobrecito: la caja tiene ' + nSobre + ' y el Sheet anotó ' + (res.cajita.escritos || 0));
+              toast('Anotado en el sobrecito (' + nSobre + ')');
             }
           }
         } else {
@@ -5367,19 +5366,36 @@
       .catch(function(err){
         logSheetStatus('Sin conexión: los cambios quedan guardados en este dispositivo y se sincronizan solos cuando vuelva internet. (' + (err && err.message ? err.message : err) + ')', true);
         avisarFalloSyncUnaVez('Sin conexión con Google Sheets — se guarda en este dispositivo y se sincroniza solo cuando vuelva internet.');
+        // Se vuelve a intentar solo dentro de un minuto.
+        setTimeout(function(){ if(state._sinSubir) scheduleAutoSync(); }, 60000);
       });
   }
 
-  // Avisa por toast que falló la sincronización, pero como máximo una vez
-  // cada 20 segundos — así, si hay muchos cambios seguidos sin conexión, no
-  // se llena la pantalla de avisos repetidos.
-  var ultimoAvisoFalloSync = 0;
+  // Los fallos de la sincronización ya no se muestran en pantalla: los
+  // del Sheet le llegan por email a la dueña (ver Avisos.gs). Aquí solo se
+  // anota desde cuándo este dispositivo no consigue guardar; si fue más de
+  // una hora, al volver a guardar se manda un aviso por email.
+  var SYNC_FALLA_DESDE_KEY = 'cierreCaja_syncFallaDesde';
   var ultimoAvisoSobrecito = ""; // ver syncDraftToSheet
   function avisarFalloSyncUnaVez(msg){
-    var ahora = Date.now();
-    if(ahora - ultimoAvisoFalloSync < 20000) return;
-    ultimoAvisoFalloSync = ahora;
-    toast(msg);
+    try {
+      if(!localStorage.getItem(SYNC_FALLA_DESDE_KEY)) localStorage.setItem(SYNC_FALLA_DESDE_KEY, JSON.stringify({ desde: Date.now(), msg: msg }));
+    } catch(e){}
+  }
+  function syncVolvioAAndar(){
+    var f = null;
+    try { f = JSON.parse(localStorage.getItem(SYNC_FALLA_DESDE_KEY) || 'null'); localStorage.removeItem(SYNC_FALLA_DESDE_KEY); } catch(e){}
+    if(!f || Date.now() - f.desde < 60 * 60 * 1000) return;
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)) return;
+    var horas = Math.round((Date.now() - f.desde) / 360000) / 10;
+    fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ accionAviso: true,
+        asunto: 'un dispositivo estuvo ' + horas + ' h sin poder guardar',
+        detalle: 'Desde el ' + new Date(f.desde).toLocaleString('es-ES') + ' un dispositivo no conseguía guardar la caja en el Sheet (' + f.msg + '). Ya volvió a guardar, así que lo cargado mientras tanto debería estar. Dispositivo: ' + navigator.userAgent })
+    }).catch(function(){});
   }
 
   function fechaTabName(fechaISO){
