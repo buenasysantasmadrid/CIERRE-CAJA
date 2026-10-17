@@ -1059,8 +1059,13 @@
   // hay que tocarlo a mano, no permite guardar si queda sin elegir.
   var empanadaPago = null;
 
+  // El día de la caja cambia a las 4 de la mañana, no a medianoche: así,
+  // si se está cerrando la caja de Noche pasadas las 12, sigue siendo "hoy"
+  // la caja de ese día y no aparece el cartel de "no es la caja de hoy".
+  var HORA_CAMBIO_DE_DIA = 4;
   function todayISO(){
     var d = new Date();
+    d.setHours(d.getHours() - HORA_CAMBIO_DE_DIA);
     var tz = d.getTimezoneOffset()*60000;
     return new Date(d - tz).toISOString().slice(0,10);
   }
@@ -1732,9 +1737,11 @@
   ];
 
   // Turno que se propone al anotar algo nuevo: antes de las 18:30,
-  // Mediodía; desde las 18:30, Noche. Se puede cambiar a mano en la hoja.
+  // Mediodía; desde las 18:30 (y hasta el cambio de día de las 4), Noche.
+  // Se puede cambiar a mano en la hoja.
   function turnoPorHora(){
     var d = new Date();
+    if(d.getHours() < HORA_CAMBIO_DE_DIA) return 'noche';
     return (d.getHours()*60 + d.getMinutes()) < (18*60 + 30) ? 'mediodia' : 'noche';
   }
 
