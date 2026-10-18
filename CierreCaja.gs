@@ -25,6 +25,14 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // La misma foto otra vez, en segundo plano: se guarda en Drive y sus
+    // precios van a la app de Pedidos (ver Precios.gs).
+    if (data.accionPreciosFactura) {
+      return ContentService
+        .createTextOutput(JSON.stringify(preciosFactura_(data)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // Entender un gasto dictado por voz (botón "Dictar gasto"). Tampoco
     // guarda nada: solo devuelve los campos.
     if (data.accionDictarGasto) {

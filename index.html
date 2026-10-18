@@ -2552,6 +2552,7 @@
     })
     .then(function(parsed){
       document.getElementById('scanStatusLine').style.display = 'none';
+      mandarFotoParaPrecios(parsed);
       aplicarDatosFactura(parsed);
       document.getElementById('scanOkLine').style.display = 'block';
       toast('Datos de la factura cargados');
@@ -2578,6 +2579,21 @@
     .finally(function(){
       if(!esperandoReintento) btn.disabled = false;
     });
+  }
+
+  // La misma foto otra vez, en segundo plano: el Apps Script la guarda en
+  // Drive y pasa los precios de cada producto a la app de Pedidos
+  // (Precios.gs). Nadie espera la respuesta y si falla no pasa nada.
+  function mandarFotoParaPrecios(parsed){
+    try {
+      if(!scanImageBase64) return;
+      fetch(loadSheetUrl(), {
+        method: 'POST',
+        headers: {'Content-Type':'text/plain;charset=utf-8'},
+        body: JSON.stringify({ accionPreciosFactura: true, imageBase64: scanImageBase64, mediaType: scanMediaType,
+          proveedor: parsed.proveedor_lista || parsed.proveedor || '', numero_factura: parsed.numero_factura || '', fecha: parsed.fecha || '' })
+      }).catch(function(){});
+    } catch(e){}
   }
 
   // Vuelca lo que devolvió la IA en los campos del formulario de Proveedores
