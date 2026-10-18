@@ -1999,7 +1999,9 @@
         var mostrar = necesitaProveedorLibre(selProv.value);
         detalleInput.style.display = mostrar ? 'block' : 'none';
         if(mostrar) detalleInput.focus();
+        mostrarFacturaEIva(selProv.value);
       });
+      mostrarFacturaEIva(selProv.value);
     }
     if(tipo === 'ingreso' && currentSubtipo === 'cambio') renderCambioCalculator();
   }
@@ -2831,6 +2833,21 @@
     return PROVEEDORES_CON_DETALLE_LIBRE.indexOf(valor) > -1;
   }
 
+  // "Extras" no lleva factura: no se piden el nº de factura ni el IVA (los
+  // campos se esconden y no se pregunta "¿Esta factura no tiene IVA?").
+  var PROVEEDORES_SIN_FACTURA = ['Extras'];
+  function esProveedorSinFactura(valor){
+    return PROVEEDORES_SIN_FACTURA.indexOf(valor) > -1;
+  }
+  function mostrarFacturaEIva(proveedor){
+    var ocultar = esProveedorSinFactura(proveedor);
+    ['factura', 'iva'].forEach(function(k){
+      var inp = document.querySelector('#formFields [data-field="'+k+'"]');
+      var caja = inp && inp.closest('.field');
+      if(caja) caja.style.display = ocultar ? 'none' : '';
+    });
+  }
+
   // Desplegable de proveedores conocidos. Cualquiera que no esté en la
   // lista va por "Varios": queda como proveedor (columna A en el Sheet) y
   // lo que se escribe va aparte, como detalle (columna B) — así se guarda
@@ -2899,6 +2916,7 @@
     if(currentTipo === 'egreso' && !currentSubtipo){ toast('Elige Varios o Sobrecito'); return; }
     if(currentTipo === 'empanadas' && !empanadaPago){ toast('Elegí Pago o No pago'); return; }
     var data = collectForm();
+    if(currentTipo === 'gasto' && esProveedorSinFactura(data.proveedor)){ data.factura = ''; data.iva = ''; }
     var importe = num(data.importe);
     if(!importe){ toast('Ingresá un importe válido'); return; }
     if(currentTipo === 'empanadas' && !(data.proveedor||'').trim()){ toast('Elige el cliente'); return; }
@@ -2923,7 +2941,7 @@
 
     // Proveedor sin IVA (vacío o 0): se permite, pero antes se pregunta. Si dice que sí
     // tiene IVA, no se guarda y se lo lleva al campo para que lo ponga.
-    if(currentTipo === 'gasto' && !num(data.iva) && !ivaVacioConfirmado){
+    if(currentTipo === 'gasto' && !num(data.iva) && !ivaVacioConfirmado && !esProveedorSinFactura(proveedorFinal)){
       preguntar('¿Esta factura no tiene IVA?', 'No tiene IVA, guardar', 'Sí tiene, lo pongo', function(){
         ivaVacioConfirmado = true;
         document.getElementById('modalGuardar').click();
@@ -4003,6 +4021,7 @@
     // dispositivo podía pisar en el Sheet lo que se guardó desde otro.
     if(state._sinSubir) scheduleAutoSync();
     if(esNuevo) intentarCargarDesdeSheet(nuevaFecha);
+    actualizarCierresYFondo();
   }
 
   function aplicarEstadoATurnos(saltarAutoFondoFijo){
@@ -5529,6 +5548,7 @@
           state = diaDesdeSheet;
           aplicarEstadoATurnos(true);
           guardarDiaActual();
+          refrescarFondoFijoMediodia();
           logSheetStatus('Día ' + fecha + ' aplicado a la pantalla correctamente.');
         })
         .catch(function(err){
@@ -5565,10 +5585,13 @@
 
   function iniciarSondeoSheet(){
     detenerSondeoSheet();
+    var vueltasSondeo = 0;
     pollTimer = setInterval(function(){
       if(document.visibilityState === 'visible'){
         revisarSiCambioElDia_();
         revisarActualizacionesDesdeSheet();
+        // Cada 10 vueltas (5 minutos): la lista de cierres, para el fondo fijo.
+        if(++vueltasSondeo % 10 === 0) actualizarCierresYFondo();
       }
     }, POLL_INTERVAL_MS);
     sondeoRapidoTimer = setInterval(function(){
@@ -5662,6 +5685,7 @@
               var hayQueMandar = juntarDiaConSheet(state, data);
               aplicarEstadoATurnos(true);
               guardarDiaActual();
+              refrescarFondoFijoMediodia();
               logSheetStatus('Día ' + fechaAlMomento + ': se juntaron los cambios de acá con los de otro dispositivo.');
               if(hayQueMandar) syncDraftToSheet();
             } else if(!autoSyncTimer){
@@ -5697,6 +5721,7 @@
           if(huboCambios){
             aplicarEstadoATurnos(true);
             guardarDiaActual();
+            refrescarFondoFijoMediodia();
             logSheetStatus('Día ' + fechaAlMomento + ' actualizado desde el Sheet por sondeo periódico.');
           }
         })
@@ -5805,9 +5830,16 @@
   // calculó solo con lo que tiene este dispositivo. Al llegar la lista del
   // Sheet (que puede incluir un cierre hecho desde otro dispositivo) se
   // vuelve a calcular y, si cambió, se actualiza.
+  //
+  // También se usa después de traer una caja del Sheet: el fondo que viene
+  // guardado ahí lo pudo calcular otro aparato con datos viejos (pasó el
+  // 17/10 con un fondo de 600 que no se iba hasta refrescar).
   function refrescarFondoFijoMediodia(){
+    // Sin la lista de cierres del Sheet (sin conexión) no se toca: se
+    // calcularía solo con lo de este aparato y podría salir mal.
+    if(!Object.keys(cierresSheet).length) return;
     var nuevo = fondoFijoSugerido(state.fecha);
-    if(nuevo === state.mediodia.fondoFijo) return;
+    if(num(nuevo) === num(state.mediodia.fondoFijo)) return;
     state.mediodia.fondoFijo = nuevo;
     var input = document.getElementById('fondoFijo_mediodia');
     if(input) input.value = nuevo || 0;
@@ -5819,6 +5851,14 @@
   // también allí y en Contabilidad.
   function guardarCorreccionFondo(){
     if(diaTieneActividad(state)) saveDraft();
+  }
+  // La lista de cierres del Sheet (de donde sale el fondo fijo) antes se
+  // traía una sola vez al abrir la página: si la página quedaba abierta y
+  // la Noche anterior se cerraba después (o desde otro aparato), el fondo
+  // salía de datos viejos hasta refrescar. Ahora se vuelve a traer al
+  // volver a la app, al cambiar de día y cada 5 minutos.
+  function actualizarCierresYFondo(){
+    return cargarFechasConDatosDesdeSheet().then(refrescarFondoFijoMediodia);
   }
 
   // Al volver a la app (cambiar de pestaña o de app, desbloquear el
@@ -5832,6 +5872,7 @@
     ultimaVueltaALaApp = Date.now();
     revisarSiCambioElDia_();
     revisarActualizacionesDesdeSheet();
+    actualizarCierresYFondo();
     refrescarAlbaranesAbiertos();
     revisarAvisoTpv1();
   }

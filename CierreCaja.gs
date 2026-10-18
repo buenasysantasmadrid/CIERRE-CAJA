@@ -98,21 +98,33 @@ function doPost(e) {
     var registro = getOrCrearRegistro_(ss);
     var mov = getOrCrearMovimientos_(ss);
 
-    // Una copia vieja de la caja (de un dispositivo que no vio el último
-    // cambio que hizo otro) no pisa lo que ya está guardado.
-    var desactualizada = cajaDesactualizada_(registro, data);
-    if (desactualizada) {
-      return ContentService
-        .createTextOutput(JSON.stringify({ ok: false, conflicto: true, error: desactualizada }))
-        .setMimeType(ContentService.MimeType.JSON);
-    }
+    // Registro y Movimientos, de a un guardado por vez: si dos guardados
+    // (dos aparatos, o un reintento) borraban filas de Movimientos a la vez,
+    // las filas se corrían y fallaba con "Estas filas están fuera de los
+    // límites" (pasó el 17/10 a las 23:58).
+    var ahora;
+    var lockRegistro = LockService.getScriptLock();
+    lockRegistro.waitLock(30000);
+    try {
+      // Una copia vieja de la caja (de un dispositivo que no vio el último
+      // cambio que hizo otro) no pisa lo que ya está guardado.
+      var desactualizada = cajaDesactualizada_(registro, data);
+      if (desactualizada) {
+        return ContentService
+          .createTextOutput(JSON.stringify({ ok: false, conflicto: true, error: desactualizada }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
 
-    var ahora = new Date();
-    TURNOS.forEach(function (turnoInfo) {
-      var t = data[turnoInfo.key];
-      if (!t) return;
-      escribirRegistroYMovimientos_(registro, mov, data, t, turnoInfo.label, ahora);
-    });
+      ahora = new Date();
+      TURNOS.forEach(function (turnoInfo) {
+        var t = data[turnoInfo.key];
+        if (!t) return;
+        escribirRegistroYMovimientos_(registro, mov, data, t, turnoInfo.label, ahora);
+      });
+      SpreadsheetApp.flush();
+    } finally {
+      lockRegistro.releaseLock();
+    }
 
     // Cada uno de estos dos pasos va en su propio try/catch: si uno falla
     // (ej. falta la hoja plantilla "1", o hay un problema con la planilla
