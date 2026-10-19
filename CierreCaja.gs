@@ -172,7 +172,8 @@ function doPost(e) {
   } catch (err) {
     if (data && data.fecha && !data.accionCambiarFormaPago) {
       avisarPorEmail_('la caja del ' + data.fecha + ' NO se guardó', 'Error al guardar la caja del ' + data.fecha + ':\n' + err +
-        '\n\nLos datos siguen en el dispositivo que la cargó y se vuelven a mandar solos en cada cambio.');
+        '\n\nLos datos siguen en el dispositivo que la cargó y se vuelven a mandar solos en cada cambio.' +
+        (err && err.stack ? '\n\n(Para Claude — dónde falló: ' + String(err.stack).split(/\r?\n/).slice(0, 6).join(' / ') + ')' : ''));
     }
     return ContentService
       .createTextOutput(JSON.stringify({ ok: false, error: String(err) }))
@@ -750,12 +751,22 @@ function buscarFilaPorId_(hoja, id) {
   return -1;
 }
 
+// Borra de abajo arriba, por tramos seguidos (una llamada por tramo, no una
+// por fila), y nunca más allá de la última fila que tiene la pestaña ahora
+// (el 19/10 falló con "Estas filas están fuera de los límites").
 function borrarFilasPorId_(hoja, id) {
   var ultimaFila = hoja.getLastRow();
   if (ultimaFila < 2) return;
   var valores = hoja.getRange(2, 1, ultimaFila - 1, 1).getValues();
-  for (var i = valores.length - 1; i >= 0; i--) {
-    if (valores[i][0] === id) hoja.deleteRow(i + 2);
+  var i = valores.length - 1;
+  while (i >= 0) {
+    if (valores[i][0] !== id) { i--; continue; }
+    var fin = i;
+    while (i - 1 >= 0 && valores[i - 1][0] === id) i--;
+    var desde = i + 2, cuantas = fin - i + 1;
+    var maximo = hoja.getMaxRows();
+    if (desde <= maximo) hoja.deleteRows(desde, Math.min(cuantas, maximo - desde + 1));
+    i--;
   }
 }
 
