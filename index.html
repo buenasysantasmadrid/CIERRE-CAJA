@@ -3142,7 +3142,8 @@
         if(!(num(f.importe) > 0) || yaTieneFacturaDeTicket(f)) return false;
         if(numeroF && normNumDoc(f.factura) === numeroF) return false; // es esta misma factura
         var ff = f.fechaFactura || f.fecha;
-        if(ff > fechaF || ff < sumarDiasISO(fechaF, -75)) return false;
+        // A mano se deja algo de margen por si la fecha de la factura se leyó mal.
+        if(ff > sumarDiasISO(fechaF, aMano ? 7 : 0) || ff < sumarDiasISO(fechaF, -75)) return false;
         return true;
       });
       var elegidos = aMano ? [] : ticketsQueEncajan(candidatos, parsed, importe, fechaF);
