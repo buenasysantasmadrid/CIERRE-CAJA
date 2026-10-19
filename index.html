@@ -2248,10 +2248,6 @@
         '<div class="captura-chicos">' +
           '<button type="button" id="scanBtnEsTicket">Es la factura de un ticket</button>' +
         '</div>' +
-        '<div class="captura-chicos" id="ticketOpciones" style="display:none;">' +
-          '<button type="button" id="ticketBtnCamera">'+icon('camera')+'Sacar foto</button>' +
-          '<button type="button" id="ticketBtnUpload">'+icon('photo')+'Subir imagen</button>' +
-        '</div>' +
         '<div>' +
           '<input type="file" id="scanFileCamera" accept="image/*" capture="environment" style="display:none;">' +
           '<input type="file" id="scanFileUpload" accept="image/*" style="display:none;">' +
@@ -2522,16 +2518,30 @@
     var fileUpload = document.getElementById('scanFileUpload');
     document.getElementById('scanBtnCamera').addEventListener('click', function(){ ponerModoTicket(false); fileCamera.click(); });
     document.getElementById('scanBtnUpload').addEventListener('click', function(){ ponerModoTicket(false); fileUpload.click(); });
-    // "Es la factura de un ticket": se saca la foto (o se sube) y, al leerla,
-    // se elige el ticket al que reemplaza aunque no encaje solo.
+    // "Es la factura de un ticket": se abre una ventana para sacar la foto o
+    // subirla y, al leerla, se elige el ticket al que reemplaza aunque no
+    // encaje solo.
     document.getElementById('scanBtnEsTicket').addEventListener('click', function(){
-      var op = document.getElementById('ticketOpciones');
-      var abrir = op.style.display === 'none';
-      op.style.display = abrir ? '' : 'none';
-      this.classList.toggle('active', abrir);
+      var ov = document.createElement('div');
+      ov.className = 'tickets-overlay';
+      ov.innerHTML = '<div class="tickets-panel">' +
+        '<h3>Factura de un ticket</h3>' +
+        '<div class="tickets-sub">Saca la foto de la factura o súbela; después eliges de qué ticket es.</div>' +
+        '<button type="button" class="btn-foto-grande" data-tf="camara">'+icon('camera')+'Sacar foto</button>' +
+        '<div class="captura-chicos"><button type="button" data-tf="subir">'+icon('photo')+'Subir imagen</button></div>' +
+        '<div class="tickets-botones"><button type="button" data-tf="no">Cancelar</button></div>' +
+      '</div>';
+      document.body.appendChild(ov);
+      ov.addEventListener('click', function(e){
+        var b = e.target.closest('[data-tf]');
+        if(!b && e.target !== ov) return;
+        ov.remove();
+        var que = b ? b.getAttribute('data-tf') : 'no';
+        if(que === 'no') return;
+        ponerModoTicket(true);
+        (que === 'camara' ? fileCamera : fileUpload).click();
+      });
     });
-    document.getElementById('ticketBtnCamera').addEventListener('click', function(){ ponerModoTicket(true); fileCamera.click(); });
-    document.getElementById('ticketBtnUpload').addEventListener('click', function(){ ponerModoTicket(true); fileUpload.click(); });
     fileCamera.addEventListener('change', function(e){ handleScanFile(e.target.files[0], fileCamera); });
     fileUpload.addEventListener('change', function(e){ handleScanFile(e.target.files[0], fileUpload); });
 
@@ -2556,8 +2566,6 @@
     scanModoTicket = si;
     var btn = document.getElementById('scanBtnEsTicket');
     if(btn) btn.classList.toggle('active', si);
-    var op = document.getElementById('ticketOpciones');
-    if(op && !si) op.style.display = 'none';
   }
   var ESCANER_MAX_LADO = 2400; // unos 200 ppp en un A4
   var ESCANER_MAX_ORIGEN = 3200;
@@ -3076,6 +3084,16 @@
     return null;
   }
 
+  // Las palabras que identifican a un proveedor, sin las genéricas ("Super",
+  // "Grupo", "Carne", "S.A."...). Dia sale igual se llame como se llame.
+  var PALABRAS_GENERICAS_PROV = ['super','supermercado','supermercados','grupo','carne','varios','retail','sa','sl','slu','de','del','la','las','el','los','y','e','internacional','distribuidora','alimentacion','sociedad','limitada','anonima'];
+  function palabrasProveedor(texto){
+    var n = ' ' + normalizarNombreProveedor(texto || '') + ' ';
+    var out = n.split(/[^a-z0-9]+/).filter(function(w){ return w.length >= 2 && PALABRAS_GENERICAS_PROV.indexOf(w) === -1; });
+    if(/distribuidora internacional de alimentacion/.test(n) && out.indexOf('dia') === -1) out.push('dia');
+    return out;
+  }
+
   function buscarTicketsDeFactura(parsed, aMano){
     var sel = document.getElementById('proveedorSelect');
     var prov = aMano && sel && sel.value
@@ -3084,22 +3102,27 @@
     if(!prov){ if(aMano) mostrarElegirTickets(null, [], [], parsed, aMano); return; }
     var url = loadSheetUrl();
     if(!hasValidSheetUrl(url)) return;
-    var getUrl = url + (url.indexOf('?') > -1 ? '&' : '?') + 'listarFacturas=1&proveedor=' + encodeURIComponent(prov.proveedor) +
-      (prov.proveedor === 'Varios' && prov.detalle ? '&detalle=' + encodeURIComponent(prov.detalle) : '');
+    // Un mismo proveedor puede estar anotado de varias formas (ej. Dia:
+    // "Dia Carne", "Super — DIA", "Super — GRUPO DIA"): se traen todos los
+    // gastos y se quedan los que comparten nombre (ver palabrasProveedor).
+    var claves = palabrasProveedor((prov.proveedor === 'Super' || prov.proveedor === 'Varios' ? '' : prov.proveedor) + ' ' + (prov.detalle || ''));
+    var getUrl = url + (url.indexOf('?') > -1 ? '&' : '?') + 'listarFacturas=1' + (claves.length ? '' : '&proveedor=' + encodeURIComponent(prov.proveedor) +
+      (prov.proveedor === 'Varios' && prov.detalle ? '&detalle=' + encodeURIComponent(prov.detalle) : ''));
     fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
       if(!data || !data.ok) throw new Error((data && data.error) || 'sin respuesta');
       var form = collectForm();
       var importe = num(form.importe) || num(parsed.importe_total);
       var fechaF = form.fecha || parsed.fecha || todayISO();
       var numeroF = normNumDoc(form.factura || parsed.numero_factura);
-      var detalleNorm = String(prov.detalle || '').toLowerCase();
       var candidatos = (data.facturas || []).filter(function(f){
+        if(claves.length){
+          var suyas = palabrasProveedor(f.proveedorTexto);
+          if(!claves.some(function(c){ return suyas.indexOf(c) > -1; })) return false;
+        }
         if(!(num(f.importe) > 0) || yaTieneFacturaDeTicket(f)) return false;
         if(numeroF && normNumDoc(f.factura) === numeroF) return false; // es esta misma factura
         var ff = f.fechaFactura || f.fecha;
         if(ff > fechaF || ff < sumarDiasISO(fechaF, -75)) return false;
-        // Super: solo los del mismo súper.
-        if(prov.proveedor === 'Super' && detalleNorm && String(f.proveedorTexto || '').toLowerCase().indexOf(detalleNorm.split(' ')[0]) === -1) return false;
         return true;
       });
       var elegidos = aMano ? [] : ticketsQueEncajan(candidatos, parsed, importe, fechaF);
