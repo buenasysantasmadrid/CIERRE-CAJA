@@ -2944,13 +2944,18 @@
     try {
       if(!scanImageBase64 || !scanPaginas.length) return;
       scanUltimaLectura = parsed;
+      // Un supermercado (Carrefour, Dia...) va a la carpeta "Super", igual que
+      // en la caja (ver aplicarDatosFactura); su nombre queda en el archivo.
+      var leido = String(parsed.proveedor || '').trim();
+      var esSuper = !!leido && !proveedorDeLaLista(parsed.proveedor_lista) && !buscarProveedorPorNombre(leido) && esSupermercado(leido);
       descripcion = (parsed.proveedor_lista || parsed.proveedor || 'proveedor sin leer') + ', nº ' + (parsed.numero_factura || '?') + ', fecha ' + (parsed.fecha || '?') + ', ' + scanPaginas.length + ' hoja(s)';
       fetch(loadSheetUrl(), {
         method: 'POST',
         headers: {'Content-Type':'text/plain;charset=utf-8'},
         body: JSON.stringify({ accionPreciosFactura: true, soloPdf: !!soloPdf, idEscaneo: scanIdFactura, imageBase64: scanImageBase64, mediaType: scanMediaType,
           imagenes: imagenesParaLeer(), pdfBase64: pdfDeHojas(scanPaginas),
-          proveedor: parsed.proveedor_lista || parsed.proveedor || '', numero_factura: parsed.numero_factura || '', fecha: parsed.fecha || '' })
+          proveedor: esSuper ? 'Super' : (parsed.proveedor_lista || parsed.proveedor || ''), detalle: esSuper ? leido : '',
+          numero_factura: parsed.numero_factura || '', fecha: parsed.fecha || '' })
       }).then(function(resp){ return resp.json(); }).then(function(r){
         if(!r || r.ok === false) avisarErrorPorMail('una factura NO se guardó en Drive', 'La factura escaneada (' + descripcion + ') no se guardó en Drive: ' + ((r && r.error) || 'respuesta vacía') + '.\nHay que volver a escanearla.');
       }).catch(function(err){

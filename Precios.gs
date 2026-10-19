@@ -59,7 +59,9 @@ function guardarFotoFactura_(data, proveedor, fecha) {
   var tipo = esPdf ? 'application/pdf' : (data.mediaType || 'image/jpeg');
   // Sin número de factura, la hora del primer escaneo (la manda la app).
   var numero = String(data.numero_factura || '').trim() || String(data.idEscaneo || '').trim();
-  var nombre = sinCaracteresRaros_(fecha + ' ' + proveedor + ' ' +
+  // detalle: el nombre del súper cuando la carpeta es "Super" (ej. "Carrefour Market").
+  var detalle = String(data.detalle || '').trim();
+  var nombre = sinCaracteresRaros_(fecha + ' ' + proveedor + (detalle ? ' ' + detalle : '') + ' ' +
     (numero || Utilities.formatDate(new Date(), 'Europe/Madrid', 'HH.mm.ss'))) + (esPdf ? '.pdf' : (tipo === 'image/png' ? '.png' : '.jpg'));
   if (numero) {
     var existe = dir.getFilesByName(nombre);
@@ -192,7 +194,7 @@ function mandarPreciosAPedidos_(data, proveedor, fecha, foto) {
   }).join('\n\n');
   var instrucciones =
     'Esta es la foto de una factura, albarán o ticket de un proveedor del restaurante "Buenas y Santas" (el cliente). ' +
-    'En la primera lectura salió como proveedor: "' + proveedor + '".\n' +
+    'En la primera lectura salió como proveedor: "' + (String(data.detalle || '').trim() || proveedor) + '".\n' +
     'Abajo está la lista de proveedores de la app de pedidos del restaurante, cada uno con sus productos (ID | producto | unidad).\n\n' +
     '- proveedor_pedidos: a cuál de esos proveedores corresponde el emisor de la factura, escrito EXACTAMENTE como en la lista ' +
     '(vale aunque en la factura salga con su razón social, abreviado o con otro nombre comercial). ' +
