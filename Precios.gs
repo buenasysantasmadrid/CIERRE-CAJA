@@ -66,8 +66,19 @@ function guardarFotoFactura_(data, proveedor, fecha) {
     var existe = dir.getFilesByName(nombre);
     while (existe.hasNext()) existe.next().setTrashed(true);
   }
+  // El mismo escaneo guardado antes con otro nombre de proveedor (la segunda
+  // lectura puede leerlo distinto, ej. "Sports Direct" / "Sports Direct
+  // Xanadu ES"): se borra el anterior, para que no quede dos veces.
+  var cache = CacheService.getScriptCache();
+  var claveEscaneo = data.idEscaneo ? 'escaneo_' + fecha + '_' + data.idEscaneo : '';
+  var anterior = claveEscaneo ? cache.get(claveEscaneo) : null;
+  if (anterior) {
+    try { DriveApp.getFileById(anterior).setTrashed(true); } catch (err) { /* ya no está */ }
+  }
   var blob = Utilities.newBlob(Utilities.base64Decode(esPdf ? data.pdfBase64 : data.imageBase64), tipo, nombre);
-  return dir.createFile(blob).getUrl();
+  var archivo = dir.createFile(blob);
+  if (claveEscaneo) cache.put(claveEscaneo, archivo.getId(), 6 * 60 * 60);
+  return archivo.getUrl();
 }
 
 // La carpeta está en el Drive del dueño del script (lfisbein@gmail.com,
