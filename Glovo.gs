@@ -134,9 +134,79 @@ function sincronizarGlovoDelDia_(fechaISO, tickets) {
   return salida;
 }
 
+// ---------- Totales por día (columnas I y L, filas 14 a 44) ----------
+// H = el día, I = suma de TOTAL (F) de ese día, L = suma de IMPORTE (D).
+// Las fórmulas de antes (SUMIF con "=1/10/2026") solo sumaban las fechas
+// escritas a mano: las que escribe la app llevan hora y no eran "iguales".
+// Ahora se suma lo que cae entre ese día y el siguiente. Desde octubre de
+// 2026 (las pestañas de antes se dejan como estaban), una vez por pestaña.
+// También se borran las filas escritas a mano que repiten un pedido que ya
+// escribió la app (mismo día, nº de pedido e importe): se copiaron a mano
+// porque la fórmula vieja no contaba las de la app, y ahora sumarían doble.
+var GLOVO_TOTALES_FILA_ = 14;
+function arreglarTotalesGlovo_(ss, anio) {
+  var props = PropertiesService.getScriptProperties();
+  var hechos = [];
+  for (var mes = 10; mes <= 12; mes++) {
+    if (anio < 2026) break;
+    var hoja = ss.getSheetByName(MESES_MAYUS_[mes - 1]);
+    var marca = 'glovo_totales_v2_' + ss.getId() + '_' + mes;
+    if (!hoja || props.getProperty(marca)) continue;
+    if (normalizarClave_(hoja.getRange('H' + (GLOVO_TOTALES_FILA_ - 1)).getValue()) !== 'TOTALES') continue; // otra forma: no se toca
+    var diasDelMes = new Date(anio, mes, 0).getDate();
+    var filasI = [], filasL = [];
+    for (var d = 1; d <= 31; d++) {
+      if (d > diasDelMes) { filasI.push(['']); filasL.push(['']); continue; }
+      var desde = 'DATE(' + anio + ',' + mes + ',' + d + ')';
+      var rango = '$B$' + GLOVO_FILA_DESDE_ + ':$B$252,">="&' + desde + ',$B$' + GLOVO_FILA_DESDE_ + ':$B$252,"<"&(' + desde + '+1)';
+      filasI.push(['=SUMIFS($F$' + GLOVO_FILA_DESDE_ + ':$F$252,' + rango + ')']);
+      filasL.push(['=SUMIFS($D$' + GLOVO_FILA_DESDE_ + ':$D$252,' + rango + ')']);
+    }
+    var f0 = GLOVO_TOTALES_FILA_, f1 = GLOVO_TOTALES_FILA_ + 30;
+    hoja.getRange('I' + f0 + ':I' + f1).setValues(filasLocales_(hoja, filasI));
+    hoja.getRange('L' + f0 + ':L' + f1).setValues(filasLocales_(hoja, filasL));
+    var quitados = quitarRepetidosAManoGlovo_(hoja);
+    props.setProperty(marca, '1');
+    hechos.push(hoja.getName() + (quitados.length ? ' (quitadas filas repetidas a mano: ' + quitados.join(', ') + ')' : ''));
+  }
+  return hechos;
+}
+function quitarRepetidosAManoGlovo_(hoja) {
+  var n = GLOVO_FILA_HASTA_ - GLOVO_FILA_DESDE_ + 1;
+  var datos = hoja.getRange(GLOVO_FILA_DESDE_, 2, n, 3).getValues();
+  var formulas = hoja.getRange(GLOVO_FILA_DESDE_, 2, n, 3).getFormulas();
+  var ids = hoja.getRange(GLOVO_FILA_DESDE_, GLOVO_COL_ID_, n, 1).getValues();
+  var zona = hoja.getParent().getSpreadsheetTimeZone();
+  function clave(i) {
+    var f = datos[i][0];
+    var dia = f instanceof Date ? Utilities.formatDate(f, zona, 'yyyy-MM-dd') : String(f || '');
+    return dia + '|' + String(datos[i][1] || '').trim() + '|' + (Math.round((Number(datos[i][2]) || 0) * 100) / 100);
+  }
+  var deLaApp = {};
+  for (var i = 0; i < n; i++) if (ids[i][0] && datos[i][1] !== '') deLaApp[clave(i)] = true;
+  var quitados = [];
+  for (var j = 0; j < n; j++) {
+    if (ids[j][0] || formulas[j].some(function (x) { return x; })) continue;
+    if (datos[j][0] === '' || datos[j][1] === '' || !deLaApp[clave(j)]) continue;
+    hoja.getRange(GLOVO_FILA_DESDE_ + j, 2, 1, 3).clearContent();
+    quitados.push(String(GLOVO_FILA_DESDE_ + j));
+  }
+  return quitados;
+}
+
 // Lo que corre en cada guardado de la app (ver doPost).
 function escribirGlovo_(data) {
   try {
+    try {
+      var anio = periodoAnual_(data.fecha);
+      var idGlovo = buscarEnIndice_('GLOVO', anio);
+      if (idGlovo) {
+        var hechos = arreglarTotalesGlovo_(SpreadsheetApp.openById(idGlovo), Number(anio));
+        if (hechos.length) avisarPorEmail_('Glovo: totales por día arreglados', 'Se cambiaron las fórmulas de las columnas I y L (totales por día) en: ' + hechos.join('; ') + '.');
+      }
+    } catch (errTot) {
+      avisarPorEmail_('Glovo: no se pudieron arreglar los totales', String(errTot));
+    }
     return sincronizarGlovoDelDia_(data.fecha, ticketsGlovoDelDia_(data));
   } catch (err) {
     return { ok: false, error: String(err) };
