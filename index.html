@@ -2245,6 +2245,13 @@
           '<button type="button" id="dictarToggleBtn" data-sin-texto>'+icon('mic')+'Dictar</button>' +
         '</div>' +
         dictarContenidoHTML('gasto') +
+        '<div class="captura-chicos">' +
+          '<button type="button" id="scanBtnEsTicket">Es la factura de un ticket</button>' +
+        '</div>' +
+        '<div class="captura-chicos" id="ticketOpciones" style="display:none;">' +
+          '<button type="button" id="ticketBtnCamera">'+icon('camera')+'Sacar foto</button>' +
+          '<button type="button" id="ticketBtnUpload">'+icon('photo')+'Subir imagen</button>' +
+        '</div>' +
         '<div>' +
           '<input type="file" id="scanFileCamera" accept="image/*" capture="environment" style="display:none;">' +
           '<input type="file" id="scanFileUpload" accept="image/*" style="display:none;">' +
@@ -2258,7 +2265,6 @@
               '<div class="scan-actions">' +
                 '<button type="button" class="btn-primary" id="scanBtnExtract">Extraer datos</button>' +
                 '<button type="button" id="scanBtnAddPage">'+icon('camera')+'Añadir hoja</button>' +
-                '<button type="button" id="scanBtnEsTicket" style="display:none;">Es la factura de un ticket</button>' +
                 '<button type="button" id="scanBtnResetImg">Otra factura</button>' +
               '</div>' +
             '</div>' +
@@ -2508,17 +2514,29 @@
     scanMediaType = null;
     scanPaginas = [];
     scanUltimaLectura = null;
+    scanModoTicket = false;
+    // Al corregir un movimiento ya guardado no se busca ticket.
+    if(editingId) document.getElementById('scanBtnEsTicket').parentNode.style.display = 'none';
 
     var fileCamera = document.getElementById('scanFileCamera');
     var fileUpload = document.getElementById('scanFileUpload');
-    document.getElementById('scanBtnCamera').addEventListener('click', function(){ fileCamera.click(); });
-    document.getElementById('scanBtnUpload').addEventListener('click', function(){ fileUpload.click(); });
+    document.getElementById('scanBtnCamera').addEventListener('click', function(){ ponerModoTicket(false); fileCamera.click(); });
+    document.getElementById('scanBtnUpload').addEventListener('click', function(){ ponerModoTicket(false); fileUpload.click(); });
+    // "Es la factura de un ticket": se saca la foto (o se sube) y, al leerla,
+    // se elige el ticket al que reemplaza aunque no encaje solo.
+    document.getElementById('scanBtnEsTicket').addEventListener('click', function(){
+      var op = document.getElementById('ticketOpciones');
+      var abrir = op.style.display === 'none';
+      op.style.display = abrir ? '' : 'none';
+      this.classList.toggle('active', abrir);
+    });
+    document.getElementById('ticketBtnCamera').addEventListener('click', function(){ ponerModoTicket(true); fileCamera.click(); });
+    document.getElementById('ticketBtnUpload').addEventListener('click', function(){ ponerModoTicket(true); fileUpload.click(); });
     fileCamera.addEventListener('change', function(e){ handleScanFile(e.target.files[0], fileCamera); });
     fileUpload.addEventListener('change', function(e){ handleScanFile(e.target.files[0], fileUpload); });
 
     document.getElementById('scanBtnExtract').addEventListener('click', function(){ extractInvoiceViaAI(0); });
     document.getElementById('scanBtnAddPage').addEventListener('click', function(){ fileCamera.click(); });
-    document.getElementById('scanBtnEsTicket').addEventListener('click', function(){ buscarTicketsDeFactura(scanUltimaLectura || {}, true); });
     document.getElementById('scanBtnResetImg').addEventListener('click', resetScanPreview);
   }
 
@@ -2532,6 +2550,15 @@
   var scanPaginas = [];        // hojas ya escaneadas: {url (JPEG), w, h, leer}
   var scanUltimaLectura = null; // lo que leyó Claude de esta factura (para volver a guardar el PDF)
   var scanIdFactura = '';       // hora del primer escaneo: nombre del PDF si la factura no tiene número
+  var scanModoTicket = false;   // se escaneó con "Es la factura de un ticket"
+
+  function ponerModoTicket(si){
+    scanModoTicket = si;
+    var btn = document.getElementById('scanBtnEsTicket');
+    if(btn) btn.classList.toggle('active', si);
+    var op = document.getElementById('ticketOpciones');
+    if(op && !si) op.style.display = 'none';
+  }
   var ESCANER_MAX_LADO = 2400; // unos 200 ppp en un A4
   var ESCANER_MAX_ORIGEN = 3200;
 
@@ -2854,6 +2881,7 @@
     scanMediaType = null;
     scanPaginas = [];
     scanUltimaLectura = null;
+    ponerModoTicket(false);
     var row = document.getElementById('scanPreviewRow');
     if(row) row.style.display = 'none';
     var fc = document.getElementById('scanFileCamera'); if(fc) fc.value = '';
@@ -2924,10 +2952,9 @@
       mandarFotoParaPrecios(parsed);
       aplicarDatosFactura(parsed);
       document.getElementById('scanOkLine').style.display = 'block';
-      var btnTicket = document.getElementById('scanBtnEsTicket');
-      if(btnTicket) btnTicket.style.display = editingId ? 'none' : '';
-      // ¿Es la factura de un ticket ya anotado? Si encaja, pregunta.
-      if(!editingId) buscarTicketsDeFactura(parsed, false);
+      // ¿Es la factura de un ticket ya anotado? Si encaja, pregunta; si se
+      // escaneó con "Es la factura de un ticket", se elige el ticket a mano.
+      if(!editingId) buscarTicketsDeFactura(parsed, scanModoTicket);
     })
     .catch(function(err){
       var msg = err.message || '';
