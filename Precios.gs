@@ -23,8 +23,17 @@ function preciosFactura_(data) {
   try { res.foto = guardarFotoFactura_(data, proveedor, fecha); } catch (err) { res.errorFoto = String(err); }
   // soloPdf: se añadió una hoja a una factura ya leída — solo se vuelve a
   // guardar el PDF (los precios ya se mandaron).
+  var cual = proveedor + ', nº ' + (String(data.numero_factura || '').trim() || '?') + ', fecha ' + fecha;
+  if (res.errorFoto) {
+    avisarPorEmail_('una factura NO se guardó en Drive', 'La factura escaneada (' + cual + ') no se guardó en Drive: ' + res.errorFoto + '\nHay que volver a escanearla.');
+  }
   if (data.soloPdf) return res;
   try { res.precios = mandarPreciosAPedidos_(data, proveedor, fecha, res.foto || ''); } catch (err) { res.errorPrecios = String(err); }
+  if (!res.errorPrecios && res.precios && res.precios.ok === false) res.errorPrecios = res.precios.error || 'error desconocido';
+  if (res.errorPrecios) {
+    avisarPorEmail_('los precios de una factura no llegaron a Pedidos', 'De la factura escaneada (' + cual + ') no se pudieron pasar los precios a la app de Pedidos: ' + res.errorPrecios +
+      (res.foto ? '\nLa factura sí quedó guardada en Drive: ' + res.foto : ''));
+  }
   return res;
 }
 

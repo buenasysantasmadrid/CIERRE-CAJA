@@ -2636,7 +2636,7 @@
           }
           else if(scanUltimaLectura) mandarFotoParaPrecios(scanUltimaLectura, true);
         } catch(err){
-          toast('No se pudo escanear la foto: ' + err.message);
+          avisarErrorPorMail('no se pudo escanear una foto de factura', 'Al enderezar o limpiar la foto falló: ' + err.message + '.');
         }
         cerrar();
       }, 60);
@@ -2926,6 +2926,9 @@
       document.getElementById('scanStatusLine').style.display = 'none';
       document.getElementById('scanErrorLine').style.display = 'block';
       document.getElementById('scanErrorLine').textContent = 'No se pudieron leer los datos automáticamente. Completá a mano abajo. (' + (msg||'error desconocido') + ')';
+      // El PDF se guarda igual (en "Sin proveedor"), para no perder la factura.
+      if(!scanUltimaLectura) mandarFotoParaPrecios({});
+      avisarErrorPorMail('no se pudieron leer los datos de una factura', 'Claude no pudo leer la factura escaneada: ' + (msg || 'error desconocido') + '.\nEl PDF se guardó en Drive en la carpeta "Sin proveedor" del mes de hoy.');
     })
     .finally(function(){
       if(!esperandoReintento) btn.disabled = false;
@@ -2934,12 +2937,14 @@
 
   // La factura escaneada, en segundo plano: el Apps Script guarda el PDF (con
   // todas las hojas) en Drive y pasa los precios de cada producto a la app
-  // de Pedidos (Precios.gs). Nadie espera la respuesta y si falla no pasa
-  // nada (salvo un aviso si no se pudo guardar el PDF).
+  // de Pedidos (Precios.gs). Nada se muestra en pantalla: si falla en el
+  // Apps Script, avisa él por email; si ni siquiera llega, avisa la app.
   function mandarFotoParaPrecios(parsed, soloPdf){
+    var descripcion = '';
     try {
       if(!scanImageBase64 || !scanPaginas.length) return;
       scanUltimaLectura = parsed;
+      descripcion = (parsed.proveedor_lista || parsed.proveedor || 'proveedor sin leer') + ', nº ' + (parsed.numero_factura || '?') + ', fecha ' + (parsed.fecha || '?') + ', ' + scanPaginas.length + ' hoja(s)';
       fetch(loadSheetUrl(), {
         method: 'POST',
         headers: {'Content-Type':'text/plain;charset=utf-8'},
@@ -2947,13 +2952,51 @@
           imagenes: imagenesParaLeer(), pdfBase64: pdfDeHojas(scanPaginas),
           proveedor: parsed.proveedor_lista || parsed.proveedor || '', numero_factura: parsed.numero_factura || '', fecha: parsed.fecha || '' })
       }).then(function(resp){ return resp.json(); }).then(function(r){
-        if(r && (r.ok === false || r.errorFoto)) toast('Ojo: no se pudo guardar el PDF de la factura en Drive' + (r.errorFoto ? ' (' + r.errorFoto + ')' : r.error ? ' (' + r.error + ')' : ''));
-        else if(r && r.foto) toast('Factura guardada en Drive (Facturas proveedores)');
+        if(!r || r.ok === false) avisarErrorPorMail('una factura NO se guardó en Drive', 'La factura escaneada (' + descripcion + ') no se guardó en Drive: ' + ((r && r.error) || 'respuesta vacía') + '.\nHay que volver a escanearla.');
       }).catch(function(err){
-        toast('Ojo: no se pudo guardar el PDF de la factura en Drive (' + (err && err.message || 'sin conexión') + ')');
+        avisarErrorPorMail('una factura NO se guardó en Drive', 'La factura escaneada (' + descripcion + ') no llegó al Apps Script (' + (err && err.message || 'sin conexión') + ').\nHay que volver a escanearla.');
       });
-    } catch(e){}
+    } catch(e){
+      avisarErrorPorMail('una factura NO se guardó en Drive', 'Al preparar el PDF de la factura (' + descripcion + ') falló: ' + e.message + '.\nHay que volver a escanearla.');
+    }
   }
+
+  // Errores que no se muestran en pantalla: llegan por email (ver Avisos.gs).
+  // Sin conexión quedan guardados en este aparato y se mandan en cuanto se
+  // pueda.
+  var AVISOS_PENDIENTES_KEY = 'avisosPendientesMail';
+  function avisarErrorPorMail(asunto, detalle){
+    var aviso = { asunto: asunto, detalle: detalle + '\n\nCuándo: ' + new Date().toLocaleString('es-ES') + '\nDispositivo: ' + navigator.userAgent };
+    var pendientes = [];
+    try { pendientes = JSON.parse(localStorage.getItem(AVISOS_PENDIENTES_KEY) || '[]'); } catch(e){}
+    pendientes.push(aviso);
+    try { localStorage.setItem(AVISOS_PENDIENTES_KEY, JSON.stringify(pendientes.slice(-20))); } catch(e){}
+    mandarAvisosPendientes();
+  }
+  var mandandoAvisos = false;
+  function mandarAvisosPendientes(){
+    var url = loadSheetUrl();
+    if(mandandoAvisos || !hasValidSheetUrl(url)) return;
+    var pendientes = [];
+    try { pendientes = JSON.parse(localStorage.getItem(AVISOS_PENDIENTES_KEY) || '[]'); } catch(e){}
+    if(!pendientes.length) return;
+    mandandoAvisos = true;
+    var aviso = pendientes[0];
+    fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ accionAviso: true, asunto: aviso.asunto, detalle: aviso.detalle })
+    }).then(function(resp){ return resp.json(); }).then(function(r){
+      if(!r || r.ok === false) throw new Error('no');
+      var resto = [];
+      try { resto = JSON.parse(localStorage.getItem(AVISOS_PENDIENTES_KEY) || '[]'); } catch(e){}
+      resto.shift();
+      try { localStorage.setItem(AVISOS_PENDIENTES_KEY, JSON.stringify(resto)); } catch(e){}
+      mandandoAvisos = false;
+      mandarAvisosPendientes();
+    }).catch(function(){ mandandoAvisos = false; });
+  }
+  window.addEventListener('online', mandarAvisosPendientes);
 
   // Vuelca lo que devolvió la IA en los campos del formulario de Proveedores
   // que ya está abierto — no guarda solo, el usuario revisa y confirma con
@@ -6248,6 +6291,7 @@
     revisarSiCambioElDia_();
     revisarActualizacionesDesdeSheet();
     actualizarCierresYFondo();
+    mandarAvisosPendientes();
     refrescarAlbaranesAbiertos();
     revisarAvisoTpv1();
   }
