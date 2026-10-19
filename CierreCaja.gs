@@ -95,6 +95,11 @@ function doPost(e) {
     }
 
     // La factura que llegó después de un ticket ya anotado (ver FacturaTicket.gs).
+    if (data.accionFacturaDeTicketDrive) {
+      return ContentService
+        .createTextOutput(JSON.stringify(facturaDeTicketSoloDrive_(data)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
     if (data.accionFacturaDeTicket) {
       return ContentService
         .createTextOutput(JSON.stringify(aplicarFacturaATickets_(data)))

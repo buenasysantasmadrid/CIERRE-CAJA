@@ -3211,7 +3211,7 @@
     if(si) si.addEventListener('click', function(){
       var e = elegidosAhora();
       if(!e.length) return;
-      ov.querySelector('.tickets-botones').innerHTML = '<div class="scan-status"><span class="scan-spinner"></span>Pasando la factura al ticket…</div>';
+      ov.querySelector('.tickets-botones').innerHTML = '<div class="scan-status"><span class="scan-spinner"></span>Pasando la factura al ticket… (unos 20 segundos)</div>';
       aplicarFacturaATickets(e, prov, parsed).then(function(){
         ov.remove();
         closeModal();
@@ -3226,16 +3226,31 @@
     var descripcion = (prov ? prov.proveedor : '?') + ', factura ' + (factura.numero || '?') + ' del ' + factura.fecha;
     var pdf = '';
     try { if(scanPaginas.length) pdf = pdfDeHojas(scanPaginas); } catch(e){}
+    var datos = { factura: factura,
+      proveedor: prov ? prov.proveedor : '', detalle: prov && prov.proveedor === 'Super' ? prov.detalle : '',
+      idEscaneo: scanIdFactura,
+      tickets: tickets.map(function(f){
+        return { fecha: f.fecha, idTurno: f.idTurno, idMovimiento: f.idMovimiento, importe: num(f.importe),
+          factura: f.factura || '', fechaFactura: f.fechaFactura || '', proveedorTexto: f.proveedorTexto || '' };
+      }) };
+    // Primero se pasa la factura a la caja (es lo que se espera en
+    // pantalla); el PDF en Drive va después, en otra llamada que no se espera.
+    function guardarEnDrive(){
+      var d = JSON.parse(JSON.stringify(datos));
+      d.accionFacturaDeTicketDrive = true;
+      d.pdfBase64 = pdf;
+      fetch(loadSheetUrl(), { method: 'POST', headers: {'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(d) })
+        .catch(function(err){
+          avisarErrorPorMail('una factura de ticket no se guardó en Drive', 'La factura (' + descripcion + ') ya está pasada a su ticket, pero el PDF no llegó al Apps Script (' + (err && err.message || 'sin conexión') + ').');
+        });
+    }
+    var cuerpo = JSON.parse(JSON.stringify(datos));
+    cuerpo.accionFacturaDeTicket = true;
+    cuerpo.sinDrive = true;
     return fetch(loadSheetUrl(), {
       method: 'POST',
       headers: {'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({ accionFacturaDeTicket: true, factura: factura,
-        proveedor: prov ? prov.proveedor : '', detalle: prov && prov.proveedor === 'Super' ? prov.detalle : '',
-        idEscaneo: scanIdFactura, pdfBase64: pdf,
-        tickets: tickets.map(function(f){
-          return { fecha: f.fecha, idTurno: f.idTurno, idMovimiento: f.idMovimiento, importe: num(f.importe),
-            factura: f.factura || '', fechaFactura: f.fechaFactura || '', proveedorTexto: f.proveedorTexto || '' };
-        }) })
+      body: JSON.stringify(cuerpo)
     }).then(function(r){ return r.json(); }).then(function(r){
       // Con que un ticket haya cambiado ya cuenta como hecho (lo que falló
       // en otro día lo avisa el Apps Script por email): así no se anota
@@ -3247,6 +3262,7 @@
         if(!r || !r.dias) avisarErrorPorMail('una factura no se pasó a su ticket', 'La factura (' + descripcion + ') no se pudo pasar a su ticket: ' + ((r && r.error) || 'respuesta vacía') + '.');
         throw new Error('no');
       }
+      guardarEnDrive();
       // Si la caja de uno de esos tickets es la que está en pantalla, se trae ya.
       if(tickets.some(function(f){ return f.fecha === state.fecha; })) revisarActualizacionesDesdeSheet();
     }, function(err){

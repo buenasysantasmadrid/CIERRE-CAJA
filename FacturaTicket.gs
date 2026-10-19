@@ -53,18 +53,13 @@ function aplicarFacturaATickets_(data) {
   });
   invalidarCacheListados_();
 
-  // Drive: primero los tickets a Albaranes y después la factura (así un
-  // número de factura que contenga el del ticket no se mueve por error).
-  try {
-    tickets.forEach(function (t) { moverTicketAAlbaranes_(t, String(data.proveedor || '').trim()); });
-  } catch (err) { resultado.errorTicketsDrive = String(err); }
-  try {
-    if (data.pdfBase64) {
-      resultado.foto = guardarFotoFactura_({
-        pdfBase64: data.pdfBase64, numero_factura: numero, idEscaneo: data.idEscaneo, detalle: data.detalle
-      }, String(data.proveedor || '').trim() || 'Sin proveedor', fechaFactura);
-    }
-  } catch (err) { resultado.errorFoto = String(err); }
+  // La app manda lo de Drive en otra llamada (sinDrive), para no tener la
+  // pantalla esperando: mover los PDF tarda.
+  if (!data.sinDrive) {
+    var d = facturaDeTicketEnDrive_(data);
+    if (d.errorFoto) resultado.errorFoto = d.errorFoto;
+    if (d.errorTicketsDrive) resultado.errorTicketsDrive = d.errorTicketsDrive;
+  }
 
   var cual = (data.proveedor || '?') + ', factura ' + (numero || '?') + ' del ' + fechaFactura;
   var fallos = resultado.dias.filter(function (d) { return !d.ok; }).map(function (d) { return '- caja del ' + d.fecha + ': ' + d.error; });
@@ -74,6 +69,41 @@ function aplicarFacturaATickets_(data) {
     avisarPorEmail_('algo falló al pasar una factura a su ticket', 'Al aplicar la factura (' + cual + ') a sus tickets:\n' + fallos.join('\n'));
   }
   return resultado;
+}
+
+// Drive: primero los tickets a Albaranes y después la factura (así un
+// número de factura que contenga el del ticket no se mueve por error).
+function facturaDeTicketEnDrive_(data) {
+  var f = data.factura || {};
+  var numero = String(f.numero || '').trim();
+  var fechaFactura = /^\d{4}-\d{2}-\d{2}$/.test(String(f.fecha || '')) ? f.fecha : hoyISO_();
+  var proveedor = String(data.proveedor || '').trim();
+  var r = { ok: true };
+  try {
+    (data.tickets || []).forEach(function (t) { moverTicketAAlbaranes_(t, proveedor); });
+  } catch (err) { r.ok = false; r.errorTicketsDrive = String(err); }
+  try {
+    if (data.pdfBase64) {
+      r.foto = guardarFotoFactura_({
+        pdfBase64: data.pdfBase64, numero_factura: numero, idEscaneo: data.idEscaneo, detalle: data.detalle
+      }, proveedor || 'Sin proveedor', fechaFactura);
+    }
+  } catch (err) { r.ok = false; r.errorFoto = String(err); }
+  return r;
+}
+
+// La llamada aparte de la app con el PDF (después de pasar la factura).
+function facturaDeTicketSoloDrive_(data) {
+  var r = facturaDeTicketEnDrive_(data);
+  var fallos = [];
+  if (r.errorFoto) fallos.push('- el PDF de la factura no se guardó en Drive: ' + r.errorFoto);
+  if (r.errorTicketsDrive) fallos.push('- no se pudo mover el PDF del ticket a Albaranes: ' + r.errorTicketsDrive);
+  if (fallos.length) {
+    var f = data.factura || {};
+    avisarPorEmail_('algo falló al guardar en Drive una factura de ticket',
+      'Factura ' + (f.numero || '?') + ' de ' + (data.proveedor || '?') + ' del ' + (f.fecha || '?') + ' (ya está pasada a su ticket en la caja):\n' + fallos.join('\n'));
+  }
+  return r;
 }
 
 // Un día: cambia los gastos de esos tickets en su turno, ajusta las cuentas
