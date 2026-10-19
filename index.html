@@ -2396,7 +2396,7 @@
     var texto = document.getElementById('dictarTexto').value.trim();
     if(!texto){ toast('Dicta o escribe los datos primero'); return; }
     var url = loadSheetUrl();
-    if(!hasValidSheetUrl(url)){ toast('No hay conexión configurada con el Sheet'); return; }
+    if(!hasValidSheetUrl(url)){ avisarErrorPorMail('la app no tiene configurada la conexión con el Sheet', 'Un dispositivo no tiene la dirección del Apps Script.'); return; }
     var btn = document.getElementById('dictarBtnCargar');
     btn.disabled = true;
     document.getElementById('dictarStatusLine').style.display = 'flex';
@@ -3535,7 +3535,7 @@
 
   document.getElementById('modalGuardar').addEventListener('click', function(){
     if(!currentTipo){ toast('Elegí un tipo de movimiento'); return; }
-    if(!modalTurno){ toast('Error interno: no se sabe a qué turno pertenece'); return; }
+    if(!modalTurno){ avisarErrorPorMail('error interno al guardar un movimiento', 'No se sabía a qué turno pertenecía el movimiento (tipo ' + currentTipo + ').'); return; }
     if(currentTipo === 'gasto' && !currentSubtipo){ toast('Elegí el tipo de pago (efectivo, tarjeta, etc.)'); return; }
     if(currentTipo === 'ingreso' && !currentSubtipo){ toast('Elegí el tipo de ingreso'); return; }
     if(currentTipo === 'egreso' && !currentSubtipo){ toast('Elige Varios o Sobrecito'); return; }
@@ -3625,7 +3625,6 @@
     renderMovimientos(t);
     recalc(t);
     closeModal();
-    toast('Movimiento guardado (' + TURNO_LABEL[t] + ')');
   });
 
   document.getElementById('modalClose').addEventListener('click', closeModal);
@@ -3696,7 +3695,6 @@
     renderMovimientos(t);
     recalc(t);
     closeModal();
-    toast('Movimiento eliminado (' + TURNO_LABEL[t] + ')');
   });
 
   // ---------- Albaranes: consultar y editar facturas/movimientos de proveedores ----------
@@ -4055,8 +4053,7 @@
     });
     cadena.then(function(){
       var modo = forma === 'tarjeta' ? 'con tarjeta' : 'por transferencia';
-      if(mal.length) alert(bien + ' marcados como pagados ' + modo + '. No se pudieron cambiar: ' + mal.join(', ') + '. Vuelve a intentarlo con esos.');
-      else toast((bien === 1 ? '1 albarán pagado ' : bien + ' albaranes pagados ') + modo);
+      if(mal.length) avisarErrorPorMail('algunos albaranes no se marcaron como pagados', bien + ' se marcaron como pagados ' + modo + '. No se pudieron cambiar: ' + mal.join(', ') + '. Hay que volver a marcarlos.');
       albaranesPagandoVarios = false;
       guardarPagosEnCaja(turnosConPago);
       buscarAlbaranes();
@@ -4191,7 +4188,7 @@
     cerrarPagoAlbaran();
     var fechaPago = state.fecha; // la caja en la que se paga (hoy, la que está en pantalla)
     var url = loadSheetUrl();
-    if(!hasValidSheetUrl(url)){ toast('No hay conexión configurada con el Sheet'); return; }
+    if(!hasValidSheetUrl(url)){ avisarErrorPorMail('la app no tiene configurada la conexión con el Sheet', 'Un dispositivo no tiene la dirección del Apps Script.'); return; }
     marcarPagoLocal(f, forma, fechaPago);
     fetch(url, {
       method: 'POST',
@@ -4200,18 +4197,17 @@
       keepalive: true
     }).then(function(resp){ return resp.json(); }).then(function(res){
       if(res && res.ok){
-        toast('Albarán marcado como pagado (' + (forma==='tarjeta'?'Tarjeta':'Transferencia') + ')');
         actualizarSubtipoAlbaranLocal(f, forma, fechaPago);
         var t1 = anotarPagoEnCaja(f, forma);
         if(t1){ var tt = {}; tt[t1] = true; guardarPagosEnCaja(tt); }
       } else {
         quitarPagoLocal(f);
-        toast('No se pudo actualizar el albarán: ' + ((res&&res.error)||'error desconocido'));
+        avisarErrorPorMail('un albarán no se marcó como pagado', 'El albarán de ' + (f.proveedorTexto || '?') + ' del ' + f.fecha + ' (' + fmt(f.importe) + ') no se pudo marcar como pagado: ' + ((res&&res.error)||'error desconocido') + '. Hay que volver a marcarlo.');
       }
       buscarAlbaranes();
     }).catch(function(err){
       quitarPagoLocal(f);
-      toast('No se pudo conectar con el Sheet (' + err.message + ')');
+      avisarErrorPorMail('un albarán no se marcó como pagado', 'El albarán de ' + (f.proveedorTexto || '?') + ' del ' + f.fecha + ' (' + fmt(f.importe) + ') no llegó al Sheet (' + err.message + '). Hay que volver a marcarlo.');
       buscarAlbaranes();
     });
   }
@@ -4258,7 +4254,6 @@
     saveDraft();
     renderMovimientos(turno);
     recalc(turno);
-    toast('Efectivo antiguo agregado a la caja de hoy (' + TURNO_LABEL[turno] + ')');
 
     marcarPagoLocal(f, 'efectivo_antiguo', fechaPago);
     var url = loadSheetUrl();
@@ -4270,12 +4265,12 @@
       keepalive: true
     }).then(function(resp){ return resp.json(); }).then(function(res){
       if(!(res && res.ok)){
-        toast('El movimiento de hoy se guardó, pero no se pudo actualizar el albarán viejo — revisalo a mano.');
+        avisarErrorPorMail('un albarán viejo no se marcó como pagado', 'Se anotó en la caja de hoy el pago en efectivo antiguo, pero el albarán viejo no se pudo marcar como pagado: ' + ((res&&res.error)||'error desconocido') + '. Hay que revisarlo a mano.');
       }
       actualizarSubtipoAlbaranLocal(f, 'efectivo_antiguo', fechaPago);
       buscarAlbaranes();
     }).catch(function(err){
-      toast('El movimiento de hoy se guardó, pero no se pudo actualizar el albarán viejo (sin conexión) — revisalo a mano.');
+      avisarErrorPorMail('un albarán viejo no se marcó como pagado', 'Se anotó en la caja de hoy el pago en efectivo antiguo, pero el albarán viejo no llegó al Sheet (sin conexión). Hay que revisarlo a mano.');
       buscarAlbaranes();
     });
   }
@@ -4348,13 +4343,12 @@
       return;
     }
     var url = loadSheetUrl();
-    if(!hasValidSheetUrl(url)){ toast('No hay conexión configurada con el Sheet'); return; }
-    toast('Cargando el día ' + fecha + '...');
+    if(!hasValidSheetUrl(url)){ avisarErrorPorMail('la app no tiene configurada la conexión con el Sheet', 'Un dispositivo no tiene la dirección del Apps Script.'); return; }
     guardarDiaActual();
     var getUrl = url + (url.indexOf('?')>-1?'&':'?') + 'fecha=' + encodeURIComponent(fecha);
     fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
       if(!data || !data.ok || !data.encontrado){
-        toast('No se encontró el día ' + fecha + ' en el Sheet');
+        avisarErrorPorMail('no se encontró un día en el Sheet', 'Se quiso abrir el día ' + fecha + ' desde Albaranes y el Sheet no lo tiene.');
         return;
       }
       var dia = {
@@ -4372,16 +4366,16 @@
       guardarDiaActual();
       abrirEdicionMovimiento(idTurno, idMovimiento);
     }).catch(function(err){
-      toast('Error al cargar el día: ' + err.message);
+      avisarErrorPorMail('no se pudo abrir un día', 'Al abrir el día ' + fecha + ' desde Albaranes falló: ' + err.message + '.');
     });
   }
 
   function abrirEdicionMovimiento(idTurno, idMovimiento){
     var turnoEncontrado = TURNOS.find(function(t){ return state[t].id === idTurno; }) ||
       TURNOS.find(function(t){ return (state[t].movimientos||[]).some(function(m){ return m.id === idMovimiento; }); });
-    if(!turnoEncontrado){ toast('No se encontró el movimiento en este día'); return; }
+    if(!turnoEncontrado){ avisarErrorPorMail('no se encontró un movimiento para editarlo', 'Movimiento ' + idMovimiento + ' (turno ' + idTurno + ') del ' + state.fecha + ': no está en esa caja.'); return; }
     var mov = state[turnoEncontrado].movimientos.find(function(m){ return m.id === idMovimiento; });
-    if(!mov){ toast('No se encontró el movimiento'); return; }
+    if(!mov){ avisarErrorPorMail('no se encontró un movimiento para editarlo', 'Movimiento ' + idMovimiento + ' del ' + state.fecha + ': no está en el turno.'); return; }
     // Al terminar con este movimiento (guardar, eliminar o cerrar) se
     // vuelve a la caja de hoy (ver closeModal).
     volverAHoyAlCerrar = true;
@@ -5052,7 +5046,6 @@
       pedirAlSheet({ accionDiariaGuardar: true, planilla: p, fecha: fecha, valores: valores }).then(function(d){
         estadoMenu(idDiaria(p, 'Estado'), '');
         if(document.getElementById(idDiaria(p, 'Fecha')).value === fecha) pintarDiaria(p, d);
-        toast(cfg.nombre + ' del ' + fechaCorta(fecha) + ' guardada');
         // Producción: al guardar se vuelve a la caja de hoy.
         if(p === 'produccion'){
           document.getElementById(idDiaria(p, 'Screen')).classList.remove('open');
@@ -5242,7 +5235,6 @@
       ['arregloElectro', 'arregloProveedor', 'arregloProblema', 'arregloArreglo', 'arregloImporte'].forEach(function(id){ document.getElementById(id).value = ''; });
       document.getElementById('arreglosBuscar').value = '';
       pintarArreglos(d.arreglos || []);
-      toast('Arreglo apuntado');
     }).catch(function(err){
       estadoMenu('arreglosEstado', 'No se pudo guardar. (' + err.message + ')', false, true);
     }).finally(function(){ btn.disabled = false; });
@@ -5417,7 +5409,6 @@
     pedirAlSheet({ accionCajitaGuardar: true, movimiento: mov, clave: cajitaClave }).then(function(d){
       llenarFormCajita(null);
       cargarCajita();
-      toast(editado ? 'Movimiento del sobrecito corregido' : (mov.tipo === 'ingreso' ? 'Ingreso apuntado en el sobrecito' : 'Egreso apuntado en el sobrecito'));
     }).catch(function(err){
       estadoMenu('cajitaEstado', 'No se pudo guardar. (' + err.message + ')', false, true);
     }).finally(function(){ btn.disabled = false; });
@@ -5473,7 +5464,6 @@
       cadena.then(function(d){
         estadoMenu('tintaEstado', '');
         pintarTinta(d);
-        toast(cambios.length > 1 ? 'Cambios de tinta apuntados' : 'Cambio de tinta apuntado');
       }).catch(function(err){
         estadoMenu('tintaEstado', 'No se pudo guardar. (' + err.message + ')', false, true);
       });
@@ -5517,7 +5507,6 @@
       saveDraft();
       preguntarGlovoAntesDeCerrar(t, function(){
         cerrarCierre(t);
-        toast(turnoCerrado(t) ? 'Cierre de ' + TURNO_LABEL[t] + ' guardado' : 'Guardado. Falta completar los pasos 1 y 2 de ' + TURNO_LABEL[t]);
       });
     });
     wireGlovo(t);
@@ -5916,7 +5905,6 @@
     if(reintentosConflicto[fecha] > 3){
       reintentosConflicto[fecha] = 0;
       logSheetStatus('La caja del ' + fecha + ' chocó varias veces seguidas con otro dispositivo (' + motivo + ').', true);
-      toast('La caja se está cambiando a la vez en otro dispositivo: se vuelve a intentar guardar en unos segundos.');
       setTimeout(function(){ if(state.fecha === fecha && state._sinSubir) scheduleAutoSync(); }, 15000);
       return;
     }
@@ -5932,7 +5920,6 @@
         else { store[fecha] = dia; saveDiasStore(store); }
         logSheetStatus('Otro dispositivo había cambiado la caja del ' + fecha + ': se juntaron los cambios de los dos.');
         if(hayQueMandar){
-          toast('Se juntaron tus cambios con los del otro dispositivo');
           if(dia === state) syncDraftToSheet(); else enviarDiaASheet(dia);
         }
       })
@@ -6004,7 +5991,6 @@
             var claveSobre = dia.fecha + ':' + nSobre + ':' + (res.cajita ? res.cajita.escritos : 'x');
             if(nSobre && claveSobre !== ultimoAvisoSobrecito && res.cajita && res.cajita.escritos === nSobre){
               ultimoAvisoSobrecito = claveSobre;
-              toast('Anotado en el sobrecito (' + nSobre + ')');
             }
           }
         } else {
@@ -6098,10 +6084,10 @@
           if(dia === state) guardarDiaActual();
           else { var st = getDiasStore(); st[dia.fecha] = dia; saveDiasStore(st); }
         }
-        toast(res && res.ok ? 'Día sincronizado con Google Sheets' : 'El Sheet respondió con un error');
+        if(!(res && res.ok)) avisarErrorPorMail('el Sheet respondió con un error al sincronizar', 'Al sincronizar la caja del ' + state.fecha + ' a mano: ' + ((res && res.error) || 'sin detalle') + '.');
       })
       .catch(function(){
-        toast('No se pudo enviar a Google Sheets (revisá conexión)');
+        avisarErrorPorMail('no se pudo sincronizar la caja', 'Al sincronizar la caja del ' + state.fecha + ' a mano no se llegó al Sheet (sin conexión).');
       });
   }
 
@@ -6564,7 +6550,7 @@
     }).catch(function(){
       // Sin conexión: se vuelve a preguntar al Sheet en la próxima revisión.
       avisoTpv1TraidoEn[mes] = 0;
-      toast('No se pudo guardar en el Sheet lo elegido del TPV 1 (sin conexión)');
+      avisarErrorPorMail('no se guardó lo elegido del TPV 1', 'Lo elegido en el aviso del TPV 1 (' + estado + ') no llegó al Sheet (sin conexión); se vuelve a preguntar.');
     });
   }
 

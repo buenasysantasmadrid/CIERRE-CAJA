@@ -50,5 +50,30 @@ if (-not (Get-Command clasp -ErrorAction SilentlyContinue)) {
   }
 }
 
+# --- 3) Errores de la app desde la última vez (pestaña "Errores" del Índice) ---
+# Con la clave de ClaveClaude.gs (no va al repositorio). Claude los lee y los
+# arregla sin que el usuario tenga que pasarle los emails.
+$archClave = Join-Path $raiz 'ClaveClaude.gs'
+if (Test-Path $archClave) {
+  $clave = [regex]::Match((Get-Content $archClave -Raw), "CLAVE_CLAUDE_ = '([^']+)'").Groups[1].Value
+  $marca = Join-Path $raiz '.claude\errores-ultima-revision.txt'
+  $desde = if (Test-Path $marca) { (Get-Content $marca -Raw).Trim() } else { (Get-Date).AddDays(-3).ToUniversalTime().ToString('o') }
+  $url = 'https://script.google.com/macros/s/AKfycbyrfOE73JqgjTXAEaLetRz8aJg1Ldb-Du4dsqGgW34H-zgwLSJMrAkSKApiTCoz6t7m_A/exec?errores=1&claveClaude=' + [uri]::EscapeDataString($clave) + '&desde=' + [uri]::EscapeDataString($desde)
+  try {
+    $r = Invoke-RestMethod -Uri $url -TimeoutSec 40
+    if ($r.ok) {
+      $n = @($r.errores).Count
+      if ($n -eq 0) { $avisos += "Errores de la app desde $desde : ninguno." }
+      else {
+        $lista = @($r.errores) | ForEach-Object { '- ' + $_.fecha + ' | ' + $_.asunto + ' | ' + (($_.detalle -replace "`r?`n", ' / ')) }
+        $avisos += "ERRORES DE LA APP desde $desde ($n) — revisarlos y arreglarlos:`n" + ($lista -join "`n")
+      }
+      (Get-Date).ToUniversalTime().ToString('o') | Set-Content $marca -Encoding utf8
+    } else { $avisos += 'No se pudo leer el registro de errores: ' + $r.error }
+  } catch { $avisos += 'No se pudo leer el registro de errores: ' + $_.Exception.Message }
+} else {
+  $avisos += 'Falta ClaveClaude.gs en este ordenador: no se pueden leer los errores de la app (copiarlo de Google con clasp clone).'
+}
+
 $texto = $avisos -join "`n"
 @{ systemMessage = $texto; hookSpecificOutput = @{ hookEventName = 'SessionStart'; additionalContext = $texto } } | ConvertTo-Json -Compress

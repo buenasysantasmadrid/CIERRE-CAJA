@@ -5,6 +5,7 @@
 var AVISOS_SILENCIO_SEG_ = 6 * 60 * 60;
 
 function avisarPorEmail_(asunto, detalle) {
+  registrarError_(asunto, detalle);
   try {
     var huella = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, asunto + '|' + detalle);
     var clave = 'aviso_' + Utilities.base64EncodeWebSafe(huella);
@@ -17,6 +18,52 @@ function avisarPorEmail_(asunto, detalle) {
     cache.put(clave, '1', AVISOS_SILENCIO_SEG_);
   } catch (err) {
     Logger.log('No se pudo mandar el aviso por email: ' + err);
+  }
+}
+
+// REGISTRO DE ERRORES — cada aviso queda también en la pestaña "Errores"
+// del Índice (fecha, asunto, detalle), para que Claude los lea solo desde el
+// ordenador (GET ?errores=1, ver doGet) y los arregle sin que haya que
+// pasarle los emails. El mismo aviso repetido se apunta como mucho una vez
+// cada 10 minutos. Se guardan los últimos 500.
+var ERRORES_PESTANA_ = 'Errores';
+function registrarError_(asunto, detalle) {
+  try {
+    var huella = Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, asunto + '|' + detalle));
+    var cache = CacheService.getScriptCache();
+    if (cache.get('registro_' + huella)) return;
+    cache.put('registro_' + huella, '1', 600);
+    var ss = SpreadsheetApp.openById(INDICE_SHEET_ID_);
+    var hoja = ss.getSheetByName(ERRORES_PESTANA_);
+    if (!hoja) {
+      hoja = ss.insertSheet(ERRORES_PESTANA_);
+      hoja.appendRow(['Fecha', 'Asunto', 'Detalle']);
+      hoja.setFrozenRows(1);
+    }
+    hoja.appendRow([new Date(), String(asunto).slice(0, 300), String(detalle || '').slice(0, 5000)]);
+    var sobran = hoja.getLastRow() - 1 - 500;
+    if (sobran > 50) hoja.deleteRows(2, sobran);
+  } catch (err) {
+    Logger.log('No se pudo apuntar el error en el registro: ' + err);
+  }
+}
+
+// Los errores apuntados desde `desde` (fecha ISO; sin ella, los de los
+// últimos 3 días), del más viejo al más nuevo.
+function leerRegistroErrores_(desde) {
+  try {
+    var hoja = SpreadsheetApp.openById(INDICE_SHEET_ID_).getSheetByName(ERRORES_PESTANA_);
+    if (!hoja || hoja.getLastRow() < 2) return { ok: true, errores: [] };
+    var limite = desde ? new Date(desde) : new Date(Date.now() - 3 * 24 * 3600 * 1000);
+    var filas = hoja.getRange(2, 1, hoja.getLastRow() - 1, 3).getValues();
+    return {
+      ok: true,
+      errores: filas.filter(function (f) { return f[0] instanceof Date && f[0] > limite; }).map(function (f) {
+        return { fecha: f[0].toISOString(), asunto: f[1], detalle: f[2] };
+      })
+    };
+  } catch (err) {
+    return { ok: false, error: String(err) };
   }
 }
 

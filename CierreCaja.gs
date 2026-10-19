@@ -786,8 +786,17 @@ function doGet(e) {
       .createTextOutput(JSON.stringify({ ok: true, login: true }))
       .setMimeType(ContentService.MimeType.JSON);
   }
+  // Claude (desde el ordenador, con CLAVE_CLAUDE_ de ClaveClaude.gs, que no
+  // va al repositorio) puede leer el registro de errores (?errores=1) y hacer
+  // las mismas consultas que la app, para encontrar y arreglar fallos solo.
+  var esClaude = typeof CLAVE_CLAUDE_ !== 'undefined' && CLAVE_CLAUDE_ && parametros.claveClaude === CLAVE_CLAUDE_;
+  if (esClaude && parametros.errores) {
+    return ContentService
+      .createTextOutput(JSON.stringify(leerRegistroErrores_(parametros.desde)))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
   // Todo lo demás necesita una sesión válida (ver "Acceso" al final).
-  if (!sesionValida_(parametros.sesion)) return respuestaSinSesion_();
+  if (!esClaude && !sesionValida_(parametros.sesion)) return respuestaSinSesion_();
 
   // Diagnóstico rápido desde el navegador (GET ?diag=1, opcionalmente
   // &fecha=YYYY-MM-DD): lista el nombre exacto de cada pestaña de la
