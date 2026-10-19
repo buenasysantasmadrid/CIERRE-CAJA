@@ -328,6 +328,8 @@
   .captura-chicos button svg{width:16px;height:16px;}
   .captura-chicos button.active{background:var(--green-soft);border-color:var(--green);}
   .captura .collapse.open{margin-top:10px;}
+  .tickets-falta{color:var(--red);font-weight:600;font-size:.9rem;}
+  .tickets-falta:empty{display:none;}
   .mov-ticket-paso{font-size:.8rem;color:var(--ink-soft);padding:0 12px 10px 56px;margin-top:-4px;line-height:1.4;}
   .scan-paginas{font-size:.82rem;color:var(--ink-soft);margin-bottom:8px;}
   /* ¿Es la factura de un ticket? (encima del formulario, debajo de las preguntas) */
@@ -3220,6 +3222,7 @@
       (todos ? '' : '<button type="button" data-tk="todos">El ticket no está: ver los de todos los proveedores</button>') +
       '<div class="tickets-total" data-total></div>' +
       (lista.length ? '<div class="tickets-sub">¿Quién lo pasa?</div>' + chipSelectHTML('quienPasa', null, quienesPueden, quienForm) : '') +
+      '<div class="tickets-falta" data-falta></div>' +
       '<div class="tickets-botones">' +
         '<button type="button" data-tk="no">' + (aMano ? 'Cancelar' : 'No, es una compra nueva') + '</button>' +
         (lista.length ? '<button type="button" class="btn-primary" data-tk="si">Sí, es su factura</button>' : '') +
@@ -3233,7 +3236,8 @@
     function quienAhora(){ var h = ov.querySelector('[data-field="quienPasa"]'); return h ? h.value : ''; }
     function pintarTotal(){
       var e = elegidosAhora(), el = ov.querySelector('[data-total]'), si = ov.querySelector('[data-tk="si"]');
-      if(si) si.disabled = !e.length || !quienAhora();
+      var falta = ov.querySelector('[data-falta]');
+      if(falta && e.length && quienAhora()) falta.textContent = '';
       if(!e.length){ el.textContent = ''; return; }
       var suma = e.reduce(function(s, f){ return s + num(f.importe); }, 0);
       var queda = importeFinalFactura(importe, ivaFactura, suma);
@@ -3255,12 +3259,15 @@
     var si = ov.querySelector('[data-tk="si"]');
     if(si) si.addEventListener('click', function(){
       var e = elegidosAhora();
-      if(!e.length) return;
-      ov.querySelector('.tickets-botones').innerHTML = '<div class="scan-status"><span class="scan-spinner"></span>Pasando la factura al ticket… (unos 20 segundos)</div>';
-      aplicarFacturaATickets(e, prov, parsed, quienAhora()).then(function(){
-        ov.remove();
-        closeModal();
-      }).catch(function(){ ov.remove(); });
+      var falta = ov.querySelector('[data-falta]');
+      if(!e.length){ falta.textContent = 'Falta marcar el ticket'; return; }
+      if(!quienAhora()){ falta.textContent = 'Falta elegir quién lo pasa'; return; }
+      // No se espera: el Apps Script tarda unos 20 segundos en rehacer la
+      // caja, Contabilidad y Albaranes. Si algo falla llega por email, y la
+      // caja en pantalla se actualiza sola cuando termina.
+      aplicarFacturaATickets(e, prov, parsed, quienAhora()).catch(function(){});
+      ov.remove();
+      closeModal();
     });
   }
 
@@ -3289,8 +3296,9 @@
         return { fecha: f.fecha, idTurno: f.idTurno, idMovimiento: f.idMovimiento, importe: num(f.importe),
           factura: f.factura || '', fechaFactura: f.fechaFactura || '', proveedorTexto: f.proveedorTexto || '' };
       }) };
-    // Primero se pasa la factura a la caja (es lo que se espera en
-    // pantalla); el PDF en Drive va después, en otra llamada que no se espera.
+    // Dos llamadas a la vez: la de la caja (rehace caja, Contabilidad y
+    // Albaranes) y la del PDF en Drive (tarda más). Así salen las dos aunque
+    // se cierre la app enseguida.
     function guardarEnDrive(){
       var d = JSON.parse(JSON.stringify(datos));
       d.accionFacturaDeTicketDrive = true;
@@ -3303,6 +3311,7 @@
     var cuerpo = JSON.parse(JSON.stringify(datos));
     cuerpo.accionFacturaDeTicket = true;
     cuerpo.sinDrive = true;
+    guardarEnDrive();
     return fetch(loadSheetUrl(), {
       method: 'POST',
       headers: {'Content-Type':'text/plain;charset=utf-8'},
@@ -3318,7 +3327,6 @@
         if(!r || !r.dias) avisarErrorPorMail('una factura no se pasó a su ticket', 'La factura (' + descripcion + ') no se pudo pasar a su ticket: ' + ((r && r.error) || 'respuesta vacía') + '.');
         throw new Error('no');
       }
-      guardarEnDrive();
       // Si la caja de uno de esos tickets es la que está en pantalla, se trae ya.
       if(tickets.some(function(f){ return f.fecha === state.fecha; })) revisarActualizacionesDesdeSheet();
     }, function(err){
