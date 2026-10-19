@@ -2324,7 +2324,12 @@ function escribirContabilidad_(data) {
     // Solo los turnos que se trabajaron: un turno sin nada cargado tiene
     // igual un fondo fijo (el de Noche sale de lo contado en Mediodía), y su
     // "diferencia" sería ese fondo entero en negativo.
-    var diferenciaDia = (mdActivo ? (cMd.diferencia || 0) : 0) + (ncActivo ? (cNc.diferencia || 0) : 0);
+    // Y solo si ya se contó el efectivo: un turno a medias (con gastos pero
+    // sin contar todavía) daría también el fondo entero en negativo (pasó el
+    // 19/10: Contabilidad mostraba −600 € a mitad del día).
+    var mdContado = mdActivo && (cMd.totalContado || 0) > 0;
+    var ncContado = ncActivo && (cNc.totalContado || 0) > 0;
+    var diferenciaDia = (mdContado ? (cMd.diferencia || 0) : 0) + (ncContado ? (cNc.diferencia || 0) : 0);
     var retiraDia = (cMd.egreso || 0) + (cNc.egreso || 0);
 
     hoja.getRange('A' + fila).setValue(diasHoy);
