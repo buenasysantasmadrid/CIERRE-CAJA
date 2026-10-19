@@ -320,6 +320,14 @@
   .scan-ok{font-size:.85rem;font-weight:600;color:var(--green);margin-bottom:8px;display:flex;gap:6px;align-items:center;}
   .resp-detalle{margin-top:8px;}
   .scan-box + .scan-box{margin-top:10px;}
+  /* Proveedores: botón grande "Foto" y debajo, más chicos, Subir imagen y Dictar */
+  .btn-foto-grande{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;min-height:72px;border-radius:16px;border:none;background:#1F5FA8;color:#fff;font-size:1.35rem;font-weight:700;}
+  .btn-foto-grande svg{width:30px;height:30px;}
+  .captura-chicos{display:flex;gap:8px;margin-top:8px;}
+  .captura-chicos button{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:12px;min-height:40px;font-size:.86rem;}
+  .captura-chicos button svg{width:16px;height:16px;}
+  .captura-chicos button.active{background:var(--green-soft);border-color:var(--green);}
+  .captura .collapse.open{margin-top:10px;}
   .scan-paginas{font-size:.82rem;color:var(--ink-soft);margin-bottom:8px;}
   .scan-paginas:empty{display:none;}
   /* Escáner: pantalla completa para ajustar las esquinas de la hoja */
@@ -1864,7 +1872,7 @@
     var gExisting = existing && existing.tipo === 'gasto' ? existing : null;
     currentSubtipo = gExisting ? gExisting.subtipo : null;
     pagoEdicion = datosPagoEdicion(gExisting);
-    document.getElementById('scanSlot').innerHTML = scanBoxHTML() + dictarBoxHTML('gasto');
+    document.getElementById('scanSlot').innerHTML = scanBoxHTML();
     wireScanUI();
     wireDictarUI();
     document.getElementById('levelTwoLabel').textContent = '¿Cómo se pagó?';
@@ -2211,17 +2219,17 @@
   }
 
   // ---------- Escanear factura (Libro de Facturas / Supabase) ----------
+  // Proveedores: a la vista, sin desplegar nada, un botón grande "Foto"
+  // (abre la cámara) y debajo, más chicos, "Subir imagen" y "Dictar".
   function scanBoxHTML(){
-    return '<div class="scan-box">' +
-        '<div class="scan-head">' +
-          '<span class="ttl">'+icon('camera')+'Escanear factura</span>' +
-          '<button type="button" id="scanToggleBtn">Usar foto</button>' +
+    return '<div class="captura">' +
+        '<button type="button" class="btn-foto-grande" id="scanBtnCamera">'+icon('camera')+'Foto</button>' +
+        '<div class="captura-chicos">' +
+          '<button type="button" id="scanBtnUpload">'+icon('photo')+'Subir imagen</button>' +
+          '<button type="button" id="dictarToggleBtn" data-sin-texto>'+icon('mic')+'Dictar</button>' +
         '</div>' +
-        '<div class="collapse" id="scanContent">' +
-          '<div class="scan-actions">' +
-            '<button type="button" id="scanBtnCamera">'+icon('camera')+'Tomar foto</button>' +
-            '<button type="button" id="scanBtnUpload">'+icon('photo')+'Subir imagen</button>' +
-          '</div>' +
+        dictarContenidoHTML('gasto') +
+        '<div>' +
           '<input type="file" id="scanFileCamera" accept="image/*" capture="environment" style="display:none;">' +
           '<input type="file" id="scanFileUpload" accept="image/*" style="display:none;">' +
           '<div class="scan-preview" id="scanPreviewRow" style="display:none;">' +
@@ -2264,7 +2272,12 @@
           '<span class="ttl">'+icon('mic')+txt.titulo+'</span>' +
           '<button type="button" id="dictarToggleBtn">Usar voz</button>' +
         '</div>' +
-        '<div class="collapse" id="dictarContent">' +
+        dictarContenidoHTML(tipo) +
+      '</div>';
+  }
+  function dictarContenidoHTML(tipo){
+    var txt = DICTAR_TEXTOS[tipo || 'gasto'];
+    return '<div class="collapse" id="dictarContent">' +
           '<textarea id="dictarTexto" class="dictar-texto" placeholder="'+escapeHtml(txt.ejemplo)+'"></textarea>' +
           '<div class="scan-status" id="dictarStatusLine" style="display:none;"><span class="scan-spinner"></span><span id="dictarStatusText">Entendiendo…</span></div>' +
           '<div class="scan-error" id="dictarErrorLine" style="display:none;"></div>' +
@@ -2273,8 +2286,7 @@
             (SpeechRec ? '<button type="button" id="dictarBtnMic">'+icon('mic')+'Hablar</button>' : '') +
             '<button type="button" class="btn-primary" id="dictarBtnCargar">Cargar datos</button>' +
           '</div>' +
-        '</div>' +
-      '</div>';
+        '</div>';
   }
 
   function wireDictarUI(){
@@ -2284,7 +2296,9 @@
     toggleBtn.addEventListener('click', function(){
       var abrir = !content.classList.contains('open');
       content.classList.toggle('open', abrir);
-      this.textContent = abrir ? 'Ocultar' : 'Usar voz';
+      if(this.hasAttribute('data-sin-texto')) this.classList.toggle('active', abrir);
+      else this.textContent = abrir ? 'Ocultar' : 'Usar voz';
+      if(abrir) texto.focus();
     });
     document.getElementById('dictarBtnCargar').addEventListener('click', cargarDictado);
 
@@ -2476,14 +2490,7 @@
     scanImageBase64 = null;
     scanMediaType = null;
     scanPaginas = [];
-
-    var toggleBtn = document.getElementById('scanToggleBtn');
-    var content = document.getElementById('scanContent');
-    toggleBtn.addEventListener('click', function(){
-      var abrir = !content.classList.contains('open');
-      content.classList.toggle('open', abrir);
-      this.textContent = abrir ? 'Ocultar' : 'Usar foto';
-    });
+    scanUltimaLectura = null;
 
     var fileCamera = document.getElementById('scanFileCamera');
     var fileUpload = document.getElementById('scanFileUpload');
@@ -2504,7 +2511,9 @@
   // con "Añadir hoja" y va toda junta. En Drive queda un PDF (Facturas
   // proveedores / año / mes / proveedor, ver Precios.gs): es el que se
   // presenta para los impuestos.
-  var scanPaginas = [];        // hojas ya escaneadas: {url (JPEG), w, h}
+  var scanPaginas = [];        // hojas ya escaneadas: {url (JPEG), w, h, leer}
+  var scanUltimaLectura = null; // lo que leyó Claude de esta factura (para volver a guardar el PDF)
+  var scanIdFactura = '';       // hora del primer escaneo: nombre del PDF si la factura no tiene número
   var ESCANER_MAX_LADO = 2400; // unos 200 ppp en un A4
   var ESCANER_MAX_ORIGEN = 3200;
 
@@ -2617,6 +2626,15 @@
           limpiarFondo(hoja);
           scanPaginas.push({ url: hoja.toDataURL('image/jpeg', 0.85), w: hoja.width, h: hoja.height, leer: versionParaLeer(hoja) });
           prepararLecturaScan();
+          // La primera hoja se lee sola (y así el PDF queda en Drive aunque
+          // no se toque "Extraer datos"); una hoja añadida después solo
+          // vuelve a guardar el PDF con todas.
+          if(scanPaginas.length === 1){
+            var ahora = new Date();
+            scanIdFactura = [ahora.getHours(), ahora.getMinutes(), ahora.getSeconds()].map(function(n){ return ('0' + n).slice(-2); }).join('.');
+            extractInvoiceViaAI(0);
+          }
+          else if(scanUltimaLectura) mandarFotoParaPrecios(scanUltimaLectura, true);
         } catch(err){
           toast('No se pudo escanear la foto: ' + err.message);
         }
@@ -2817,6 +2835,7 @@
     scanImageBase64 = null;
     scanMediaType = null;
     scanPaginas = [];
+    scanUltimaLectura = null;
     var row = document.getElementById('scanPreviewRow');
     if(row) row.style.display = 'none';
     var fc = document.getElementById('scanFileCamera'); if(fc) fc.value = '';
@@ -2917,13 +2936,14 @@
   // todas las hojas) en Drive y pasa los precios de cada producto a la app
   // de Pedidos (Precios.gs). Nadie espera la respuesta y si falla no pasa
   // nada (salvo un aviso si no se pudo guardar el PDF).
-  function mandarFotoParaPrecios(parsed){
+  function mandarFotoParaPrecios(parsed, soloPdf){
     try {
       if(!scanImageBase64 || !scanPaginas.length) return;
+      scanUltimaLectura = parsed;
       fetch(loadSheetUrl(), {
         method: 'POST',
         headers: {'Content-Type':'text/plain;charset=utf-8'},
-        body: JSON.stringify({ accionPreciosFactura: true, imageBase64: scanImageBase64, mediaType: scanMediaType,
+        body: JSON.stringify({ accionPreciosFactura: true, soloPdf: !!soloPdf, idEscaneo: scanIdFactura, imageBase64: scanImageBase64, mediaType: scanMediaType,
           imagenes: imagenesParaLeer(), pdfBase64: pdfDeHojas(scanPaginas),
           proveedor: parsed.proveedor_lista || parsed.proveedor || '', numero_factura: parsed.numero_factura || '', fecha: parsed.fecha || '' })
       }).then(function(resp){ return resp.json(); }).then(function(r){

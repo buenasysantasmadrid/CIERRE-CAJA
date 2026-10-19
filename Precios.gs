@@ -21,6 +21,9 @@ function preciosFactura_(data) {
     ? data.fecha : Utilities.formatDate(new Date(), 'Europe/Madrid', 'yyyy-MM-dd');
   var res = { ok: true };
   try { res.foto = guardarFotoFactura_(data, proveedor, fecha); } catch (err) { res.errorFoto = String(err); }
+  // soloPdf: se añadió una hoja a una factura ya leída — solo se vuelve a
+  // guardar el PDF (los precios ya se mandaron).
+  if (data.soloPdf) return res;
   try { res.precios = mandarPreciosAPedidos_(data, proveedor, fecha, res.foto || ''); } catch (err) { res.errorPrecios = String(err); }
   return res;
 }
@@ -42,10 +45,12 @@ function sinCaracteresRaros_(s) {
 // añadió una hoja).
 function guardarFotoFactura_(data, proveedor, fecha) {
   var raiz = carpetaHija_(DriveApp.getRootFolder(), CARPETA_FACTURAS_);
+  compartirCarpetaFacturas_(raiz);
   var dir = carpetaHija_(carpetaHija_(carpetaHija_(raiz, fecha.slice(0, 4)), fecha.slice(5, 7)), sinCaracteresRaros_(proveedor));
   var esPdf = !!data.pdfBase64;
   var tipo = esPdf ? 'application/pdf' : (data.mediaType || 'image/jpeg');
-  var numero = String(data.numero_factura || '').trim();
+  // Sin número de factura, la hora del primer escaneo (la manda la app).
+  var numero = String(data.numero_factura || '').trim() || String(data.idEscaneo || '').trim();
   var nombre = sinCaracteresRaros_(fecha + ' ' + proveedor + ' ' +
     (numero || Utilities.formatDate(new Date(), 'Europe/Madrid', 'HH.mm.ss'))) + (esPdf ? '.pdf' : (tipo === 'image/png' ? '.png' : '.jpg'));
   if (numero) {
@@ -54,6 +59,19 @@ function guardarFotoFactura_(data, proveedor, fecha) {
   }
   var blob = Utilities.newBlob(Utilities.base64Decode(esPdf ? data.pdfBase64 : data.imageBase64), tipo, nombre);
   return dir.createFile(blob).getUrl();
+}
+
+// La carpeta está en el Drive del dueño del script (lfisbein@gmail.com,
+// porque la app corre como él): se comparte con la cuenta del restaurante
+// para que la vea en "Compartido conmigo". Una sola vez.
+var COMPARTIR_FACTURAS_CON_ = ['buenasysantasmadrid@gmail.com'];
+function compartirCarpetaFacturas_(carpeta) {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('facturas_compartida') === carpeta.getId()) return;
+  try {
+    carpeta.addEditors(COMPARTIR_FACTURAS_CON_);
+    props.setProperty('facturas_compartida', carpeta.getId());
+  } catch (err) { /* que no impida guardar la factura; se reintenta la próxima vez */ }
 }
 
 // Las hojas de la factura para Claude: todas las que mandó la app (o la
