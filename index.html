@@ -3114,21 +3114,22 @@
     return out;
   }
 
-  function buscarTicketsDeFactura(parsed, aMano){
+  // todos: "No está en la lista" → los tickets de todos los proveedores.
+  function buscarTicketsDeFactura(parsed, aMano, todos){
     var sel = document.getElementById('proveedorSelect');
     var prov = aMano && sel && sel.value
       ? { proveedor: sel.value, detalle: (document.getElementById('proveedorDetalleInput') || {}).value || '' }
       : proveedorDeLectura(parsed);
-    if(!prov){ if(aMano) mostrarElegirTickets(null, [], [], parsed, aMano); return; }
+    if(!prov && !todos){ if(aMano) mostrarElegirTickets(null, [], [], parsed, aMano); return; }
     var url = loadSheetUrl();
     if(!hasValidSheetUrl(url)) return;
     // Un mismo proveedor puede estar anotado de varias formas (ej. Dia:
     // "Dia Carne", "Super — DIA", "Super — GRUPO DIA"): se traen todos los
     // gastos y se quedan los que comparten nombre (ver palabrasProveedor).
-    var claves = palabrasProveedor((prov.proveedor === 'Super' || prov.proveedor === 'Varios' ? '' : prov.proveedor) + ' ' + (prov.detalle || ''));
-    var getUrl = url + (url.indexOf('?') > -1 ? '&' : '?') + 'listarFacturas=1' + (claves.length ? '' : '&proveedor=' + encodeURIComponent(prov.proveedor) +
+    var claves = todos ? [] : palabrasProveedor((prov.proveedor === 'Super' || prov.proveedor === 'Varios' ? '' : prov.proveedor) + ' ' + (prov.detalle || ''));
+    var getUrl = url + (url.indexOf('?') > -1 ? '&' : '?') + 'listarFacturas=1' + (claves.length || todos ? '' : '&proveedor=' + encodeURIComponent(prov.proveedor) +
       (prov.proveedor === 'Varios' && prov.detalle ? '&detalle=' + encodeURIComponent(prov.detalle) : ''));
-    fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
+    return fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
       if(!data || !data.ok) throw new Error((data && data.error) || 'sin respuesta');
       var form = collectForm();
       var importe = num(form.importe) || num(parsed.importe_total);
@@ -3140,17 +3141,21 @@
           if(!claves.some(function(c){ return suyas.indexOf(c) > -1; })) return false;
         }
         if(!(num(f.importe) > 0) || yaTieneFacturaDeTicket(f)) return false;
-        if(numeroF && normNumDoc(f.factura) === numeroF) return false; // es esta misma factura
         var ff = f.fechaFactura || f.fecha;
         // A mano se deja algo de margen por si la fecha de la factura se leyó mal.
         if(ff > sumarDiasISO(fechaF, aMano ? 7 : 0) || ff < sumarDiasISO(fechaF, -75)) return false;
         return true;
       });
-      var elegidos = aMano ? [] : ticketsQueEncajan(candidatos, parsed, importe, fechaF);
+      // Mismo número que el ticket: en las facturas de Dia sale el número
+      // del ticket bien grande y a veces se lee ese. A mano, ese es el ticket;
+      // solo (con "Foto"), es que se volvió a escanear el mismo ticket.
+      var mismoNumero = candidatos.filter(function(f){ return numeroF && normNumDoc(f.factura) === numeroF; });
+      if(!aMano) candidatos = candidatos.filter(function(f){ return mismoNumero.indexOf(f) === -1; });
+      var elegidos = aMano ? mismoNumero : ticketsQueEncajan(candidatos, parsed, importe, fechaF);
       if(!aMano && !elegidos.length) return; // no encaja nada: es una compra nueva, no se pregunta
-      mostrarElegirTickets(prov, candidatos, elegidos, parsed, aMano);
+      mostrarElegirTickets(prov, candidatos, elegidos, parsed, aMano, todos);
     }).catch(function(err){
-      if(aMano) avisarErrorPorMail('no se pudo buscar el ticket de una factura', 'Al buscar los tickets de ' + prov.proveedor + ' falló: ' + err.message + '.');
+      if(aMano) avisarErrorPorMail('no se pudo buscar el ticket de una factura', 'Al buscar los tickets de ' + (prov ? prov.proveedor : 'todos los proveedores') + ' falló: ' + err.message + '.');
     });
   }
 
@@ -3183,7 +3188,7 @@
     return [];
   }
 
-  function mostrarElegirTickets(prov, candidatos, elegidos, parsed, aMano){
+  function mostrarElegirTickets(prov, candidatos, elegidos, parsed, aMano, todos){
     var form = collectForm();
     var importe = num(form.importe) || num(parsed.importe_total);
     var ivaFactura = num(form.iva) || num(parsed.importe_iva);
@@ -3191,7 +3196,7 @@
     var marcados = {};
     elegidos.forEach(function(f){ marcados[f.idMovimiento] = true; });
     // Primero los que encajan, después el resto (los más nuevos arriba).
-    var lista = elegidos.concat(candidatos.filter(function(f){ return !marcados[f.idMovimiento]; })).slice(0, 25);
+    var lista = elegidos.concat(candidatos.filter(function(f){ return !marcados[f.idMovimiento]; })).slice(0, todos ? 80 : 25);
     function fechaCorta(iso){ var p = String(iso || '').split('-'); return p.length === 3 ? p[2] + '/' + p[1] : iso; }
     // Quién lo pasa (queda apuntado en el movimiento): el empleado elegido
     // en el formulario, si ya se eligió.
@@ -3205,13 +3210,14 @@
       '<h3>' + (aMano ? '¿De qué ticket es esta factura?' : (elegidos.length > 1 ? '¿Es la factura de estos tickets?' : '¿Es la factura de este ticket?')) + '</h3>' +
       '<div class="tickets-sub">Factura ' + escapeHtml(numero || 'sin número') + (prov ? ' de ' + escapeHtml(prov.proveedor === 'Super' && prov.detalle ? prov.detalle : prov.proveedor) : '') + ' · ' + fmt(importe) + '</div>' +
       (lista.length ? '<div class="tickets-lista">' + lista.map(function(f, i){
-        return (i === elegidos.length && elegidos.length ? '<div class="tickets-sep">Otros de este proveedor</div>' : '') +
+        return (i === elegidos.length && elegidos.length ? '<div class="tickets-sep">' + (todos ? 'Otros' : 'Otros de este proveedor') + '</div>' : '') +
           '<label class="tickets-fila"><input type="checkbox" data-i="' + i + '"' + (marcados[f.idMovimiento] ? ' checked' : '') + '>' +
-          '<span class="tickets-txt"><b>' + fechaCorta(f.fechaFactura || f.fecha) + '</b> · ' + escapeHtml(f.factura ? 'Nº ' + f.factura : 'sin número') +
+          '<span class="tickets-txt"><b>' + fechaCorta(f.fechaFactura || f.fecha) + '</b> · ' + (todos ? escapeHtml(f.proveedorTexto || '') + ' · ' : '') + escapeHtml(f.factura ? 'Nº ' + f.factura : 'sin número') +
           '<span class="muted"> · ' + escapeHtml(f.subtipo || '') + '</span></span>' +
           '<span class="tickets-imp">' + fmt(f.importe) + '</span></label>';
       }).join('') + '</div>'
-      : '<p class="muted">No hay tickets ' + (prov ? 'de ' + escapeHtml(prov.proveedor) + ' ' : '') + 'sin factura en los últimos 2 meses' + (prov ? '' : ' (elige primero el proveedor)') + '.</p>') +
+      : '<p class="muted">No hay tickets ' + (prov && !todos ? 'de ' + escapeHtml(prov.proveedor) + ' ' : '') + 'sin factura en los últimos 2 meses.</p>') +
+      (todos ? '' : '<button type="button" data-tk="todos">El ticket no está: ver los de todos los proveedores</button>') +
       '<div class="tickets-total" data-total></div>' +
       (lista.length ? '<div class="tickets-sub">¿Quién lo pasa?</div>' + chipSelectHTML('quienPasa', null, quienesPueden, quienForm) : '') +
       '<div class="tickets-botones">' +
@@ -3238,6 +3244,14 @@
     ov.addEventListener('change', pintarTotal);
     pintarTotal();
     ov.querySelector('[data-tk="no"]').addEventListener('click', function(){ ov.remove(); });
+    var verTodos = ov.querySelector('[data-tk="todos"]');
+    if(verTodos) verTodos.addEventListener('click', function(){
+      verTodos.disabled = true;
+      verTodos.textContent = 'Buscando…';
+      // Se abre la lista nueva encima y después se quita esta.
+      var p = buscarTicketsDeFactura(parsed, true, true);
+      if(p) p.then(function(){ ov.remove(); }); else ov.remove();
+    });
     var si = ov.querySelector('[data-tk="si"]');
     if(si) si.addEventListener('click', function(){
       var e = elegidosAhora();
@@ -3259,6 +3273,8 @@
   }
 
   function aplicarFacturaATickets(tickets, prov, parsed, quien){
+    // Sin proveedor elegido (lista de todos): el del ticket.
+    if(!prov && tickets.length) prov = { proveedor: String(tickets[0].proveedorTexto || '').split(' —')[0].trim(), detalle: '' };
     var form = collectForm();
     var factura = { numero: form.factura || parsed.numero_factura || '', fecha: form.fecha || parsed.fecha || todayISO(),
       importe: num(form.importe) || num(parsed.importe_total), iva: num(form.iva) || num(parsed.importe_iva) };

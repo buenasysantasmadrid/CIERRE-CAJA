@@ -2749,7 +2749,8 @@ var INSTRUCCIONES_FACTURA =
   'repartidor ni teléfono (por ejemplo, en las facturas de Sodexo/Disbesa el "Nº cliente" no es el número de factura). ' +
   'Si hay número de factura y de albarán, pon el de factura. Si no se ve claramente, déjalo vacío.\n' +
   '- fecha: fecha de la factura en formato YYYY-MM-DD.\n' +
-  '- importe_total: total a pagar, IVA incluido.\n' +
+  '- importe_total: total a pagar, IVA incluido (en un ticket, el "TOTAL" o "TOTAL A PAGAR" que se pagó, no la base ' +
+  'del desglose de IVA). Comprueba que sea base_imponible + importe_iva; si no cuadra, vuelve a mirarlo.\n' +
   '- importe_iva: suma de todas las cuotas de IVA (si hay varios tipos, súmalas).\n' +
   '- base_imponible: suma de las bases imponibles.\n' +
   '- tipo_iva: porcentaje o porcentajes de IVA, por ejemplo "10" o "4, 10, 21".\n' +
@@ -2772,9 +2773,18 @@ function escanearFactura_(data) {
   if (!data.imageBase64) return { ok: false, error: 'No llegó la foto' };
   var lista = (data.proveedores || []).join('\n');
   // Una imagen por hoja de la factura (ver imagenesFactura_ en Precios.gs).
-  return pedirJsonAClaude_(imagenesFactura_(data).concat([
+  var r = pedirJsonAClaude_(imagenesFactura_(data).concat([
     { type: 'text', text: INSTRUCCIONES_FACTURA + '\n\nProveedores habituales:\n' + (lista || '(no hay lista)') }
   ]), ESQUEMA_FACTURA);
+  // A veces (tickets de Dia) da como total la base: el total es base + IVA.
+  if (r && r.ok !== false) {
+    var n = function (x) { return parseFloat(String(x || '').replace(',', '.')) || 0; };
+    var total = n(r.importe_total), base = n(r.base_imponible), iva = n(r.importe_iva);
+    if (base > 0 && iva > 0 && Math.abs(total - (base + iva)) > 0.02 && (Math.abs(total - base) <= 0.02 || !total)) {
+      r.importe_total = (Math.round((base + iva) * 100) / 100).toFixed(2);
+    }
+  }
+  return r;
 }
 
 var ESQUEMA_DICTADO = {
