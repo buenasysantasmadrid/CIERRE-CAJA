@@ -53,8 +53,7 @@ function sinCaracteresRaros_(s) {
 // (mismo proveedor, fecha y número) reemplaza a la anterior (por si se le
 // añadió una hoja).
 function guardarFotoFactura_(data, proveedor, fecha) {
-  var raiz = carpetaHija_(DriveApp.getRootFolder(), CARPETA_FACTURAS_);
-  compartirCarpetaFacturas_(raiz);
+  var raiz = carpetaFacturas_();
   var dir = carpetaHija_(carpetaHija_(carpetaHija_(raiz, fecha.slice(0, 4)), fecha.slice(5, 7)), sinCaracteresRaros_(proveedor));
   var esPdf = !!data.pdfBase64;
   var tipo = esPdf ? 'application/pdf' : (data.mediaType || 'image/jpeg');
@@ -81,28 +80,53 @@ function guardarFotoFactura_(data, proveedor, fecha) {
   return archivo.getUrl();
 }
 
-// La carpeta está en el Drive del dueño del script (lfisbein@gmail.com,
-// porque la app corre como él): se comparte con la cuenta del restaurante
-// para que la vea en "Compartido conmigo". Una sola vez.
-var COMPARTIR_FACTURAS_CON_ = ['buenasysantasmadrid@gmail.com'];
-function compartirCarpetaFacturas_(carpeta) {
-  var props = PropertiesService.getScriptProperties();
-  if (props.getProperty('facturas_compartida') === carpeta.getId()) return;
+// La carpeta de las facturas es la de buenasysantasmadrid ("Mi unidad /
+// Facturas proveedores"): la app corre como lfisbein, así que esa carpeta
+// tiene que estar compartida con lfisbein como editor. Si no se puede abrir
+// (todavía no compartida), se guardan en la de lfisbein y llega un email.
+var CARPETA_FACTURAS_ID_ = '15R08k4qgm84msoGqxpUnMtU7sLeczWCz';
+function carpetaFacturas_() {
   try {
-    carpeta.addEditors(COMPARTIR_FACTURAS_CON_);
-    props.setProperty('facturas_compartida', carpeta.getId());
-  } catch (err) { /* que no impida guardar la factura; se reintenta la próxima vez */ }
+    var c = DriveApp.getFolderById(CARPETA_FACTURAS_ID_);
+    c.getName(); // falla aquí si no hay acceso
+    return c;
+  } catch (err) {
+    avisarPorEmail_('las facturas se están guardando en el Drive de lfisbein',
+      'No se puede abrir la carpeta "Facturas proveedores" de buenasysantasmadrid (' + err + ').\n' +
+      'Hay que compartirla con lfisbein@gmail.com como editor. Mientras tanto las facturas van a "Facturas proveedores" en el Drive de lfisbein, y se pasarán solas a la buena cuando esté compartida.');
+    return carpetaHija_(DriveApp.getRootFolder(), CARPETA_FACTURAS_);
+  }
 }
 
-// Lo mismo desde cada guardado de la caja (doPost), para que la carpeta que
-// ya existía se comparta sin esperar a la próxima factura. Una vez hecho, no
-// vuelve a mirar Drive.
+// Desde cada guardado de la caja (doPost): si la carpeta de buenasysantas ya
+// se puede usar y quedaron facturas en la de lfisbein, se pasan a la buena
+// (juntando año / mes / proveedor) y la vieja se tira a la papelera.
 function asegurarCarpetaFacturasCompartida_() {
   try {
-    if (PropertiesService.getScriptProperties().getProperty('facturas_compartida')) return;
-    var it = DriveApp.getRootFolder().getFoldersByName(CARPETA_FACTURAS_);
-    if (it.hasNext()) compartirCarpetaFacturas_(it.next());
-  } catch (err) { /* no importa: se intenta en el próximo guardado */ }
+    var props = PropertiesService.getScriptProperties();
+    if (props.getProperty('facturas_unificadas') === CARPETA_FACTURAS_ID_) return;
+    var buena = DriveApp.getFolderById(CARPETA_FACTURAS_ID_);
+    buena.getName();
+    var viejas = DriveApp.getRootFolder().getFoldersByName(CARPETA_FACTURAS_);
+    while (viejas.hasNext()) {
+      var vieja = viejas.next();
+      if (vieja.getId() === CARPETA_FACTURAS_ID_) continue;
+      juntarCarpetas_(vieja, buena);
+      vieja.setTrashed(true);
+    }
+    props.setProperty('facturas_unificadas', CARPETA_FACTURAS_ID_);
+  } catch (err) { /* todavía no compartida: se intenta en el próximo guardado */ }
+}
+function juntarCarpetas_(origen, destino) {
+  var archivos = origen.getFiles();
+  while (archivos.hasNext()) archivos.next().moveTo(destino);
+  var subs = origen.getFolders();
+  while (subs.hasNext()) {
+    var sub = subs.next();
+    var igual = destino.getFoldersByName(sub.getName());
+    if (igual.hasNext()) { juntarCarpetas_(sub, igual.next()); sub.setTrashed(true); }
+    else sub.moveTo(destino);
+  }
 }
 
 // Las hojas de la factura para Claude: todas las que mandó la app (o la
