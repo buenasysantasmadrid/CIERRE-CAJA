@@ -150,7 +150,7 @@ function arreglarTotalesGlovo_(ss, anio) {
   for (var mes = 10; mes <= 12; mes++) {
     if (anio < 2026) break;
     var hoja = ss.getSheetByName(MESES_MAYUS_[mes - 1]);
-    var marca = 'glovo_totales_v2_' + ss.getId() + '_' + mes;
+    var marca = 'glovo_totales_v3_' + ss.getId() + '_' + mes;
     if (!hoja || props.getProperty(marca)) continue;
     if (normalizarClave_(hoja.getRange('H' + (GLOVO_TOTALES_FILA_ - 1)).getValue()) !== 'TOTALES') continue; // otra forma: no se toca
     var diasDelMes = new Date(anio, mes, 0).getDate();
@@ -165,6 +165,13 @@ function arreglarTotalesGlovo_(ss, anio) {
     var f0 = GLOVO_TOTALES_FILA_, f1 = GLOVO_TOTALES_FILA_ + 30;
     hoja.getRange('I' + f0 + ':I' + f1).setValues(filasLocales_(hoja, filasI));
     hoja.getRange('L' + f0 + ':L' + f1).setValues(filasLocales_(hoja, filasL));
+    // J y M: del 1 al 15 (en la fila del día 15) y del 16 a fin de mes (en
+    // la del día 31).
+    var f15 = f0 + 14;
+    hoja.getRange('J' + f15).setFormula('=SUM(I' + f0 + ':I' + f15 + ')');
+    hoja.getRange('M' + f15).setFormula('=SUM(L' + f0 + ':L' + f15 + ')');
+    hoja.getRange('J' + f1).setFormula('=SUM(I' + (f15 + 1) + ':I' + f1 + ')');
+    hoja.getRange('M' + f1).setFormula('=SUM(L' + (f15 + 1) + ':L' + f1 + ')');
     var quitados = quitarRepetidosAManoGlovo_(hoja);
     props.setProperty(marca, '1');
     hechos.push(hoja.getName() + (quitados.length ? ' (quitadas filas repetidas a mano: ' + quitados.join(', ') + ')' : ''));
@@ -192,6 +199,16 @@ function quitarRepetidosAManoGlovo_(hoja) {
     quitados.push(String(GLOVO_FILA_DESDE_ + j));
   }
   return quitados;
+}
+
+// Desde el menú del Índice, para aplicarlo ya sin esperar a un guardado.
+function arreglarTotalesGlovoDesdeMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var anio = periodoAnual_(hoyISO_());
+  var id = buscarEnIndice_('GLOVO', anio);
+  if (!id) { ui.alert('No hay planilla de Glovo ' + anio + ' en la pestaña "Archivos" del Índice.'); return; }
+  var hechos = arreglarTotalesGlovo_(SpreadsheetApp.openById(id), Number(anio));
+  ui.alert('Glovo', hechos.length ? 'Arreglado: ' + hechos.join('; ') + '.' : 'Ya estaba arreglado (no hacía falta cambiar nada).', ui.ButtonSet.OK);
 }
 
 // Lo que corre en cada guardado de la app (ver doPost).

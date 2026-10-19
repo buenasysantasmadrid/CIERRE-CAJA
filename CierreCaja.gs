@@ -2371,6 +2371,7 @@ function onOpen(e) {
     .addItem('Albaranes: reenviar un mes desde Cierre de Caja…', 'reenviarMesAAlbaranesDesdeMenu')
     .addItem('Cierre de Caja: pasar los días a 3 TPV…', 'pasarCierresATresTpvDesdeMenu')
     .addItem('Cierre de Caja: volver a escribir los días de un mes…', 'reescribirDiasDelMesDesdeMenu')
+    .addItem('Glovo: arreglar los totales por día', 'arreglarTotalesGlovoDesdeMenu')
     .addToUi();
 }
 
