@@ -46,7 +46,7 @@ function aplicarFacturaATickets_(data) {
 
   var resultado = { ok: true, dias: [], cambios: [] };
   Object.keys(porDia).sort().forEach(function (fecha) {
-    var r = aplicarFacturaEnDia_(fecha, porDia[fecha], numero, fechaFactura);
+    var r = aplicarFacturaEnDia_(fecha, porDia[fecha], numero, fechaFactura, data.quien);
     resultado.dias.push(r);
     if (!r.ok) resultado.ok = false;
     (r.cambios || []).forEach(function (c) { resultado.cambios.push(c); });
@@ -108,7 +108,7 @@ function facturaDeTicketSoloDrive_(data) {
 
 // Un día: cambia los gastos de esos tickets en su turno, ajusta las cuentas
 // del turno (solo cambia lo gastado) y vuelve a escribir todo lo de ese día.
-function aplicarFacturaEnDia_(fecha, tickets, numero, fechaFactura) {
+function aplicarFacturaEnDia_(fecha, tickets, numero, fechaFactura, quien) {
   var lock = LockService.getScriptLock(), conCandado = false;
   try {
     var ss = planillaCierreCaja_(fecha);
@@ -128,13 +128,28 @@ function aplicarFacturaEnDia_(fecha, tickets, numero, fechaFactura) {
           if (m.id !== t.idMovimiento || m.tipo !== 'gasto') return;
           var viejo = redondear2_(m.importe);
           var delta = redondear2_(t.nuevoImporte - viejo);
-          var numeroTicket = String(m.factura || '').trim();
+          // Ya pasado antes (se corrige el importe de la factura): el ticket
+          // sigue siendo el de la primera vez.
+          // (o, para arreglar uno pasado antes de que se apuntara esto, lo que
+          // venga en t.original).
+          var previo = m.pasoAFactura || t.original || null;
+          var numeroTicket = previo ? String(previo.ticket || '') : String(m.factura || '').trim();
+          // Quién y cuándo lo pasó, y cómo era el ticket: se ve en la caja
+          // ("Tickets que pasaron a factura").
+          m.pasoAFactura = {
+            ticket: numeroTicket,
+            importeTicket: previo ? previo.importeTicket : viejo,
+            ivaTicket: previo ? previo.ivaTicket : (m.iva === null || m.iva === undefined ? '' : m.iva),
+            fechaTicket: previo ? previo.fechaTicket : (m.fecha || fecha),
+            cuando: (previo && previo.cuando) || new Date().toISOString(),
+            quien: String(quien || (previo && previo.quien) || '').slice(0, 60)
+          };
           m.importe = t.nuevoImporte;
           m.iva = t.nuevoIva;
           m.factura = numero;
           m.fecha = fechaFactura;
           var marca = 'Ticket ' + (numeroTicket || 'del ' + fecha);
-          m.info = m.info ? m.info + ' · ' + marca : marca;
+          if (String(m.info || '').indexOf(marca) === -1) m.info = m.info ? m.info + ' · ' + marca : marca;
           if (delta) {
             var c = turno.calc || (turno.calc = {});
             if (NO_EFECTIVO.indexOf(m.subtipo) > -1) {

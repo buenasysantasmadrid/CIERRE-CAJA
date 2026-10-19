@@ -9,7 +9,9 @@ function doPost(e) {
         .createTextOutput(JSON.stringify(iniciarSesion_(data.idToken)))
         .setMimeType(ContentService.MimeType.JSON);
     }
-    if (!sesionValida_(data.sesion)) return respuestaSinSesion_();
+    // Claude con su clave (ver doGet) también puede, para arreglar datos.
+    var esClaudePost = typeof CLAVE_CLAUDE_ !== 'undefined' && CLAVE_CLAUDE_ && data.claveClaude === CLAVE_CLAUDE_;
+    if (!esClaudePost && !sesionValida_(data.sesion)) return respuestaSinSesion_();
 
     if (data.test) {
       return ContentService

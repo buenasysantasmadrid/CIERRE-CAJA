@@ -328,6 +328,7 @@
   .captura-chicos button svg{width:16px;height:16px;}
   .captura-chicos button.active{background:var(--green-soft);border-color:var(--green);}
   .captura .collapse.open{margin-top:10px;}
+  .mov-ticket-paso{font-size:.8rem;color:var(--ink-soft);padding:0 12px 10px 56px;margin-top:-4px;line-height:1.4;}
   .scan-paginas{font-size:.82rem;color:var(--ink-soft);margin-bottom:8px;}
   /* ¿Es la factura de un ticket? (encima del formulario, debajo de las preguntas) */
   .tickets-overlay{position:fixed;inset:0;z-index:115;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;}
@@ -1648,6 +1649,21 @@
         htmlOtros += items.map(function(x){ return filaMovimientoHTML(x, false); }).join('');
       });
       document.getElementById('movOtrosList_'+t).innerHTML = htmlOtros || '<div class="mov-empty">Todavía no hay ingresos, retiros ni empanadas.</div>';
+
+      // Gastos anotados con el ticket a los que después llegó la factura
+      // (ver FacturaTicket.gs): el gasto (se abre igual que arriba) y debajo
+      // cómo era el ticket, cuándo se pasó y quién.
+      var pasados = delTurno.filter(function(x){ return x.m.tipo === 'gasto' && x.m.pasoAFactura; });
+      document.getElementById('movTicketsBox_'+t).style.display = pasados.length ? '' : 'none';
+      document.getElementById('movTicketsList_'+t).innerHTML = pasados.map(function(x){
+        var p = x.m.pasoAFactura;
+        var cuando = p.cuando ? new Date(p.cuando) : null;
+        var cuandoTxt = cuando && !isNaN(cuando) ? cuando.toLocaleDateString('es-ES', {day:'2-digit', month:'2-digit'}) + ' ' + cuando.toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'}) : '';
+        return filaMovimientoHTML(x, false) +
+          '<div class="mov-ticket-paso">Ticket ' + escapeHtml(p.ticket || 'sin número') + ' de ' + fmt(p.importeTicket) +
+          ' → factura ' + escapeHtml(x.m.factura || 'sin número') + ' de ' + fmt(x.m.importe) +
+          '<br>Pasado' + (cuandoTxt ? ' el ' + cuandoTxt : '') + (p.quien ? ' por ' + escapeHtml(p.quien) : '') + '</div>';
+      }).join('');
     });
   }
 
@@ -1674,6 +1690,7 @@
       '<div class="section-label">Movimientos de '+TURNO_LABEL[t]+'</div>' +
       '<div class="mov-box"><div class="mov-box-title">Gastos</div><div id="movProvList_'+t+'"></div></div>' +
       '<div class="mov-box"><div class="mov-box-title">Otros movimientos</div><div id="movOtrosList_'+t+'"></div></div>' +
+      '<div class="mov-box" id="movTicketsBox_'+t+'" style="display:none;"><div class="mov-box-title">Tickets que pasaron a factura</div><div id="movTicketsList_'+t+'"></div></div>' +
     '</section>';
   }
   document.getElementById('turnoBloques').innerHTML = TURNOS.map(bloqueTurnoHTML).join('');
@@ -2957,6 +2974,9 @@
     })
     .then(function(parsed){
       document.getElementById('scanStatusLine').style.display = 'none';
+      // Si como total vino la base (sin IVA), el total es base + IVA.
+      var totalLeido = num(parsed.importe_total), baseLeida = num(parsed.base_imponible), ivaLeido = num(parsed.importe_iva);
+      if(ivaLeido > 0 && baseLeida > 0 && Math.abs(totalLeido - baseLeida) < 0.005) parsed.importe_total = String(Math.round((baseLeida + ivaLeido) * 100) / 100);
       mandarFotoParaPrecios(parsed);
       aplicarDatosFactura(parsed);
       document.getElementById('scanOkLine').style.display = 'block';
@@ -3165,12 +3185,18 @@
   function mostrarElegirTickets(prov, candidatos, elegidos, parsed, aMano){
     var form = collectForm();
     var importe = num(form.importe) || num(parsed.importe_total);
+    var ivaFactura = num(form.iva) || num(parsed.importe_iva);
     var numero = form.factura || parsed.numero_factura || '';
     var marcados = {};
     elegidos.forEach(function(f){ marcados[f.idMovimiento] = true; });
     // Primero los que encajan, después el resto (los más nuevos arriba).
     var lista = elegidos.concat(candidatos.filter(function(f){ return !marcados[f.idMovimiento]; })).slice(0, 25);
     function fechaCorta(iso){ var p = String(iso || '').split('-'); return p.length === 3 ? p[2] + '/' + p[1] : iso; }
+    // Quién lo pasa (queda apuntado en el movimiento): el empleado elegido
+    // en el formulario, si ya se eligió.
+    var quienesPueden = RESPONSABLES_CONOCIDOS.filter(function(r){ return r !== 'Otros'; });
+    var quienForm = form.responsable === 'Otros' ? (form.responsableDetalle || '').trim() : (form.responsable || '');
+    if(quienForm && quienesPueden.indexOf(quienForm) === -1) quienesPueden.push(quienForm);
 
     var ov = document.createElement('div');
     ov.className = 'tickets-overlay';
@@ -3186,6 +3212,7 @@
       }).join('') + '</div>'
       : '<p class="muted">No hay tickets ' + (prov ? 'de ' + escapeHtml(prov.proveedor) + ' ' : '') + 'sin factura en los últimos 2 meses' + (prov ? '' : ' (elige primero el proveedor)') + '.</p>') +
       '<div class="tickets-total" data-total></div>' +
+      (lista.length ? '<div class="tickets-sub">¿Quién lo pasa?</div>' + chipSelectHTML('quienPasa', null, quienesPueden, quienForm) : '') +
       '<div class="tickets-botones">' +
         '<button type="button" data-tk="no">' + (aMano ? 'Cancelar' : 'No, es una compra nueva') + '</button>' +
         (lista.length ? '<button type="button" class="btn-primary" data-tk="si">Sí, es su factura</button>' : '') +
@@ -3196,14 +3223,17 @@
       return Array.prototype.filter.call(ov.querySelectorAll('input[data-i]'), function(c){ return c.checked; })
         .map(function(c){ return lista[Number(c.getAttribute('data-i'))]; });
     }
+    function quienAhora(){ var h = ov.querySelector('[data-field="quienPasa"]'); return h ? h.value : ''; }
     function pintarTotal(){
       var e = elegidosAhora(), el = ov.querySelector('[data-total]'), si = ov.querySelector('[data-tk="si"]');
-      if(si) si.disabled = !e.length;
+      if(si) si.disabled = !e.length || !quienAhora();
       if(!e.length){ el.textContent = ''; return; }
       var suma = e.reduce(function(s, f){ return s + num(f.importe); }, 0);
+      var queda = importeFinalFactura(importe, ivaFactura, suma);
       el.textContent = (e.length === 1 ? 'Ticket: ' : e.length + ' tickets: ') + fmt(suma) +
-        (Math.abs(suma - importe) >= 0.005 ? ' → queda el importe de la factura, ' + fmt(importe) : '');
+        (Math.abs(suma - queda) >= 0.005 ? ' → queda el importe de la factura, ' + fmt(queda) : '');
     }
+    wireChipSelects(ov);
     ov.addEventListener('change', pintarTotal);
     pintarTotal();
     ov.querySelector('[data-tk="no"]').addEventListener('click', function(){ ov.remove(); });
@@ -3212,23 +3242,32 @@
       var e = elegidosAhora();
       if(!e.length) return;
       ov.querySelector('.tickets-botones').innerHTML = '<div class="scan-status"><span class="scan-spinner"></span>Pasando la factura al ticket… (unos 20 segundos)</div>';
-      aplicarFacturaATickets(e, prov, parsed).then(function(){
+      aplicarFacturaATickets(e, prov, parsed, quienAhora()).then(function(){
         ov.remove();
         closeModal();
       }).catch(function(){ ov.remove(); });
     });
   }
 
-  function aplicarFacturaATickets(tickets, prov, parsed){
+  // A veces la lectura da como total la base (sin IVA): si el ticket da
+  // justo base + IVA, el importe bueno es ese.
+  function importeFinalFactura(importe, iva, sumaTickets){
+    var conIva = Math.round((importe + iva) * 100) / 100;
+    if(iva > 0 && Math.abs(sumaTickets - conIva) <= 0.02 && Math.abs(sumaTickets - importe) > 0.02) return conIva;
+    return importe;
+  }
+
+  function aplicarFacturaATickets(tickets, prov, parsed, quien){
     var form = collectForm();
     var factura = { numero: form.factura || parsed.numero_factura || '', fecha: form.fecha || parsed.fecha || todayISO(),
       importe: num(form.importe) || num(parsed.importe_total), iva: num(form.iva) || num(parsed.importe_iva) };
+    factura.importe = importeFinalFactura(factura.importe, factura.iva, tickets.reduce(function(s, f){ return s + num(f.importe); }, 0));
     var descripcion = (prov ? prov.proveedor : '?') + ', factura ' + (factura.numero || '?') + ' del ' + factura.fecha;
     var pdf = '';
     try { if(scanPaginas.length) pdf = pdfDeHojas(scanPaginas); } catch(e){}
     var datos = { factura: factura,
       proveedor: prov ? prov.proveedor : '', detalle: prov && prov.proveedor === 'Super' ? prov.detalle : '',
-      idEscaneo: scanIdFactura,
+      idEscaneo: scanIdFactura, quien: quien || '',
       tickets: tickets.map(function(f){
         return { fecha: f.fecha, idTurno: f.idTurno, idMovimiento: f.idMovimiento, importe: num(f.importe),
           factura: f.factura || '', fechaFactura: f.fechaFactura || '', proveedorTexto: f.proveedorTexto || '' };
@@ -3679,6 +3718,7 @@
 
     var t = modalTurno;
     var anterior = editingId ? state[t].movimientos.find(function(m){ return m.id === editingId; }) : null;
+    if(anterior && anterior.pasoAFactura) mov.pasoAFactura = anterior.pasoAFactura;
     if(editingId){
       var idx = state[t].movimientos.findIndex(function(m){ return m.id === editingId; });
       if(idx > -1) state[t].movimientos[idx] = mov;
