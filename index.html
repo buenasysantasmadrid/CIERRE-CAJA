@@ -5656,8 +5656,11 @@
   // Al tocar "Guardar cierre" o la cruz: se pregunta por Glovo (solo en la
   // caja de hoy). SÍ, SALIR cierra; VOLVER PARA CARGAR se queda en Glovo.
   function preguntarGlovoAntesDeCerrar(t, cerrar){
-    // En una caja de un día que ya pasó no se pregunta: se cierra directo.
-    if(state.fecha < todayISO()){ cerrar(); return; }
+    // Solo se pregunta el mismo día (de calendario) de la caja: pasada la
+    // medianoche, o en una caja de otro día, se cierra directo.
+    var ahora = new Date();
+    var hoyCalendario = new Date(ahora - ahora.getTimezoneOffset()*60000).toISOString().slice(0,10);
+    if(state.fecha !== hoyCalendario){ cerrar(); return; }
     // SÍ (primero, en verde y ya marcado: con Intro se elige) cierra;
     // VOLVER PARA CARGAR se queda en el cierre, en el paso de Glovo.
     preguntar('¿Has cargado Glovo?', 'SÍ, SALIR', 'VOLVER PARA CARGAR', cerrar, function(){
