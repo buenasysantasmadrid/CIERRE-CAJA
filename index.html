@@ -320,6 +320,19 @@
   .scan-ok{font-size:.85rem;font-weight:600;color:var(--green);margin-bottom:8px;display:flex;gap:6px;align-items:center;}
   .resp-detalle{margin-top:8px;}
   .scan-box + .scan-box{margin-top:10px;}
+  .scan-paginas{font-size:.82rem;color:var(--ink-soft);margin-bottom:8px;}
+  .scan-paginas:empty{display:none;}
+  /* Escáner: pantalla completa para ajustar las esquinas de la hoja */
+  .escaner-overlay{position:fixed;inset:0;z-index:400;background:#1d1d1f;display:flex;flex-direction:column;align-items:center;padding:12px 16px 16px;gap:10px;touch-action:none;}
+  .escaner-titulo{color:#fff;font-size:.95rem;font-weight:600;text-align:center;}
+  .escaner-zona{position:relative;flex:1;min-height:0;width:100%;display:flex;align-items:center;justify-content:center;}
+  .escaner-lienzo{position:relative;}
+  .escaner-lienzo canvas{display:block;}
+  .escaner-lienzo svg{position:absolute;inset:0;overflow:visible;}
+  .escaner-botones{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;width:100%;}
+  .escaner-botones button{flex:1;min-width:0;}
+  .escaner-botones button.btn-primary{background:var(--green);border-color:var(--green);color:#fff;}
+  .escaner-trabajando{color:#fff;font-size:.9rem;display:flex;align-items:center;gap:8px;}
   .dictar-texto{width:100%;min-height:78px;resize:vertical;margin-bottom:10px;font:inherit;padding:10px;border:1px solid var(--line);border-radius:10px;box-sizing:border-box;}
   .scan-actions button.escuchando{background:var(--red-soft);border-color:var(--red);color:var(--red);}
 
@@ -2217,9 +2230,11 @@
               '<div class="scan-status" id="scanStatusLine" style="display:none;"><span class="scan-spinner"></span><span id="scanStatusText">Leyendo la factura…</span></div>' +
               '<div class="scan-error" id="scanErrorLine" style="display:none;"></div>' +
               '<div class="scan-ok" id="scanOkLine" style="display:none;">'+icon('check')+' Datos cargados, revísalos antes de guardar</div>' +
+              '<div class="scan-paginas" id="scanPaginasTxt"></div>' +
               '<div class="scan-actions">' +
                 '<button type="button" class="btn-primary" id="scanBtnExtract">Extraer datos</button>' +
-                '<button type="button" id="scanBtnResetImg">Otra foto</button>' +
+                '<button type="button" id="scanBtnAddPage">'+icon('camera')+'Añadir hoja</button>' +
+                '<button type="button" id="scanBtnResetImg">Otra factura</button>' +
               '</div>' +
             '</div>' +
           '</div>' +
@@ -2460,6 +2475,7 @@
   function wireScanUI(){
     scanImageBase64 = null;
     scanMediaType = null;
+    scanPaginas = [];
 
     var toggleBtn = document.getElementById('scanToggleBtn');
     var content = document.getElementById('scanContent');
@@ -2473,53 +2489,369 @@
     var fileUpload = document.getElementById('scanFileUpload');
     document.getElementById('scanBtnCamera').addEventListener('click', function(){ fileCamera.click(); });
     document.getElementById('scanBtnUpload').addEventListener('click', function(){ fileUpload.click(); });
-    fileCamera.addEventListener('change', function(e){ handleScanFile(e.target.files[0]); });
-    fileUpload.addEventListener('change', function(e){ handleScanFile(e.target.files[0]); });
+    fileCamera.addEventListener('change', function(e){ handleScanFile(e.target.files[0], fileCamera); });
+    fileUpload.addEventListener('change', function(e){ handleScanFile(e.target.files[0], fileUpload); });
 
     document.getElementById('scanBtnExtract').addEventListener('click', function(){ extractInvoiceViaAI(0); });
+    document.getElementById('scanBtnAddPage').addEventListener('click', function(){ fileCamera.click(); });
     document.getElementById('scanBtnResetImg').addEventListener('click', resetScanPreview);
   }
 
-  function handleScanFile(file){
+  // ---------- Escáner de facturas ----------
+  // La foto se trata como en un escáner: se buscan las 4 esquinas de la hoja
+  // (se pueden mover con el dedo), se endereza y recorta, y se limpia el
+  // fondo (queda blanco, en color). Una factura de varias hojas se escanea
+  // con "Añadir hoja" y va toda junta. En Drive queda un PDF (Facturas
+  // proveedores / año / mes / proveedor, ver Precios.gs): es el que se
+  // presenta para los impuestos.
+  var scanPaginas = [];        // hojas ya escaneadas: {url (JPEG), w, h}
+  var ESCANER_MAX_LADO = 2400; // unos 200 ppp en un A4
+  var ESCANER_MAX_ORIGEN = 3200;
+
+  function handleScanFile(file, input){
+    if(input) input.value = ''; // para poder elegir la misma foto otra vez
     if(!file || !file.type.startsWith('image/')) return;
     var reader = new FileReader();
     reader.onload = function(e){
       var img = new Image();
-      img.onload = function(){
-        var MAX_DIM = 1600;
-        var width = img.width, height = img.height;
-        if(width > MAX_DIM || height > MAX_DIM){
-          if(width > height){ height = Math.round(height * (MAX_DIM/width)); width = MAX_DIM; }
-          else{ width = Math.round(width * (MAX_DIM/height)); height = MAX_DIM; }
-        }
-        var canvas = document.createElement('canvas');
-        canvas.width = width; canvas.height = height;
-        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-        var resizedDataUrl = canvas.toDataURL('image/jpeg', 0.82);
-        scanMediaType = 'image/jpeg';
-        scanImageBase64 = resizedDataUrl.split(',')[1];
-
-        var thumb = document.getElementById('scanThumb');
-        if(thumb){
-          thumb.src = resizedDataUrl;
-          document.getElementById('scanPreviewRow').style.display = 'flex';
-          document.getElementById('scanErrorLine').style.display = 'none';
-          document.getElementById('scanOkLine').style.display = 'none';
-          document.getElementById('scanBtnExtract').disabled = false;
-        }
-      };
+      img.onload = function(){ abrirEscaner(img, input); };
       img.src = e.target.result;
     };
     reader.readAsDataURL(file);
   }
 
+  function lienzo(w, h){
+    var c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h));
+    return c;
+  }
+
+  // Achica de a la mitad hasta llegar (de una sola vez el navegador saltea
+  // píxeles y queda granulado).
+  function achicar(origen, w, h){
+    var actual = origen;
+    while(actual.width / 2 > w && actual.height / 2 > h){
+      var mitad = lienzo(actual.width / 2, actual.height / 2);
+      mitad.getContext('2d').drawImage(actual, 0, 0, mitad.width, mitad.height);
+      actual = mitad;
+    }
+    var c = lienzo(w, h);
+    var ctx = c.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(actual, 0, 0, c.width, c.height);
+    return c;
+  }
+
+  function abrirEscaner(img, input){
+    var k = Math.min(1, ESCANER_MAX_ORIGEN / Math.max(img.width, img.height));
+    var origen = lienzo(img.width * k, img.height * k);
+    origen.getContext('2d').drawImage(img, 0, 0, origen.width, origen.height);
+    var esquinas = detectarHoja(origen);
+
+    var ov = document.createElement('div');
+    ov.className = 'escaner-overlay';
+    ov.innerHTML =
+      '<div class="escaner-titulo">Mueve los puntos a las esquinas de la factura</div>' +
+      '<div class="escaner-zona"><div class="escaner-lienzo"><canvas></canvas><svg></svg></div></div>' +
+      '<div class="escaner-botones">' +
+        '<button type="button" data-esc="repetir">Repetir foto</button>' +
+        '<button type="button" data-esc="toda">Toda la foto</button>' +
+        '<button type="button" class="btn-primary" data-esc="usar">Usar esta hoja</button>' +
+      '</div>';
+    document.body.appendChild(ov);
+
+    var zona = ov.querySelector('.escaner-zona');
+    var canvas = ov.querySelector('canvas'), svg = ov.querySelector('svg');
+    var esc = Math.min(zona.clientWidth / origen.width, zona.clientHeight / origen.height);
+    canvas.width = Math.round(origen.width * esc); canvas.height = Math.round(origen.height * esc);
+    canvas.getContext('2d').drawImage(origen, 0, 0, canvas.width, canvas.height);
+    svg.setAttribute('width', canvas.width); svg.setAttribute('height', canvas.height);
+
+    function dibujar(){
+      var pts = esquinas.map(function(p){ return [p[0] * esc, p[1] * esc]; });
+      svg.innerHTML = '<polygon points="' + pts.map(function(p){ return p.join(','); }).join(' ') + '" fill="rgba(46,125,50,.18)" stroke="#4caf50" stroke-width="2"/>' +
+        pts.map(function(p){ return '<circle cx="'+p[0]+'" cy="'+p[1]+'" r="11" fill="#fff" stroke="#4caf50" stroke-width="3"/>'; }).join('');
+    }
+    dibujar();
+
+    // Arrastrar una esquina: la más cercana al dedo (con margen generoso).
+    var arrastrando = -1;
+    function punto(e){
+      var r = canvas.getBoundingClientRect();
+      return [Math.max(0, Math.min(canvas.width, e.clientX - r.left)) / esc, Math.max(0, Math.min(canvas.height, e.clientY - r.top)) / esc];
+    }
+    zona.addEventListener('pointerdown', function(e){
+      var p = punto(e), mejor = -1, dist = 48 / esc;
+      esquinas.forEach(function(q, i){
+        var d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+        if(d < dist){ dist = d; mejor = i; }
+      });
+      if(mejor < 0) return;
+      arrastrando = mejor;
+      zona.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    zona.addEventListener('pointermove', function(e){
+      if(arrastrando < 0) return;
+      esquinas[arrastrando] = punto(e);
+      dibujar();
+    });
+    zona.addEventListener('pointerup', function(){ arrastrando = -1; });
+    zona.addEventListener('pointercancel', function(){ arrastrando = -1; });
+
+    function cerrar(){ ov.remove(); }
+    ov.querySelector('[data-esc="repetir"]').addEventListener('click', function(){
+      cerrar();
+      if(input) input.click();
+    });
+    ov.querySelector('[data-esc="toda"]').addEventListener('click', function(){
+      esquinas = [[0, 0], [origen.width, 0], [origen.width, origen.height], [0, origen.height]];
+      dibujar();
+    });
+    ov.querySelector('[data-esc="usar"]').addEventListener('click', function(){
+      ov.querySelector('.escaner-botones').innerHTML = '<div class="escaner-trabajando"><span class="scan-spinner"></span>Escaneando…</div>';
+      // Un respiro para que se vea el "Escaneando…" antes del trabajo pesado.
+      setTimeout(function(){
+        try {
+          var hoja = enderezarHoja(origen, esquinas);
+          limpiarFondo(hoja);
+          scanPaginas.push({ url: hoja.toDataURL('image/jpeg', 0.85), w: hoja.width, h: hoja.height, leer: versionParaLeer(hoja) });
+          prepararLecturaScan();
+        } catch(err){
+          toast('No se pudo escanear la foto: ' + err.message);
+        }
+        cerrar();
+      }, 60);
+    });
+  }
+
+  // Las 4 esquinas de la hoja (arriba izq., arriba der., abajo der., abajo
+  // izq.): la zona clara y sin color más grande de la foto. Si no aparece
+  // clara, toda la foto (y se ajusta a mano).
+  function detectarHoja(origen){
+    var W = origen.width, H = origen.height;
+    var k = Math.min(1, 360 / Math.max(W, H));
+    var c = achicar(origen, W * k, H * k), w = c.width, h = c.height;
+    var d = c.getContext('2d').getImageData(0, 0, w, h).data;
+    var n = w * h, val = new Uint8Array(n), hist = new Array(256).fill(0);
+    for(var i = 0; i < n; i++){
+      var r = d[i*4], g = d[i*4+1], b = d[i*4+2];
+      var mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      var v = Math.max(0, Math.round(mx - (mx - mn) * 0.8)); // claro y poco color = papel
+      val[i] = v; hist[v]++;
+    }
+    // Umbral de Otsu: separa lo claro (papel) del resto.
+    var suma = 0, t;
+    for(t = 0; t < 256; t++) suma += t * hist[t];
+    var sumaB = 0, pesoB = 0, mejor = 0, umbral = 128;
+    for(t = 0; t < 256; t++){
+      pesoB += hist[t]; if(!pesoB) continue;
+      var pesoF = n - pesoB; if(!pesoF) break;
+      sumaB += t * hist[t];
+      var dm = sumaB / pesoB - (suma - sumaB) / pesoF, entre = pesoB * pesoF * dm * dm;
+      if(entre > mejor){ mejor = entre; umbral = t; }
+    }
+    // La zona clara conectada más grande, y sus puntas.
+    var visto = new Uint8Array(n), cola = new Int32Array(n), mayor = null;
+    for(var s = 0; s < n; s++){
+      if(visto[s] || val[s] <= umbral) continue;
+      var ini = 0, fin = 0, z = { n: 0, tl: [0,0,1e9], br: [0,0,-1e9], tr: [0,0,-1e9], bl: [0,0,1e9] };
+      cola[fin++] = s; visto[s] = 1;
+      while(ini < fin){
+        var p = cola[ini++], x = p % w, y = (p - x) / w;
+        z.n++;
+        if(x + y < z.tl[2]) z.tl = [x, y, x + y];
+        if(x + y > z.br[2]) z.br = [x, y, x + y];
+        if(x - y > z.tr[2]) z.tr = [x, y, x - y];
+        if(x - y < z.bl[2]) z.bl = [x, y, x - y];
+        var vecinos = [x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, y > 0 ? p - w : -1, y < h - 1 ? p + w : -1];
+        for(var j = 0; j < 4; j++){
+          var q = vecinos[j];
+          if(q >= 0 && !visto[q] && val[q] > umbral){ visto[q] = 1; cola[fin++] = q; }
+        }
+      }
+      if(!mayor || z.n > mayor.n) mayor = z;
+    }
+    var toda = [[0, 0], [W, 0], [W, H], [0, H]];
+    if(!mayor || mayor.n < n * 0.12 || mayor.n > n * 0.97) return toda;
+    var pts = [mayor.tl, mayor.tr, mayor.br, mayor.bl].map(function(p){ return [(p[0] + 0.5) / k, (p[1] + 0.5) / k]; });
+    return pts;
+  }
+
+  // Resuelve A·x = b (8×8) por Gauss.
+  function resolverSistema(A, b){
+    var n = b.length, M = A.map(function(f, i){ return f.concat([b[i]]); });
+    for(var c = 0; c < n; c++){
+      var piv = c;
+      for(var f = c + 1; f < n; f++) if(Math.abs(M[f][c]) > Math.abs(M[piv][c])) piv = f;
+      var tmp = M[c]; M[c] = M[piv]; M[piv] = tmp;
+      if(Math.abs(M[c][c]) < 1e-12) throw new Error('las esquinas no forman una hoja');
+      for(f = 0; f < n; f++){
+        if(f === c) continue;
+        var m = M[f][c] / M[c][c];
+        for(var k = c; k <= n; k++) M[f][k] -= m * M[c][k];
+      }
+    }
+    return M.map(function(f, i){ return f[n] / f[i]; });
+  }
+  // Transformación que lleva los 4 puntos `desde` a los 4 puntos `hasta`.
+  function homografia(desde, hasta){
+    var A = [], b = [];
+    for(var i = 0; i < 4; i++){
+      var x = desde[i][0], y = desde[i][1], X = hasta[i][0], Y = hasta[i][1];
+      A.push([x, y, 1, 0, 0, 0, -x * X, -y * X]); b.push(X);
+      A.push([0, 0, 0, x, y, 1, -x * Y, -y * Y]); b.push(Y);
+    }
+    return resolverSistema(A, b);
+  }
+
+  // La hoja enderezada y recortada a su tamaño.
+  function enderezarHoja(origen, q){
+    function dist(a, b){ return Math.hypot(a[0] - b[0], a[1] - b[1]); }
+    var ancho = Math.max(dist(q[0], q[1]), dist(q[3], q[2]));
+    var alto = Math.max(dist(q[0], q[3]), dist(q[1], q[2]));
+    var e = Math.min(1, ESCANER_MAX_LADO / Math.max(ancho, alto));
+    var ow = Math.max(8, Math.round(ancho * e)), oh = Math.max(8, Math.round(alto * e));
+    var hm = homografia([[0, 0], [ow, 0], [ow, oh], [0, oh]], q); // de la hoja a la foto
+    var W = origen.width, H = origen.height;
+    var src = origen.getContext('2d').getImageData(0, 0, W, H).data;
+    var salida = lienzo(ow, oh), ctx = salida.getContext('2d');
+    var out = ctx.createImageData(ow, oh), o = out.data;
+    for(var y = 0; y < oh; y++){
+      var yy = y + 0.5;
+      for(var x = 0; x < ow; x++){
+        var xx = x + 0.5;
+        var den = hm[6] * xx + hm[7] * yy + 1;
+        var sx = (hm[0] * xx + hm[1] * yy + hm[2]) / den - 0.5;
+        var sy = (hm[3] * xx + hm[4] * yy + hm[5]) / den - 0.5;
+        var x0 = Math.floor(sx), y0 = Math.floor(sy), fx = sx - x0, fy = sy - y0;
+        if(x0 < 0){ x0 = 0; fx = 0; } else if(x0 >= W - 1){ x0 = W - 2; fx = 1; }
+        if(y0 < 0){ y0 = 0; fy = 0; } else if(y0 >= H - 1){ y0 = H - 2; fy = 1; }
+        var i00 = (y0 * W + x0) * 4, i10 = i00 + 4, i01 = i00 + W * 4, i11 = i01 + 4;
+        var oi = (y * ow + x) * 4;
+        for(var ch = 0; ch < 3; ch++){
+          var arriba = src[i00 + ch] + (src[i10 + ch] - src[i00 + ch]) * fx;
+          var abajo = src[i01 + ch] + (src[i11 + ch] - src[i01 + ch]) * fx;
+          o[oi + ch] = arriba + (abajo - arriba) * fy;
+        }
+        o[oi + 3] = 255;
+      }
+    }
+    ctx.putImageData(out, 0, 0);
+    return salida;
+  }
+
+  // Fondo blanco, en color: se calcula la luz que hay sobre el papel (la
+  // hoja en chiquito, quedándose con lo más claro de cada zona para quitar
+  // la letra) y se divide por ella: el papel queda blanco aunque haya
+  // sombras, y la letra más oscura y nítida.
+  function limpiarFondo(hoja){
+    var w = hoja.width, h = hoja.height;
+    var chico = achicar(hoja, Math.max(8, w / 24), Math.max(8, h / 24));
+    var cctx = chico.getContext('2d');
+    var p = cctx.getImageData(0, 0, chico.width, chico.height);
+    for(var vez = 0; vez < 3; vez++) p = filtroMaximo(p);
+    cctx.putImageData(p, 0, 0);
+    var luz = lienzo(w, h), lctx = luz.getContext('2d');
+    lctx.imageSmoothingQuality = 'high';
+    lctx.drawImage(chico, 0, 0, w, h);
+    var fondo = lctx.getImageData(0, 0, w, h).data;
+    var ctx = hoja.getContext('2d'), img = ctx.getImageData(0, 0, w, h), d = img.data;
+    var NEGRO = 35, BLANCO = 225;
+    for(var i = 0; i < d.length; i += 4){
+      for(var ch = 0; ch < 3; ch++){
+        var v = d[i + ch] / Math.max(fondo[i + ch], 40) * 255;
+        v = (v - NEGRO) * 255 / (BLANCO - NEGRO);
+        d[i + ch] = v < 0 ? 0 : (v > 255 ? 255 : v);
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+  function filtroMaximo(img){
+    var w = img.width, h = img.height, s = img.data, r = new ImageData(w, h), d = r.data;
+    for(var y = 0; y < h; y++) for(var x = 0; x < w; x++){
+      var oi = (y * w + x) * 4;
+      for(var ch = 0; ch < 3; ch++){
+        var m = 0;
+        for(var dy = -1; dy <= 1; dy++){
+          var yy = Math.min(h - 1, Math.max(0, y + dy));
+          for(var dx = -1; dx <= 1; dx++){
+            var xx = Math.min(w - 1, Math.max(0, x + dx));
+            var v = s[(yy * w + xx) * 4 + ch];
+            if(v > m) m = v;
+          }
+        }
+        d[oi + ch] = m;
+      }
+      d[oi + 3] = 255;
+    }
+    return r;
+  }
+
+  // Lo que se manda a leer (Claude): cada hoja más chica (base64 JPEG).
+  function versionParaLeer(hoja){
+    var k = Math.min(1, 1600 / Math.max(hoja.width, hoja.height));
+    return achicar(hoja, hoja.width * k, hoja.height * k).toDataURL('image/jpeg', 0.82).split(',')[1];
+  }
+  function imagenesParaLeer(){
+    return scanPaginas.map(function(p){ return p.leer; });
+  }
+
+  function prepararLecturaScan(){
+    // La primera hoja es la miniatura; al "Extraer datos" se leen todas.
+    scanMediaType = 'image/jpeg';
+    scanImageBase64 = scanPaginas[0].leer;
+    var thumb = document.getElementById('scanThumb');
+    if(!thumb) return;
+    thumb.src = scanPaginas[0].url;
+    document.getElementById('scanPreviewRow').style.display = 'flex';
+    document.getElementById('scanErrorLine').style.display = 'none';
+    document.getElementById('scanOkLine').style.display = 'none';
+    document.getElementById('scanBtnExtract').disabled = false;
+    document.getElementById('scanPaginasTxt').textContent = scanPaginas.length === 1
+      ? '1 hoja escaneada. Si la factura tiene más, toca "Añadir hoja".'
+      : scanPaginas.length + ' hojas escaneadas (van juntas en un PDF).';
+  }
+
   function resetScanPreview(){
     scanImageBase64 = null;
     scanMediaType = null;
+    scanPaginas = [];
     var row = document.getElementById('scanPreviewRow');
     if(row) row.style.display = 'none';
     var fc = document.getElementById('scanFileCamera'); if(fc) fc.value = '';
     var fu = document.getElementById('scanFileUpload'); if(fu) fu.value = '';
+  }
+
+  // PDF con una página A4 por hoja escaneada (la imagen JPEG entera dentro,
+  // centrada). Se arma aquí mismo, sin librerías. Devuelve el PDF en base64.
+  function pdfDeHojas(hojas){
+    var A4 = [595.28, 841.89];
+    var objs = [];
+    var kids = hojas.map(function(_, i){ return (3 + i * 3) + ' 0 R'; });
+    objs[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+    objs[2] = '<< /Type /Pages /Kids [' + kids.join(' ') + '] /Count ' + hojas.length + ' >>';
+    hojas.forEach(function(p, i){
+      var po = 3 + i * 3, io = po + 1, co = po + 2;
+      var bin = atob(p.url.split(',')[1]);
+      var pw = p.w > p.h ? A4[1] : A4[0], ph = p.w > p.h ? A4[0] : A4[1];
+      var e = Math.min(pw / p.w, ph / p.h), dw = p.w * e, dh = p.h * e;
+      var cont = 'q ' + dw.toFixed(2) + ' 0 0 ' + dh.toFixed(2) + ' ' + ((pw - dw) / 2).toFixed(2) + ' ' + ((ph - dh) / 2).toFixed(2) + ' cm /Im0 Do Q';
+      objs[po] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + pw.toFixed(2) + ' ' + ph.toFixed(2) + '] /Resources << /XObject << /Im0 ' + io + ' 0 R >> >> /Contents ' + co + ' 0 R >>';
+      objs[io] = { dict: '<< /Type /XObject /Subtype /Image /Width ' + p.w + ' /Height ' + p.h + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + bin.length + ' >>', stream: bin };
+      objs[co] = { dict: '<< /Length ' + cont.length + ' >>', stream: cont };
+    });
+    var partes = ['%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'], largo = partes[0].length, offs = [];
+    for(var k = 1; k < objs.length; k++){
+      offs[k] = largo;
+      var o = objs[k];
+      var txt = k + ' 0 obj\n' + (typeof o === 'string' ? o : o.dict + '\nstream\n' + o.stream + '\nendstream') + '\nendobj\n';
+      partes.push(txt); largo += txt.length;
+    }
+    var xref = 'xref\n0 ' + objs.length + '\n0000000000 65535 f \n';
+    for(k = 1; k < objs.length; k++) xref += ('0000000000' + offs[k]).slice(-10) + ' 00000 n \n';
+    partes.push(xref + 'trailer\n<< /Size ' + objs.length + ' /Root 1 0 R >>\nstartxref\n' + largo + '\n%%EOF');
+    return btoa(partes.join(''));
   }
 
   // El plan gratis de Gemini deja leer pocas facturas por minuto. Si se
@@ -2542,7 +2874,7 @@
     fetch(url, {
       method: 'POST',
       headers: {'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({ accionEscanearFactura: true, imageBase64: scanImageBase64, mediaType: scanMediaType, proveedores: proveedoresParaIA() })
+      body: JSON.stringify({ accionEscanearFactura: true, imageBase64: scanImageBase64, mediaType: scanMediaType, imagenes: imagenesParaLeer(), proveedores: proveedoresParaIA() })
     })
     .then(function(resp){
       return resp.json().then(function(parsed){
@@ -2581,17 +2913,21 @@
     });
   }
 
-  // La misma foto otra vez, en segundo plano: el Apps Script la guarda en
-  // Drive y pasa los precios de cada producto a la app de Pedidos
-  // (Precios.gs). Nadie espera la respuesta y si falla no pasa nada.
+  // La factura escaneada, en segundo plano: el Apps Script guarda el PDF (con
+  // todas las hojas) en Drive y pasa los precios de cada producto a la app
+  // de Pedidos (Precios.gs). Nadie espera la respuesta y si falla no pasa
+  // nada (salvo un aviso si no se pudo guardar el PDF).
   function mandarFotoParaPrecios(parsed){
     try {
-      if(!scanImageBase64) return;
+      if(!scanImageBase64 || !scanPaginas.length) return;
       fetch(loadSheetUrl(), {
         method: 'POST',
         headers: {'Content-Type':'text/plain;charset=utf-8'},
         body: JSON.stringify({ accionPreciosFactura: true, imageBase64: scanImageBase64, mediaType: scanMediaType,
+          imagenes: imagenesParaLeer(), pdfBase64: pdfDeHojas(scanPaginas),
           proveedor: parsed.proveedor_lista || parsed.proveedor || '', numero_factura: parsed.numero_factura || '', fecha: parsed.fecha || '' })
+      }).then(function(resp){ return resp.json(); }).then(function(r){
+        if(r && (r.ok === false || r.errorFoto)) toast('Ojo: no se pudo guardar el PDF de la factura en Drive');
       }).catch(function(){});
     } catch(e){}
   }

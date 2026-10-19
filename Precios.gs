@@ -34,21 +34,35 @@ function sinCaracteresRaros_(s) {
   return String(s).replace(/[\\\/:*?"<>|#%]/g, '-').replace(/\s+/g, ' ').trim();
 }
 
-// Devuelve el enlace de la foto en Drive. La misma factura escaneada otra vez
-// (mismo proveedor, fecha y número) no se guarda dos veces.
+// Devuelve el enlace de la factura en Drive: "Facturas proveedores" / <AAAA>
+// / <MM> / <proveedor>. La app manda la factura escaneada como PDF (todas
+// sus hojas juntas: es el que se presenta para los impuestos); si no llega
+// el PDF (app vieja), se guarda la foto. La misma factura escaneada otra vez
+// (mismo proveedor, fecha y número) reemplaza a la anterior (por si se le
+// añadió una hoja).
 function guardarFotoFactura_(data, proveedor, fecha) {
   var raiz = carpetaHija_(DriveApp.getRootFolder(), CARPETA_FACTURAS_);
-  var dir = carpetaHija_(carpetaHija_(raiz, sinCaracteresRaros_(proveedor)), fecha.slice(0, 7));
-  var tipo = data.mediaType || 'image/jpeg';
+  var dir = carpetaHija_(carpetaHija_(carpetaHija_(raiz, fecha.slice(0, 4)), fecha.slice(5, 7)), sinCaracteresRaros_(proveedor));
+  var esPdf = !!data.pdfBase64;
+  var tipo = esPdf ? 'application/pdf' : (data.mediaType || 'image/jpeg');
   var numero = String(data.numero_factura || '').trim();
   var nombre = sinCaracteresRaros_(fecha + ' ' + proveedor + ' ' +
-    (numero || Utilities.formatDate(new Date(), 'Europe/Madrid', 'HH.mm.ss'))) + (tipo === 'image/png' ? '.png' : '.jpg');
+    (numero || Utilities.formatDate(new Date(), 'Europe/Madrid', 'HH.mm.ss'))) + (esPdf ? '.pdf' : (tipo === 'image/png' ? '.png' : '.jpg'));
   if (numero) {
     var existe = dir.getFilesByName(nombre);
-    if (existe.hasNext()) return existe.next().getUrl();
+    while (existe.hasNext()) existe.next().setTrashed(true);
   }
-  var blob = Utilities.newBlob(Utilities.base64Decode(data.imageBase64), tipo, nombre);
+  var blob = Utilities.newBlob(Utilities.base64Decode(esPdf ? data.pdfBase64 : data.imageBase64), tipo, nombre);
   return dir.createFile(blob).getUrl();
+}
+
+// Las hojas de la factura para Claude: todas las que mandó la app (o la
+// única foto, en la app vieja).
+function imagenesFactura_(data) {
+  var lista = (data.imagenes && data.imagenes.length) ? data.imagenes : [data.imageBase64];
+  return lista.map(function (b64) {
+    return { type: 'image', source: { type: 'base64', media_type: data.mediaType || 'image/jpeg', data: b64 } };
+  });
 }
 
 // Proveedores y productos de la app de Pedidos (se guardan una hora).
@@ -121,10 +135,9 @@ function mandarPreciosAPedidos_(data, proveedor, fecha, foto) {
     '(abreviaturas, marca, formato). Si no corresponde a ninguno o no estás seguro, vacío.\n' +
     'Números con punto decimal y sin símbolo de euro (ej. 12.5). Si un dato no se lee con seguridad, déjalo vacío en vez de inventarlo.\n\n' +
     'PROVEEDORES Y PRODUCTOS DE LA APP DE PEDIDOS:\n\n' + lista;
-  var r = pedirJsonAClaude_([
-    { type: 'image', source: { type: 'base64', media_type: data.mediaType || 'image/jpeg', data: data.imageBase64 } },
+  var r = pedirJsonAClaude_(imagenesFactura_(data).concat([
     { type: 'text', text: instrucciones }
-  ], ESQUEMA_LINEAS_FACTURA, 'medium');
+  ]), ESQUEMA_LINEAS_FACTURA, 'medium');
   if (!r.ok) return { ok: false, error: r.error };
   if (!r.proveedor_pedidos || nombres.indexOf(r.proveedor_pedidos) < 0 || !(r.lineas || []).length) {
     return { ok: true, noEsDePedidos: true };

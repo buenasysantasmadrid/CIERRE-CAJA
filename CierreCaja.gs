@@ -2714,10 +2714,10 @@ var INSTRUCCIONES_FACTURA =
 function escanearFactura_(data) {
   if (!data.imageBase64) return { ok: false, error: 'No llegó la foto' };
   var lista = (data.proveedores || []).join('\n');
-  return pedirJsonAClaude_([
-    { type: 'image', source: { type: 'base64', media_type: data.mediaType || 'image/jpeg', data: data.imageBase64 } },
+  // Una imagen por hoja de la factura (ver imagenesFactura_ en Precios.gs).
+  return pedirJsonAClaude_(imagenesFactura_(data).concat([
     { type: 'text', text: INSTRUCCIONES_FACTURA + '\n\nProveedores habituales:\n' + (lista || '(no hay lista)') }
-  ], ESQUEMA_FACTURA);
+  ]), ESQUEMA_FACTURA);
 }
 
 var ESQUEMA_DICTADO = {
