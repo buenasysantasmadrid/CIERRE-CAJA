@@ -155,6 +155,7 @@ function doPost(e) {
     var albaranes = escribirAlbaranes_(data); // ver Albaranes.gs
     var glovo = escribirGlovo_(data); // ver Glovo.gs
     var cajita = escribirCajita_(data); // ver Cajita.gs
+    asegurarCarpetaFacturasCompartida_(); // ver Precios.gs
     avisarFallosDelGuardado_(data, { 'pestaña del día': hojaDia, Contabilidad: contabilidad, Albaranes: albaranes, Glovo: glovo, Sobrecito: cajita }); // ver Avisos.gs
 
     return ContentService

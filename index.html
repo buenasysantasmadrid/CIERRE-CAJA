@@ -2947,8 +2947,11 @@
           imagenes: imagenesParaLeer(), pdfBase64: pdfDeHojas(scanPaginas),
           proveedor: parsed.proveedor_lista || parsed.proveedor || '', numero_factura: parsed.numero_factura || '', fecha: parsed.fecha || '' })
       }).then(function(resp){ return resp.json(); }).then(function(r){
-        if(r && (r.ok === false || r.errorFoto)) toast('Ojo: no se pudo guardar el PDF de la factura en Drive');
-      }).catch(function(){});
+        if(r && (r.ok === false || r.errorFoto)) toast('Ojo: no se pudo guardar el PDF de la factura en Drive' + (r.errorFoto ? ' (' + r.errorFoto + ')' : r.error ? ' (' + r.error + ')' : ''));
+        else if(r && r.foto) toast('Factura guardada en Drive (Facturas proveedores)');
+      }).catch(function(err){
+        toast('Ojo: no se pudo guardar el PDF de la factura en Drive (' + (err && err.message || 'sin conexión') + ')');
+      });
     } catch(e){}
   }
 

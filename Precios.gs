@@ -74,6 +74,17 @@ function compartirCarpetaFacturas_(carpeta) {
   } catch (err) { /* que no impida guardar la factura; se reintenta la próxima vez */ }
 }
 
+// Lo mismo desde cada guardado de la caja (doPost), para que la carpeta que
+// ya existía se comparta sin esperar a la próxima factura. Una vez hecho, no
+// vuelve a mirar Drive.
+function asegurarCarpetaFacturasCompartida_() {
+  try {
+    if (PropertiesService.getScriptProperties().getProperty('facturas_compartida')) return;
+    var it = DriveApp.getRootFolder().getFoldersByName(CARPETA_FACTURAS_);
+    if (it.hasNext()) compartirCarpetaFacturas_(it.next());
+  } catch (err) { /* no importa: se intenta en el próximo guardado */ }
+}
+
 // Las hojas de la factura para Claude: todas las que mandó la app (o la
 // única foto, en la app vieja).
 function imagenesFactura_(data) {
