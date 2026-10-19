@@ -94,6 +94,13 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // La factura que llegó después de un ticket ya anotado (ver FacturaTicket.gs).
+    if (data.accionFacturaDeTicket) {
+      return ContentService
+        .createTextOutput(JSON.stringify(aplicarFacturaATickets_(data)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // Planilla de Cierre de Caja DEL MES al que pertenece esta fecha (ver
     // Indice.gs) — se crea sola la primera vez que hace falta.
     var ss = planillaCierreCaja_(data.fecha);
@@ -2682,9 +2689,19 @@ var ESQUEMA_FACTURA = {
     importe_iva: { type: 'string' },
     base_imponible: { type: 'string' },
     tipo_iva: { type: 'string' },
-    proveedor_lista: { type: 'string' }
+    proveedor_lista: { type: 'string' },
+    tipo_documento: { type: 'string', enum: ['factura', 'ticket', 'albaran', ''] },
+    referencias: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { numero: { type: 'string' }, fecha: { type: 'string' } },
+        required: ['numero', 'fecha'],
+        additionalProperties: false
+      }
+    }
   },
-  required: ['proveedor', 'numero_factura', 'fecha', 'importe_total', 'importe_iva', 'base_imponible', 'tipo_iva', 'proveedor_lista'],
+  required: ['proveedor', 'numero_factura', 'fecha', 'importe_total', 'importe_iva', 'base_imponible', 'tipo_iva', 'proveedor_lista', 'tipo_documento', 'referencias'],
   additionalProperties: false
 };
 
@@ -2706,6 +2723,12 @@ var INSTRUCCIONES_FACTURA =
   '- proveedor_lista: a cuál de los proveedores habituales (lista de abajo) corresponde el emisor, escrito EXACTAMENTE como el nombre de la lista. ' +
   'Vale aunque en la factura salga con otra razón social, abreviado, con el nombre del grupo o de la marca, o mal escrito. ' +
   'Si no es ninguno de la lista, o no estás seguro, déjalo vacío.\n' +
+  '- tipo_documento: "factura" si es una factura (incluida la factura completa de una compra hecha antes con ticket), ' +
+  '"ticket" si es un ticket o factura simplificada de caja, "albaran" si es un albarán o nota de entrega. Vacío si no se sabe.\n' +
+  '- referencias: si es una factura que corresponde a compras anteriores, los tickets, albaranes o entregas que menciona ' +
+  '(ej. "Ticket nº 1382403 de 12/10/2026", "Albarán 5531", "Fecha de la operación: 12/10/2026"): una por cada uno, con su ' +
+  'número (vacío si no lo dice) y su fecha en YYYY-MM-DD (vacía si no la dice). Si la factura dice una fecha de operación o de ' +
+  'compra distinta de la de la factura, ponla aquí aunque no haya número. Si no menciona nada de eso, lista vacía.\n' +
   'Los importes con punto como separador decimal y sin símbolo de euro (ejemplo: 1234.56). ' +
   'Si un dato no aparece o no se lee con seguridad, deja el campo vacío ("") en vez de inventarlo.';
 

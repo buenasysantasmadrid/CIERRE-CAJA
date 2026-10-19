@@ -329,6 +329,22 @@
   .captura-chicos button.active{background:var(--green-soft);border-color:var(--green);}
   .captura .collapse.open{margin-top:10px;}
   .scan-paginas{font-size:.82rem;color:var(--ink-soft);margin-bottom:8px;}
+  /* ¿Es la factura de un ticket? (encima del formulario, debajo de las preguntas) */
+  .tickets-overlay{position:fixed;inset:0;z-index:115;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;}
+  .tickets-panel{background:var(--panel);border-radius:18px;padding:18px 16px;width:100%;max-width:440px;max-height:calc(100vh - 32px);display:flex;flex-direction:column;gap:10px;}
+  .tickets-panel h3{margin:0;font-size:1.1rem;}
+  .tickets-sub{font-size:.88rem;color:var(--ink-soft);}
+  .tickets-lista{overflow-y:auto;display:flex;flex-direction:column;gap:6px;min-height:0;}
+  .tickets-sep{font-size:.78rem;font-weight:600;color:var(--ink-soft);margin-top:6px;}
+  .tickets-fila{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:.9rem;}
+  .tickets-fila input{width:20px;height:20px;flex-shrink:0;}
+  .tickets-txt{flex:1;min-width:0;}
+  .tickets-imp{font-weight:700;font-variant-numeric:tabular-nums;}
+  .tickets-total{font-size:.85rem;color:var(--ink);}
+  .tickets-total:empty{display:none;}
+  .tickets-botones{display:flex;gap:8px;}
+  .tickets-botones button{flex:1;}
+  .tickets-botones button.btn-primary{background:var(--green);border-color:var(--green);color:#fff;}
   .scan-paginas:empty{display:none;}
   /* Escáner: pantalla completa para ajustar las esquinas de la hoja */
   .escaner-overlay{position:fixed;inset:0;z-index:400;background:#1d1d1f;display:flex;flex-direction:column;align-items:center;padding:12px 16px 16px;gap:10px;touch-action:none;}
@@ -2242,6 +2258,7 @@
               '<div class="scan-actions">' +
                 '<button type="button" class="btn-primary" id="scanBtnExtract">Extraer datos</button>' +
                 '<button type="button" id="scanBtnAddPage">'+icon('camera')+'Añadir hoja</button>' +
+                '<button type="button" id="scanBtnEsTicket" style="display:none;">Es la factura de un ticket</button>' +
                 '<button type="button" id="scanBtnResetImg">Otra factura</button>' +
               '</div>' +
             '</div>' +
@@ -2501,6 +2518,7 @@
 
     document.getElementById('scanBtnExtract').addEventListener('click', function(){ extractInvoiceViaAI(0); });
     document.getElementById('scanBtnAddPage').addEventListener('click', function(){ fileCamera.click(); });
+    document.getElementById('scanBtnEsTicket').addEventListener('click', function(){ buscarTicketsDeFactura(scanUltimaLectura || {}, true); });
     document.getElementById('scanBtnResetImg').addEventListener('click', resetScanPreview);
   }
 
@@ -2906,7 +2924,10 @@
       mandarFotoParaPrecios(parsed);
       aplicarDatosFactura(parsed);
       document.getElementById('scanOkLine').style.display = 'block';
-      toast('Datos de la factura cargados');
+      var btnTicket = document.getElementById('scanBtnEsTicket');
+      if(btnTicket) btnTicket.style.display = editingId ? 'none' : '';
+      // ¿Es la factura de un ticket ya anotado? Si encaja, pregunta.
+      if(!editingId) buscarTicketsDeFactura(parsed, false);
     })
     .catch(function(err){
       var msg = err.message || '';
@@ -3002,6 +3023,187 @@
     }).catch(function(){ mandandoAvisos = false; });
   }
   window.addEventListener('online', mandarAvisosPendientes);
+
+  // ---------- Factura de un ticket ya anotado ----------
+  // Llega la factura de una compra que ya se anotó con el ticket (Dia,
+  // Disbesa...). Se buscan los gastos de ese proveedor de los últimos 2
+  // meses y, si alguno encaja (mismo proveedor, la fecha o el número que
+  // trae la factura, importe parecido; o varios que sumados dan el total),
+  // se pregunta. Si se dice que sí, esos gastos pasan a tener los datos de
+  // la factura (manda el importe de la factura) y no se anota uno nuevo
+  // (ver FacturaTicket.gs). Con "Es la factura de un ticket" se elige a mano.
+  function normNumDoc(s){ return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+  function sumarDiasISO(iso, n){
+    var p = String(iso).split('-').map(Number);
+    var d = new Date(p[0], p[1] - 1, p[2] + n, 12);
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function yaTieneFacturaDeTicket(f){ return /(?:^|·\s*)Ticket\s/.test(String(f.info || '')); }
+
+  // El proveedor de la lista que corresponde a lo leído (o "Super" para un súper).
+  function proveedorDeLectura(parsed){
+    var leido = String(parsed.proveedor || '').trim();
+    var deLista = proveedorDeLaLista(parsed.proveedor_lista) || (leido && buscarProveedorPorNombre(leido));
+    if(deLista) return { proveedor: deLista, detalle: '' };
+    if(leido && esSupermercado(leido)) return { proveedor: 'Super', detalle: leido };
+    return null;
+  }
+
+  function buscarTicketsDeFactura(parsed, aMano){
+    var sel = document.getElementById('proveedorSelect');
+    var prov = aMano && sel && sel.value
+      ? { proveedor: sel.value, detalle: (document.getElementById('proveedorDetalleInput') || {}).value || '' }
+      : proveedorDeLectura(parsed);
+    if(!prov){ if(aMano) mostrarElegirTickets(null, [], [], parsed, aMano); return; }
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)) return;
+    var getUrl = url + (url.indexOf('?') > -1 ? '&' : '?') + 'listarFacturas=1&proveedor=' + encodeURIComponent(prov.proveedor) +
+      (prov.proveedor === 'Varios' && prov.detalle ? '&detalle=' + encodeURIComponent(prov.detalle) : '');
+    fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
+      if(!data || !data.ok) throw new Error((data && data.error) || 'sin respuesta');
+      var form = collectForm();
+      var importe = num(form.importe) || num(parsed.importe_total);
+      var fechaF = form.fecha || parsed.fecha || todayISO();
+      var numeroF = normNumDoc(form.factura || parsed.numero_factura);
+      var detalleNorm = String(prov.detalle || '').toLowerCase();
+      var candidatos = (data.facturas || []).filter(function(f){
+        if(!(num(f.importe) > 0) || yaTieneFacturaDeTicket(f)) return false;
+        if(numeroF && normNumDoc(f.factura) === numeroF) return false; // es esta misma factura
+        var ff = f.fechaFactura || f.fecha;
+        if(ff > fechaF || ff < sumarDiasISO(fechaF, -75)) return false;
+        // Super: solo los del mismo súper.
+        if(prov.proveedor === 'Super' && detalleNorm && String(f.proveedorTexto || '').toLowerCase().indexOf(detalleNorm.split(' ')[0]) === -1) return false;
+        return true;
+      });
+      var elegidos = aMano ? [] : ticketsQueEncajan(candidatos, parsed, importe, fechaF);
+      if(!aMano && !elegidos.length) return; // no encaja nada: es una compra nueva, no se pregunta
+      mostrarElegirTickets(prov, candidatos, elegidos, parsed, aMano);
+    }).catch(function(err){
+      if(aMano) avisarErrorPorMail('no se pudo buscar el ticket de una factura', 'Al buscar los tickets de ' + prov.proveedor + ' falló: ' + err.message + '.');
+    });
+  }
+
+  function ticketsQueEncajan(candidatos, parsed, importe, fechaF){
+    var refs = parsed.referencias || [];
+    var refNums = refs.map(function(r){ return normNumDoc(r.numero); }).filter(function(n){ return n.length >= 3; });
+    var refFechas = refs.map(function(r){ return r.fecha; }).filter(function(x){ return /^\d{4}-\d{2}-\d{2}$/.test(x || ''); });
+    if(!refFechas.length) refFechas = [fechaF]; // a veces la factura es del mismo día que el ticket
+    var parecido = function(x, total){ return Math.abs(num(x) - total) <= Math.max(5, total * 0.10); };
+    // 1. El número del ticket o albarán que dice la factura.
+    if(refNums.length){
+      var porNumero = candidatos.filter(function(f){
+        var n = normNumDoc(f.factura);
+        return n.length >= 3 && refNums.some(function(r){ return n === r || n.indexOf(r) > -1 || r.indexOf(n) > -1; });
+      });
+      if(porNumero.length) return porNumero;
+    }
+    // 2. Misma fecha e importe parecido (el más cercano).
+    var delDia = candidatos.filter(function(f){
+      return refFechas.indexOf(f.fechaFactura) > -1 || refFechas.indexOf(f.fecha) > -1;
+    });
+    var uno = delDia.filter(function(f){ return parecido(f.importe, importe); })
+      .sort(function(a, b){ return Math.abs(num(a.importe) - importe) - Math.abs(num(b.importe) - importe); });
+    if(uno.length) return [uno[0]];
+    // 3. Varios de esas fechas que sumados dan el total (factura que junta varios).
+    if(delDia.length > 1){
+      var suma = delDia.reduce(function(s, f){ return s + num(f.importe); }, 0);
+      if(Math.abs(suma - importe) <= Math.max(2, importe * 0.02)) return delDia;
+    }
+    return [];
+  }
+
+  function mostrarElegirTickets(prov, candidatos, elegidos, parsed, aMano){
+    var form = collectForm();
+    var importe = num(form.importe) || num(parsed.importe_total);
+    var numero = form.factura || parsed.numero_factura || '';
+    var marcados = {};
+    elegidos.forEach(function(f){ marcados[f.idMovimiento] = true; });
+    // Primero los que encajan, después el resto (los más nuevos arriba).
+    var lista = elegidos.concat(candidatos.filter(function(f){ return !marcados[f.idMovimiento]; })).slice(0, 25);
+    function fechaCorta(iso){ var p = String(iso || '').split('-'); return p.length === 3 ? p[2] + '/' + p[1] : iso; }
+
+    var ov = document.createElement('div');
+    ov.className = 'tickets-overlay';
+    ov.innerHTML = '<div class="tickets-panel">' +
+      '<h3>' + (aMano ? '¿De qué ticket es esta factura?' : (elegidos.length > 1 ? '¿Es la factura de estos tickets?' : '¿Es la factura de este ticket?')) + '</h3>' +
+      '<div class="tickets-sub">Factura ' + escapeHtml(numero || 'sin número') + (prov ? ' de ' + escapeHtml(prov.proveedor === 'Super' && prov.detalle ? prov.detalle : prov.proveedor) : '') + ' · ' + fmt(importe) + '</div>' +
+      (lista.length ? '<div class="tickets-lista">' + lista.map(function(f, i){
+        return (i === elegidos.length && elegidos.length ? '<div class="tickets-sep">Otros de este proveedor</div>' : '') +
+          '<label class="tickets-fila"><input type="checkbox" data-i="' + i + '"' + (marcados[f.idMovimiento] ? ' checked' : '') + '>' +
+          '<span class="tickets-txt"><b>' + fechaCorta(f.fechaFactura || f.fecha) + '</b> · ' + escapeHtml(f.factura ? 'Nº ' + f.factura : 'sin número') +
+          '<span class="muted"> · ' + escapeHtml(f.subtipo || '') + '</span></span>' +
+          '<span class="tickets-imp">' + fmt(f.importe) + '</span></label>';
+      }).join('') + '</div>'
+      : '<p class="muted">No hay tickets ' + (prov ? 'de ' + escapeHtml(prov.proveedor) + ' ' : '') + 'sin factura en los últimos 2 meses' + (prov ? '' : ' (elige primero el proveedor)') + '.</p>') +
+      '<div class="tickets-total" data-total></div>' +
+      '<div class="tickets-botones">' +
+        '<button type="button" data-tk="no">' + (aMano ? 'Cancelar' : 'No, es una compra nueva') + '</button>' +
+        (lista.length ? '<button type="button" class="btn-primary" data-tk="si">Sí, es su factura</button>' : '') +
+      '</div></div>';
+    document.body.appendChild(ov);
+
+    function elegidosAhora(){
+      return Array.prototype.filter.call(ov.querySelectorAll('input[data-i]'), function(c){ return c.checked; })
+        .map(function(c){ return lista[Number(c.getAttribute('data-i'))]; });
+    }
+    function pintarTotal(){
+      var e = elegidosAhora(), el = ov.querySelector('[data-total]'), si = ov.querySelector('[data-tk="si"]');
+      if(si) si.disabled = !e.length;
+      if(!e.length){ el.textContent = ''; return; }
+      var suma = e.reduce(function(s, f){ return s + num(f.importe); }, 0);
+      el.textContent = (e.length === 1 ? 'Ticket: ' : e.length + ' tickets: ') + fmt(suma) +
+        (Math.abs(suma - importe) >= 0.005 ? ' → queda el importe de la factura, ' + fmt(importe) : '');
+    }
+    ov.addEventListener('change', pintarTotal);
+    pintarTotal();
+    ov.querySelector('[data-tk="no"]').addEventListener('click', function(){ ov.remove(); });
+    var si = ov.querySelector('[data-tk="si"]');
+    if(si) si.addEventListener('click', function(){
+      var e = elegidosAhora();
+      if(!e.length) return;
+      ov.querySelector('.tickets-botones').innerHTML = '<div class="scan-status"><span class="scan-spinner"></span>Pasando la factura al ticket…</div>';
+      aplicarFacturaATickets(e, prov, parsed).then(function(){
+        ov.remove();
+        closeModal();
+      }).catch(function(){ ov.remove(); });
+    });
+  }
+
+  function aplicarFacturaATickets(tickets, prov, parsed){
+    var form = collectForm();
+    var factura = { numero: form.factura || parsed.numero_factura || '', fecha: form.fecha || parsed.fecha || todayISO(),
+      importe: num(form.importe) || num(parsed.importe_total), iva: num(form.iva) || num(parsed.importe_iva) };
+    var descripcion = (prov ? prov.proveedor : '?') + ', factura ' + (factura.numero || '?') + ' del ' + factura.fecha;
+    var pdf = '';
+    try { if(scanPaginas.length) pdf = pdfDeHojas(scanPaginas); } catch(e){}
+    return fetch(loadSheetUrl(), {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ accionFacturaDeTicket: true, factura: factura,
+        proveedor: prov ? prov.proveedor : '', detalle: prov && prov.proveedor === 'Super' ? prov.detalle : '',
+        idEscaneo: scanIdFactura, pdfBase64: pdf,
+        tickets: tickets.map(function(f){
+          return { fecha: f.fecha, idTurno: f.idTurno, idMovimiento: f.idMovimiento, importe: num(f.importe),
+            factura: f.factura || '', fechaFactura: f.fechaFactura || '', proveedorTexto: f.proveedorTexto || '' };
+        }) })
+    }).then(function(r){ return r.json(); }).then(function(r){
+      // Con que un ticket haya cambiado ya cuenta como hecho (lo que falló
+      // en otro día lo avisa el Apps Script por email): así no se anota
+      // además como gasto nuevo.
+      var algoCambio = r && r.cambios && r.cambios.length;
+      if(!algoCambio){
+        // El Apps Script ya avisa por email de lo que falló en el día; esto
+        // es por si ni siquiera respondió bien.
+        if(!r || !r.dias) avisarErrorPorMail('una factura no se pasó a su ticket', 'La factura (' + descripcion + ') no se pudo pasar a su ticket: ' + ((r && r.error) || 'respuesta vacía') + '.');
+        throw new Error('no');
+      }
+      // Si la caja de uno de esos tickets es la que está en pantalla, se trae ya.
+      if(tickets.some(function(f){ return f.fecha === state.fecha; })) revisarActualizacionesDesdeSheet();
+    }, function(err){
+      avisarErrorPorMail('una factura no se pasó a su ticket', 'La factura (' + descripcion + ') no llegó al Apps Script (' + (err && err.message || 'sin conexión') + ').');
+      throw err;
+    });
+  }
 
   // Vuelca lo que devolvió la IA en los campos del formulario de Proveedores
   // que ya está abierto — no guarda solo, el usuario revisa y confirma con
