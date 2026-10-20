@@ -9,6 +9,13 @@ function doPost(e) {
         .createTextOutput(JSON.stringify(iniciarSesion_(data.idToken)))
         .setMimeType(ContentService.MimeType.JSON);
     }
+    // La app de Pedidos (sin sesión): listar las facturas de Drive y releer
+    // los precios de una (ver Precios.gs). No tocan la caja.
+    if (data.accionFacturasPedidos || data.accionPreciosDesdeDrive) {
+      return ContentService
+        .createTextOutput(JSON.stringify(data.accionFacturasPedidos ? facturasParaPedidos_(data) : preciosDesdeDrive_(data)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
     // Claude con su clave (ver doGet) también puede, para arreglar datos.
     var esClaudePost = typeof CLAVE_CLAUDE_ !== 'undefined' && CLAVE_CLAUDE_ && data.claveClaude === CLAVE_CLAUDE_;
     if (!esClaudePost && !sesionValida_(data.sesion)) return respuestaSinSesion_();

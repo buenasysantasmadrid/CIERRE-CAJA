@@ -134,10 +134,31 @@ function juntarCarpetas_(origen, destino) {
 // Las hojas de la factura para Claude: todas las que mandó la app (o la
 // única foto, en la app vieja).
 function imagenesFactura_(data) {
+  // Factura releída desde su PDF de Drive (botón de la app de Pedidos).
+  if (data.pdfParaClaude) {
+    return [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: data.pdfParaClaude } }];
+  }
   var lista = (data.imagenes && data.imagenes.length) ? data.imagenes : [data.imageBase64];
   return lista.map(function (b64) {
     return { type: 'image', source: { type: 'base64', media_type: data.mediaType || 'image/jpeg', data: b64 } };
   });
+}
+
+// POST a la app de Pedidos. Si devuelve una página de error (no JSON), se
+// prueba otra vez y, si sigue, el error dice qué ponía la página.
+function pedirAPedidos_(cuerpo) {
+  var texto = '', resp;
+  for (var intento = 0; intento < 2; intento++) {
+    if (intento) Utilities.sleep(3000);
+    resp = UrlFetchApp.fetch(PEDIDOS_URL_, {
+      method: 'post', contentType: 'text/plain;charset=utf-8', muteHttpExceptions: true,
+      payload: JSON.stringify(cuerpo)
+    });
+    texto = resp.getContentText();
+    try { return JSON.parse(texto); } catch (err) { /* página de error */ }
+  }
+  var limpio = texto.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  throw new Error('la app de Pedidos respondió una página de error (' + resp.getResponseCode() + '): ' + limpio.slice(0, 400));
 }
 
 // Proveedores y productos de la app de Pedidos (se guardan una hora).
@@ -145,11 +166,7 @@ function catalogoPedidos_() {
   var cache = CacheService.getScriptCache();
   var guardado = cache.get('catalogoPedidos');
   if (guardado) return JSON.parse(guardado);
-  var resp = UrlFetchApp.fetch(PEDIDOS_URL_, {
-    method: 'post', contentType: 'text/plain;charset=utf-8',
-    payload: JSON.stringify({ accion: 'catalogo' }), muteHttpExceptions: true
-  });
-  var j = JSON.parse(resp.getContentText());
+  var j = pedirAPedidos_({ accion: 'catalogo' });
   if (!j.ok) throw new Error(j.error || 'La hoja de Pedidos no responde');
   var cat = { proveedores: {}, total: 0 };
   j.productos.forEach(function (p) {
@@ -199,6 +216,7 @@ function mandarPreciosAPedidos_(data, proveedor, fecha, foto) {
     '- proveedor_pedidos: a cuál de esos proveedores corresponde el emisor de la factura, escrito EXACTAMENTE como en la lista ' +
     '(vale aunque en la factura salga con su razón social, abreviado o con otro nombre comercial). ' +
     'Si no es ninguno de la lista o no estás seguro, déjalo vacío y devuelve lineas vacío.\n' +
+    (data.proveedorPedidos ? '  (Quien la manda dice que es de "' + data.proveedorPedidos + '".)\n' : '') +
     '- lineas: una por cada producto facturado, en el orden de la factura. NO incluyas portes, envases o cascos retornables, ' +
     'recargos, descuentos generales, subtotales ni totales.\n' +
     '  · texto: la descripción tal como sale en la factura.\n' +
@@ -217,25 +235,134 @@ function mandarPreciosAPedidos_(data, proveedor, fecha, foto) {
   if (!r.proveedor_pedidos || nombres.indexOf(r.proveedor_pedidos) < 0 || !(r.lineas || []).length) {
     return { ok: true, noEsDePedidos: true };
   }
-  var opciones = {
-    method: 'post', contentType: 'text/plain;charset=utf-8', muteHttpExceptions: true,
-    payload: JSON.stringify({
+  try {
+    return pedirAPedidos_({
       accion: 'precios', proveedor: r.proveedor_pedidos, factura: String(data.numero_factura || '').trim(),
-      fecha: fecha, foto: foto,
+      fecha: fecha, foto: foto, reemplazar: !!data.reemplazar,
       lineas: r.lineas.map(function (l) {
         return { texto: l.texto, id: l.id_producto, cantidad: l.cantidad, unidad: l.unidad, precio: l.precio_unitario };
       })
-    })
-  };
-  // Si la app de Pedidos devuelve una página de error (no JSON), se prueba
-  // otra vez y, si sigue, el aviso dice qué ponía la página.
-  var texto = '';
-  for (var intento = 0; intento < 2; intento++) {
-    if (intento) Utilities.sleep(3000);
-    var resp = UrlFetchApp.fetch(PEDIDOS_URL_, opciones);
-    texto = resp.getContentText();
-    try { return JSON.parse(texto); } catch (err) { /* página de error */ }
+    });
+  } catch (err) {
+    return { ok: false, error: err.message };
   }
-  var limpio = texto.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  return { ok: false, error: 'la app de Pedidos respondió una página de error (' + resp.getResponseCode() + '): ' + limpio.slice(0, 400) };
+}
+
+
+// ============================================================================
+// Releer los precios de una factura que ya está en Drive (botón "Leer precios
+// de una factura" de la app de Pedidos). La app de Pedidos no tiene sesión del
+// cierre: por eso solo se pueden listar facturas de la carpeta de facturas y
+// releer como mucho RELECTURAS_AL_DIA_ al día.
+// ============================================================================
+var RELECTURAS_AL_DIA_ = 40;
+
+function sinAcentos_(s) {
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// Facturas de los últimos ~2 meses: { facturas: [{ id, nombre, carpeta, fecha,
+// url, deEste, conPrecios }] }. deEste: la carpeta o el nombre llevan el nombre
+// del proveedor de Pedidos. conPrecios: sus precios ya están en Pedidos.
+function facturasParaPedidos_(data) {
+  var proveedor = String(data.proveedor || '').trim();
+  var palabras = sinAcentos_(proveedor).split(' ').filter(function (w) { return w.length >= 3; });
+  var raiz = carpetaFacturas_();
+  var hoy = new Date(), limite = Utilities.formatDate(new Date(hoy.getTime() - 62 * 86400000), 'Europe/Madrid', 'yyyy-MM-dd');
+  var meses = {};
+  for (var d = 0; d <= 62; d += 15) {
+    meses[Utilities.formatDate(new Date(hoy.getTime() - d * 86400000), 'Europe/Madrid', 'yyyy/MM')] = 1;
+  }
+  meses[Utilities.formatDate(new Date(hoy.getTime() - 62 * 86400000), 'Europe/Madrid', 'yyyy/MM')] = 1;
+  var lista = [];
+  Object.keys(meses).forEach(function (am) {
+    var anios = raiz.getFoldersByName(am.slice(0, 4));
+    if (!anios.hasNext()) return;
+    var mesesIt = anios.next().getFoldersByName(am.slice(5, 7));
+    if (!mesesIt.hasNext()) return;
+    var provs = mesesIt.next().getFolders();
+    while (provs.hasNext()) {
+      var carpeta = provs.next();
+      var archivos = carpeta.getFiles();
+      while (archivos.hasNext()) {
+        var f = archivos.next();
+        if (f.isTrashed()) continue;
+        var nombre = f.getName();
+        var fecha = /^\d{4}-\d{2}-\d{2}/.test(nombre) ? nombre.slice(0, 10) : Utilities.formatDate(f.getDateCreated(), 'Europe/Madrid', 'yyyy-MM-dd');
+        if (fecha < limite) continue;
+        var texto = ' ' + sinAcentos_(carpeta.getName() + ' ' + nombre) + ' ';
+        lista.push({
+          id: f.getId(), nombre: nombre.replace(/\.(pdf|jpg|png)$/i, ''), carpeta: carpeta.getName(), fecha: fecha, url: f.getUrl(),
+          deEste: palabras.some(function (w) { return texto.indexOf(' ' + w + ' ') >= 0; })
+        });
+      }
+    }
+  });
+  // Cuáles ya tienen sus precios en Pedidos: por el enlace de la factura o,
+  // si el PDF se volvió a guardar (otro enlace), por su número en el nombre.
+  try {
+    var j = pedirAPedidos_({ accion: 'facturasConPrecios' });
+    var hechas = {}, numeros = [];
+    (j.facturas || []).forEach(function (x) {
+      if (x.fotoId) hechas[x.fotoId] = x.filas;
+      var n = sinAcentos_(x.factura);
+      if (n.replace(/\D/g, '').length >= 3) numeros.push({ n: n, filas: x.filas });
+    });
+    lista.forEach(function (x) {
+      var nombre = ' ' + sinAcentos_(x.nombre);
+      var porNumero = numeros.filter(function (k) { return nombre.slice(-k.n.length - 1) === ' ' + k.n; })[0];
+      x.conPrecios = hechas[x.id] || (porNumero ? porNumero.filas : 0);
+    });
+  } catch (err) { /* sin marcar: no pasa nada */ }
+  lista.sort(function (a, b) { return b.fecha.localeCompare(a.fecha) || a.nombre.localeCompare(b.nombre); });
+  return { ok: true, facturas: lista };
+}
+
+function dentroDeFacturas_(archivo) {
+  var raizId = carpetaFacturas_().getId();
+  var nivel = [archivo];
+  for (var i = 0; i < 5 && nivel.length; i++) {
+    var siguientes = [];
+    for (var k = 0; k < nivel.length; k++) {
+      var padres = nivel[k].getParents();
+      while (padres.hasNext()) {
+        var p = padres.next();
+        if (p.getId() === raizId) return true;
+        siguientes.push(p);
+      }
+    }
+    nivel = siguientes;
+  }
+  return false;
+}
+
+// { idArchivo, proveedor (el de Pedidos), reemplazar } → lee la factura y
+// manda sus precios a Pedidos, como si se acabara de escanear.
+function preciosDesdeDrive_(data) {
+  var archivo;
+  try { archivo = DriveApp.getFileById(String(data.idArchivo || '')); } catch (err) { return { ok: false, error: 'No encuentro esa factura en Drive' }; }
+  if (archivo.isTrashed() || !dentroDeFacturas_(archivo)) return { ok: false, error: 'Esa factura no está en la carpeta de facturas' };
+  var props = PropertiesService.getScriptProperties();
+  var claveDia = 'relecturas_' + Utilities.formatDate(new Date(), 'Europe/Madrid', 'yyyy-MM-dd');
+  var hechas = Number(props.getProperty(claveDia) || 0);
+  if (hechas >= RELECTURAS_AL_DIA_) return { ok: false, error: 'Hoy ya se han leído muchas facturas. Prueba mañana.' };
+  props.setProperty(claveDia, String(hechas + 1));
+
+  var blob = archivo.getBlob(), tipo = blob.getContentType();
+  var b64 = Utilities.base64Encode(blob.getBytes());
+  var carpeta = archivo.getParents().hasNext() ? archivo.getParents().next().getName() : '';
+  // Nombre: "<AAAA-MM-DD> <proveedor> [<súper>] <nº factura>.pdf"
+  var nombre = archivo.getName().replace(/\.(pdf|jpg|png)$/i, '');
+  var fecha = /^\d{4}-\d{2}-\d{2}/.test(nombre) ? nombre.slice(0, 10) : Utilities.formatDate(archivo.getDateCreated(), 'Europe/Madrid', 'yyyy-MM-dd');
+  var resto = nombre.replace(/^\d{4}-\d{2}-\d{2}\s*/, '');
+  if (carpeta && resto.indexOf(carpeta + ' ') === 0) resto = resto.slice(carpeta.length + 1);
+  var lectura = {
+    detalle: carpeta, numero_factura: resto.trim(), proveedorPedidos: String(data.proveedor || '').trim(),
+    reemplazar: !!data.reemplazar
+  };
+  if (tipo === 'application/pdf') lectura.pdfParaClaude = b64;
+  else { lectura.imageBase64 = b64; lectura.mediaType = tipo; }
+  var r = mandarPreciosAPedidos_(lectura, carpeta || 'Sin proveedor', fecha, archivo.getUrl());
+  if (r && r.noEsDePedidos) return { ok: false, error: 'En esa factura no se ha reconocido ningún producto de este proveedor' };
+  return r;
 }
