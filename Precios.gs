@@ -217,7 +217,7 @@ function mandarPreciosAPedidos_(data, proveedor, fecha, foto) {
   if (!r.proveedor_pedidos || nombres.indexOf(r.proveedor_pedidos) < 0 || !(r.lineas || []).length) {
     return { ok: true, noEsDePedidos: true };
   }
-  var resp = UrlFetchApp.fetch(PEDIDOS_URL_, {
+  var opciones = {
     method: 'post', contentType: 'text/plain;charset=utf-8', muteHttpExceptions: true,
     payload: JSON.stringify({
       accion: 'precios', proveedor: r.proveedor_pedidos, factura: String(data.numero_factura || '').trim(),
@@ -226,6 +226,16 @@ function mandarPreciosAPedidos_(data, proveedor, fecha, foto) {
         return { texto: l.texto, id: l.id_producto, cantidad: l.cantidad, unidad: l.unidad, precio: l.precio_unitario };
       })
     })
-  });
-  return JSON.parse(resp.getContentText());
+  };
+  // Si la app de Pedidos devuelve una página de error (no JSON), se prueba
+  // otra vez y, si sigue, el aviso dice qué ponía la página.
+  var texto = '';
+  for (var intento = 0; intento < 2; intento++) {
+    if (intento) Utilities.sleep(3000);
+    var resp = UrlFetchApp.fetch(PEDIDOS_URL_, opciones);
+    texto = resp.getContentText();
+    try { return JSON.parse(texto); } catch (err) { /* página de error */ }
+  }
+  var limpio = texto.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return { ok: false, error: 'la app de Pedidos respondió una página de error (' + resp.getResponseCode() + '): ' + limpio.slice(0, 400) };
 }

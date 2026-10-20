@@ -2974,6 +2974,31 @@
     return btoa(partes.join(''));
   }
 
+  // POST al Apps Script que se reintenta solo si falla la conexión ("Load
+  // failed" en el iPhone: pasa al salir un momento de la app o con mala
+  // señal). Se espera a que la app vuelva a estar a la vista. Solo para
+  // envíos que se pueden repetir sin problema (el Apps Script los trata
+  // así: el mismo PDF reemplaza al anterior, la misma factura en el mismo
+  // ticket no cambia nada). Devuelve la respuesta (Response) como fetch.
+  function postConReintentos(cuerpo, intentos){
+    intentos = intentos === undefined ? 3 : intentos;
+    return fetch(loadSheetUrl(), { method: 'POST', headers: {'Content-Type':'text/plain;charset=utf-8'}, body: cuerpo })
+      .catch(function(err){
+        // Fallo de red = TypeError ("Load failed", "Failed to fetch"…).
+        if(intentos <= 0 || !(err instanceof TypeError)) throw err;
+        return esperarALaVista(intentos >= 3 ? 2000 : 6000).then(function(){ return postConReintentos(cuerpo, intentos - 1); });
+      });
+  }
+  function esperarALaVista(ms){
+    return new Promise(function(listo){
+      setTimeout(function(){
+        if(!document.hidden){ listo(); return; }
+        var alVolver = function(){ if(document.hidden) return; document.removeEventListener('visibilitychange', alVolver); setTimeout(listo, 500); };
+        document.addEventListener('visibilitychange', alVolver);
+      }, ms);
+    });
+  }
+
   // El plan gratis de Gemini deja leer pocas facturas por minuto. Si se
   // pasa, responde "Please retry in 45.3s": se espera ese tiempo y se
   // vuelve a intentar solo (hasta 2 veces) en vez de dar error.
@@ -2990,12 +3015,7 @@
 
     // La lectura la hace el Apps Script del Sheet (con Claude): la clave de
     // la IA queda guardada allá, no en la app.
-    var url = loadSheetUrl();
-    fetch(url, {
-      method: 'POST',
-      headers: {'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({ accionEscanearFactura: true, imageBase64: scanImageBase64, mediaType: scanMediaType, imagenes: imagenesParaLeer(), proveedores: proveedoresParaIA() })
-    })
+    postConReintentos(JSON.stringify({ accionEscanearFactura: true, imageBase64: scanImageBase64, mediaType: scanMediaType, imagenes: imagenesParaLeer(), proveedores: proveedoresParaIA() }))
     .then(function(resp){
       return resp.json().then(function(parsed){
         if(!resp.ok || !parsed || parsed.ok === false) throw new Error((parsed && parsed.error) || ('Error del servidor (' + resp.status + ')'));
@@ -3055,14 +3075,11 @@
       var leido = String(parsed.proveedor || '').trim();
       var esSuper = !!leido && !proveedorDeLaLista(parsed.proveedor_lista) && !buscarProveedorPorNombre(leido) && esSupermercado(leido);
       descripcion = (parsed.proveedor_lista || parsed.proveedor || 'proveedor sin leer') + ', nº ' + (parsed.numero_factura || '?') + ', fecha ' + (parsed.fecha || '?') + ', ' + scanPaginas.length + ' hoja(s)';
-      fetch(loadSheetUrl(), {
-        method: 'POST',
-        headers: {'Content-Type':'text/plain;charset=utf-8'},
-        body: JSON.stringify({ accionPreciosFactura: true, soloPdf: !!soloPdf, idEscaneo: scanIdFactura, imageBase64: scanImageBase64, mediaType: scanMediaType,
+      postConReintentos(JSON.stringify({ accionPreciosFactura: true, soloPdf: !!soloPdf, idEscaneo: scanIdFactura, imageBase64: scanImageBase64, mediaType: scanMediaType,
           imagenes: imagenesParaLeer(), pdfBase64: pdfDeHojas(scanPaginas),
           proveedor: esSuper ? 'Super' : (parsed.proveedor_lista || parsed.proveedor || ''), detalle: esSuper ? leido : '',
           numero_factura: parsed.numero_factura || '', fecha: parsed.fecha || '' })
-      }).then(function(resp){ return resp.json(); }).then(function(r){
+      ).then(function(resp){ return resp.json(); }).then(function(r){
         if(!r || r.ok === false) avisarErrorPorMail('una factura NO se guardó en Drive', 'La factura escaneada (' + descripcion + ') no se guardó en Drive: ' + ((r && r.error) || 'respuesta vacía') + '.\nHay que volver a escanearla.');
       }).catch(function(err){
         avisarErrorPorMail('una factura NO se guardó en Drive', 'La factura escaneada (' + descripcion + ') no llegó al Apps Script (' + (err && err.message || 'sin conexión') + ').\nHay que volver a escanearla.');
@@ -3331,7 +3348,7 @@
       var d = JSON.parse(JSON.stringify(datos));
       d.accionFacturaDeTicketDrive = true;
       d.pdfBase64 = pdf;
-      fetch(loadSheetUrl(), { method: 'POST', headers: {'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(d) })
+      postConReintentos(JSON.stringify(d))
         .catch(function(err){
           avisarErrorPorMail('una factura de ticket no se guardó en Drive', 'La factura (' + descripcion + ') ya está pasada a su ticket, pero el PDF no llegó al Apps Script (' + (err && err.message || 'sin conexión') + ').');
         });
@@ -3340,11 +3357,8 @@
     cuerpo.accionFacturaDeTicket = true;
     cuerpo.sinDrive = true;
     guardarEnDrive();
-    return fetch(loadSheetUrl(), {
-      method: 'POST',
-      headers: {'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify(cuerpo)
-    }).then(function(r){ return r.json(); }).then(function(r){
+    // Repetirla no cambia nada si ya llegó (ver aplicarFacturaEnDia_).
+    return postConReintentos(JSON.stringify(cuerpo)).then(function(r){ return r.json(); }).then(function(r){
       // Con que un ticket haya cambiado ya cuenta como hecho (lo que falló
       // en otro día lo avisa el Apps Script por email): así no se anota
       // además como gasto nuevo.
