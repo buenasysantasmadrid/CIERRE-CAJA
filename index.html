@@ -2591,14 +2591,49 @@
 
   function handleScanFile(file, input){
     if(input) input.value = ''; // para poder elegir la misma foto otra vez
-    if(!file || !file.type.startsWith('image/')) return;
-    var reader = new FileReader();
-    reader.onload = function(e){
-      var img = new Image();
-      img.onload = function(){ abrirEscaner(img, input); };
-      img.src = e.target.result;
+    if(!file) return;
+    // Algunos móviles mandan la foto sin tipo: vale si el nombre es de imagen.
+    if(file.type && !file.type.startsWith('image/')) return;
+    var queFoto = (file.name || 'sin nombre') + ', ' + (file.type || 'sin tipo') + ', ' + Math.round((file.size || 0) / 1024) + ' KB · ' + navigator.userAgent;
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function(){
+      try { abrirEscaner(img, input); }
+      catch(err){
+        // Si el encuadre falla, se sigue con la foto entera (y Claude se entera).
+        avisarErrorPorMail('no se abrió el encuadre de una foto de factura', 'Al abrir el escáner falló: ' + (err && err.message) + '\n' + (err && err.stack || '') + '\nFoto: ' + queFoto);
+        document.querySelectorAll('.escaner-overlay').forEach(function(o){ o.remove(); });
+        try { usarFotoEntera(img); }
+        catch(err2){ avisarErrorPorMail('una foto de factura no se pudo usar', 'Ni con la foto entera: ' + (err2 && err2.message) + '\nFoto: ' + queFoto); }
+      }
     };
-    reader.readAsDataURL(file);
+    img.onerror = function(){
+      avisarErrorPorMail('el móvil no pudo abrir una foto de factura', 'La foto no se pudo cargar en la app.\nFoto: ' + queFoto);
+      if(typeof toast === 'function') toast('No se pudo abrir la foto. Prueba otra vez o con "Subir imagen".');
+    };
+    img.src = url;
+  }
+
+  // Sin encuadre: la foto entera como hoja (achicada al tamaño del escáner).
+  function usarFotoEntera(img){
+    var k = Math.min(1, ESCANER_MAX_LADO / Math.max(img.width, img.height));
+    var hoja = lienzo(img.width * k, img.height * k);
+    hoja.getContext('2d').drawImage(img, 0, 0, hoja.width, hoja.height);
+    agregarHojaEscaneada(hoja);
+  }
+
+  function agregarHojaEscaneada(hoja){
+    scanPaginas.push({ url: hoja.toDataURL('image/jpeg', 0.85), w: hoja.width, h: hoja.height, leer: versionParaLeer(hoja) });
+    prepararLecturaScan();
+    // La primera hoja se lee sola (y así el PDF queda en Drive aunque
+    // no se toque "Extraer datos"); una hoja añadida después solo
+    // vuelve a guardar el PDF con todas.
+    if(scanPaginas.length === 1){
+      var ahora = new Date();
+      scanIdFactura = [ahora.getHours(), ahora.getMinutes(), ahora.getSeconds()].map(function(n){ return ('0' + n).slice(-2); }).join('.');
+      extractInvoiceViaAI(0);
+    }
+    else if(scanUltimaLectura) mandarFotoParaPrecios(scanUltimaLectura, true);
   }
 
   function lienzo(w, h){
@@ -2693,22 +2728,15 @@
       ov.querySelector('.escaner-botones').innerHTML = '<div class="escaner-trabajando"><span class="scan-spinner"></span>Escaneando…</div>';
       // Un respiro para que se vea el "Escaneando…" antes del trabajo pesado.
       setTimeout(function(){
+        var hojasAntes = scanPaginas.length;
         try {
           var hoja = enderezarHoja(origen, esquinas);
           limpiarFondo(hoja);
-          scanPaginas.push({ url: hoja.toDataURL('image/jpeg', 0.85), w: hoja.width, h: hoja.height, leer: versionParaLeer(hoja) });
-          prepararLecturaScan();
-          // La primera hoja se lee sola (y así el PDF queda en Drive aunque
-          // no se toque "Extraer datos"); una hoja añadida después solo
-          // vuelve a guardar el PDF con todas.
-          if(scanPaginas.length === 1){
-            var ahora = new Date();
-            scanIdFactura = [ahora.getHours(), ahora.getMinutes(), ahora.getSeconds()].map(function(n){ return ('0' + n).slice(-2); }).join('.');
-            extractInvoiceViaAI(0);
-          }
-          else if(scanUltimaLectura) mandarFotoParaPrecios(scanUltimaLectura, true);
+          agregarHojaEscaneada(hoja);
         } catch(err){
-          avisarErrorPorMail('no se pudo escanear una foto de factura', 'Al enderezar o limpiar la foto falló: ' + err.message + '.');
+          avisarErrorPorMail('no se pudo escanear una foto de factura', 'Al enderezar o limpiar la foto falló: ' + err.message + '.\n' + (err.stack || ''));
+          // Se sigue con la foto sin enderezar, para no perderla.
+          try { if(scanPaginas.length === hojasAntes) usarFotoEntera(origen); } catch(e2){}
         }
         cerrar();
       }, 60);
