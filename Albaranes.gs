@@ -134,6 +134,43 @@ function ponerServiciosEnTotales_(ss) {
   sacarDelTotalAlbaranes_(ss, ALBARANES_COPIA_VIEJA_.de);
 }
 
+// Proveedor "Glovo" de la app: facturas a favor (lo que nos paga Glovo por
+// el servicio, GLOVOAPP SPAIN PLATFORM SL). Pestaña GLOVO con la forma de
+// siempre, al final; sin fila en TOTALES y fuera del TOTAL (ver
+// ALBARANES_FUERA_DEL_TOTAL_), porque está contabilizado en otro archivo.
+var ALBARANES_PESTANA_GLOVO_ = 'GLOVO';
+function asegurarPestanaGlovoAlbaranes_(ss) {
+  var hoja = pestanaAlbaranesParaProveedor_(ss, ALBARANES_PESTANA_GLOVO_);
+  if (hoja) return hoja;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    hoja = pestanaAlbaranesParaProveedor_(ss, ALBARANES_PESTANA_GLOVO_);
+    if (hoja) return hoja;
+    // De modelo, una pestaña de proveedor normal (sin columna PROVEEDOR).
+    var modelo = null;
+    ss.getSheets().some(function (h) {
+      var n = normalizarClave_(h.getName());
+      if (ALBARANES_PESTANAS_EXCLUIDAS_.indexOf(h.getName()) > -1 || ALBARANES_PESTANAS_CON_PROVEEDOR_.indexOf(n) > -1 || n === 'EXTRAS' || n === 'NOO') return false;
+      var enc = filasEncabezadoAlbaranes_(h)[0];
+      if (!enc) return false;
+      var m = mapaColumnasAlbaranes_(h.getRange(enc, 1, 1, ALBARANES_ANCHO_).getValues()[0]);
+      if (m.factura == null || m.importe == null || m.formaPago == null) return false;
+      modelo = h;
+      return true;
+    });
+    if (!modelo) return null;
+    crearPestanaProveedorAlbaranes_(ss, ALBARANES_PESTANA_GLOVO_, modelo);
+    hoja = ss.getSheetByName(ALBARANES_PESTANA_GLOVO_);
+    ss.setActiveSheet(hoja);
+    ss.moveActiveSheet(ss.getNumSheets());
+    SpreadsheetApp.flush();
+    return hoja;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function pestanaAlbaranesParaProveedor_(ss, proveedor) {
   var buscado = normalizarClave_(proveedor);
   if (!buscado) return null;
@@ -394,6 +431,7 @@ function sincronizarAlbaranesDelDiaEnAnio_(anio, fechaISO, gastos, soloSiExiste)
   // La pestaña SERVICIOS aparece con el primer guardado, aunque todavía no
   // se haya cargado ningún servicio.
   try { asegurarPestanaServiciosAlbaranes_(ss); } catch (errServicios) { Logger.log('SERVICIOS: ' + errServicios); }
+  try { asegurarPestanaGlovoAlbaranes_(ss); } catch (errGlovo) { Logger.log('GLOVO: ' + errGlovo); }
   try { asegurarPestanaInformeMes_(ss); } catch (errInforme) { Logger.log('INFORME MES: ' + errInforme); }
   try { totalSinServiciosNiExtras_(ss); } catch (errTotal) { Logger.log('TOTAL sin SERVICIOS/EXTRAS: ' + errTotal); }
   var hojaIds = getOrCrearHojaIdsAlbaranes_(ss);
@@ -799,7 +837,7 @@ function arreglarTotalesAlbaranes_(ss, nuevas) {
 // Contabilidad) no suma SERVICIOS ni EXTRAS, y tampoco NOO (copia vieja de
 // FRUTAPRO). Se reescribe al guardar mientras la fila TOTAL no lleve ya los
 // SUMIF de todos (alguien la pudo cambiar a mano), como mucho cada 6 horas.
-var ALBARANES_FUERA_DEL_TOTAL_ = ['SERVICIOS', 'EXTRAS'];
+var ALBARANES_FUERA_DEL_TOTAL_ = ['SERVICIOS', 'EXTRAS', 'GLOVO'];
 function totalSinServiciosNiExtras_(ss) {
   var cache = CacheService.getScriptCache(), clave = 'totales_sin_servicios_extras_' + ss.getId();
   if (cache.get(clave)) return;
@@ -1226,7 +1264,7 @@ function actualizarPromediosTotalesAlbaranesDesdeMenu() {
 // pone al día (como mucho cada 5 minutos, para no hacer lentos los
 // guardados).
 var INFORME_MES_PESTANA_ = 'INFORME MES';
-var INFORME_MES_FUERA_ = ['EXTRAS', 'NOO'];
+var INFORME_MES_FUERA_ = ['EXTRAS', 'NOO', 'GLOVO'];
 var INFORME_MES_PRIMERA_FILA_ = 5;
 ALBARANES_PESTANAS_EXCLUIDAS_.push(INFORME_MES_PESTANA_);
 

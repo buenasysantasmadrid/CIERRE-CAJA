@@ -24,7 +24,7 @@
 var INFORME_SEMANAS_MEDIA_ = 8;
 var PEDIDOS_HOJA_ID_ = '11X7L9CcmklQtHbqdCyi29O0QPzpeEUPAK-GH5c8Fr0I';
 // Pestañas de Albaranes que no son compras a proveedores.
-var INFORME_SEMANAL_SIN_ALBARANES_ = ['SERVICIOS', 'EXTRAS', 'NOO', 'INFORME MES'];
+var INFORME_SEMANAL_SIN_ALBARANES_ = ['SERVICIOS', 'EXTRAS', 'NOO', 'INFORME MES', 'GLOVO'];
 
 // Antes la llamaba el activador de los viernes para mandar el email: ahora,
 // si todavía salta, solo borra ese activador (no manda nada).

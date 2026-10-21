@@ -913,6 +913,7 @@
     "Alimentos Australes","cbg","Atlanta","cream de luxe","Disbesa","Duo Harinero","Envapro",
     "Franco Arg","Gabarrera","Gamo","Hughes","Iberolactal","La Jaula","Los Fuenteños","Mercadona","Monbake",
     "Delta Cafe","Vino","Wineup",
+    "Glovo", // factura a favor (lo que nos paga Glovo): ver FACTURA_A_FAVOR
     "Servicios" // siempre el último del desplegable
   ];
 
@@ -937,7 +938,8 @@
     'Iberolactal': ['IBEROLACTAL IMPORT-EXPORT S.L.'],
     'La Jaula': ['RAFA LA JAULA'],
     'Mercadona': ['MERCADONA SA'],
-    'Monbake': ['MONBAKE GRUPO EMPRESARIAL SAU']
+    'Monbake': ['MONBAKE GRUPO EMPRESARIAL SAU'],
+    'Glovo': ['GLOVOAPP SPAIN PLATFORM SL', 'GLOVOAPP23 SA']
   };
 
   var RESPONSABLES_CONOCIDOS = [
@@ -3685,6 +3687,10 @@
   // "Extras" no lleva factura: no se piden el nº de factura ni el IVA (los
   // campos se esconden y no se pregunta "¿Esta factura no tiene IVA?").
   var PROVEEDORES_SIN_FACTURA = ['Extras'];
+  // Facturas a favor: lo que nos paga Glovo por el servicio. Van a su
+  // pestaña de Albaranes, que no suma en el TOTAL (está contabilizado en
+  // otro archivo), y no tocan el efectivo (se guardan como Transferencia).
+  var FACTURA_A_FAVOR = ['Glovo'];
   function esProveedorSinFactura(valor){
     return PROVEEDORES_SIN_FACTURA.indexOf(valor) > -1;
   }
@@ -3772,6 +3778,8 @@
 
     var tipoFinal = currentTipo;
     var subtipoFinal = currentSubtipo;
+    // Factura a favor (Glovo nos paga): nunca sale de la caja.
+    if(currentTipo === 'gasto' && FACTURA_A_FAVOR.indexOf(data.proveedor) > -1 && ['efectivo', 'efectivo_antiguo', 'tarjeta'].indexOf(subtipoFinal) > -1) subtipoFinal = 'transferencia';
 
     var proveedorFinal = data.proveedor || '';
     var proveedorDetalle = '';
@@ -3806,7 +3814,7 @@
     // sumada a lo que se haya escrito ahí (no lo reemplaza).
     var infoFinal = data.info || '';
     if(currentTipo === 'gasto'){
-      var tagGasto = GASTO_INFO_TAG[currentSubtipo];
+      var tagGasto = GASTO_INFO_TAG[subtipoFinal];
       // Un albarán pagado después ("PAGADO <MODALIDAD> <fecha> · …") se deja
       // como está: con la etiqueta delante, el Sheet no encontraba la fecha
       // de pago.
