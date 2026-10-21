@@ -2743,6 +2743,8 @@ function pasarCierresATresTpvDesdeMenu() {
 // guarda en Configuración del proyecto → Propiedades del script, con el
 // nombre ANTHROPIC_API_KEY.
 var MODELO_ESCANEO = 'claude-sonnet-5';
+// Unas 20 veces más barato: para los dictados y los precios de las facturas.
+var MODELO_BARATO_ = 'claude-haiku-5-5';
 
 var ESQUEMA_FACTURA = {
   type: 'object',
@@ -2856,7 +2858,7 @@ function dictarGasto_(data) {
     'El texto viene de un reconocimiento de voz y puede tener errores (ej. "faceta" por "factura"). ' +
     'Si un dato no se dijo, deja el campo vacío ("") en vez de inventarlo.\n\n' +
     'Dictado: """' + texto + '"""';
-  return pedirJsonAClaude_([{ type: 'text', text: instrucciones }], ESQUEMA_DICTADO);
+  return pedirJsonAClaude_([{ type: 'text', text: instrucciones }], ESQUEMA_DICTADO, 'low', MODELO_BARATO_);
 }
 
 // ============================================================================
@@ -2922,18 +2924,19 @@ function dictarMovimiento_(data) {
     'El texto viene de un reconocimiento de voz y puede tener errores. ' +
     'Si un dato no se dijo, deja el campo vacío ("") en vez de inventarlo.\n\n' +
     'Dictado: """' + texto + '"""';
-  return pedirJsonAClaude_([{ type: 'text', text: instrucciones }], ESQUEMA_DICTADO_MOVIMIENTO);
+  return pedirJsonAClaude_([{ type: 'text', text: instrucciones }], ESQUEMA_DICTADO_MOVIMIENTO, 'low', MODELO_BARATO_);
 }
 
 // Llama a Claude con el contenido dado y devuelve el JSON que pide el
 // esquema, con ok: true (o { ok: false, error } si algo falla). esfuerzo:
 // 'low' si no se dice otra cosa (más alto = lee con más cuidado, tarda más).
-function pedirJsonAClaude_(contenido, esquema, esfuerzo) {
+// modelo: MODELO_ESCANEO si no se dice otro (MODELO_BARATO_ para lo sencillo).
+function pedirJsonAClaude_(contenido, esquema, esfuerzo, modelo) {
   var clave = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
   if (!clave) return { ok: false, error: 'Falta la clave ANTHROPIC_API_KEY en las Propiedades del script' };
 
   var cuerpo = {
-    model: MODELO_ESCANEO,
+    model: modelo || MODELO_ESCANEO,
     max_tokens: 16000,
     output_config: {
       effort: esfuerzo || 'low',

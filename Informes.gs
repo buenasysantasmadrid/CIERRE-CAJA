@@ -18,7 +18,7 @@
 // ============================================================================
 
 var INFORMES_CACHE_SEGUNDOS_ = 600;
-var MODELO_INFORMES_ = 'claude-opus-5-5';
+var MODELO_INFORMES_ = 'claude-sonnet-5-5'; // la mitad que Opus
 
 // Desde doPost. Devuelve la respuesta, o null si el pedido no es de informes.
 function accionDeInformes_(data, email) {

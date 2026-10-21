@@ -203,20 +203,45 @@ var ESQUEMA_LINEAS_FACTURA = {
   additionalProperties: false
 };
 
+var ESQUEMA_PROVEEDOR_PEDIDOS_ = {
+  type: 'object',
+  properties: { proveedor_pedidos: { type: 'string' } },
+  required: ['proveedor_pedidos'],
+  additionalProperties: false
+};
+
+// A cuál proveedor de Pedidos corresponde la factura, sin mandar la foto: el
+// que diga quien la manda, el que comparta una palabra con el nombre leído
+// o, si no, se pregunta a la IA solo con los nombres (casi gratis). '' si
+// no es de ninguno: entonces no se lee la factura (es lo que más gasta).
+function proveedorDePedidos_(data, proveedor, nombres) {
+  if (data.proveedorPedidos && nombres.indexOf(data.proveedorPedidos) >= 0) return data.proveedorPedidos;
+  var leido = (proveedor === 'Sin proveedor' ? '' : proveedor) + ' ' + String(data.detalle || '');
+  var palabras = sinAcentos_(leido).split(' ').filter(function (w) { return w.length >= 3; });
+  if (!palabras.length) return '';
+  var porTexto = nombres.filter(function (n) {
+    var texto = ' ' + sinAcentos_(n) + ' ';
+    return palabras.some(function (w) { return texto.indexOf(' ' + w + ' ') >= 0; });
+  });
+  if (porTexto.length === 1) return porTexto[0];
+  var r = pedirJsonAClaude_([{ type: 'text', text:
+    'Una factura de un proveedor de un restaurante se leyó con este emisor: "' + leido.trim() + '".\n' +
+    'proveedor_pedidos: a cuál de estos proveedores corresponde, escrito EXACTAMENTE como en la lista ' +
+    '(vale aunque uno sea la razón social, esté abreviado o sea otro nombre comercial). Si no es ninguno o no estás seguro, vacío.\n\n' +
+    nombres.join('\n') }], ESQUEMA_PROVEEDOR_PEDIDOS_, 'low', MODELO_BARATO_);
+  if (!r.ok) throw new Error(r.error);
+  return nombres.indexOf(r.proveedor_pedidos) >= 0 ? r.proveedor_pedidos : '';
+}
+
 function mandarPreciosAPedidos_(data, proveedor, fecha, foto) {
   var cat = catalogoPedidos_();
   var nombres = Object.keys(cat.proveedores);
-  var lista = nombres.map(function (n) {
-    return '### ' + n + '\n' + (cat.proveedores[n].length ? cat.proveedores[n].join('\n') : '(sin productos)');
-  }).join('\n\n');
+  var deCual = proveedorDePedidos_(data, proveedor, nombres);
+  if (!deCual || !cat.proveedores[deCual].length) return { ok: true, noEsDePedidos: true };
   var instrucciones =
-    'Esta es la foto de una factura, albarán o ticket de un proveedor del restaurante "Buenas y Santas" (el cliente). ' +
-    'En la primera lectura salió como proveedor: "' + (String(data.detalle || '').trim() || proveedor) + '".\n' +
-    'Abajo está la lista de proveedores de la app de pedidos del restaurante, cada uno con sus productos (ID | producto | unidad).\n\n' +
-    '- proveedor_pedidos: a cuál de esos proveedores corresponde el emisor de la factura, escrito EXACTAMENTE como en la lista ' +
-    '(vale aunque en la factura salga con su razón social, abreviado o con otro nombre comercial). ' +
-    'Si no es ninguno de la lista o no estás seguro, déjalo vacío y devuelve lineas vacío.\n' +
-    (data.proveedorPedidos ? '  (Quien la manda dice que es de "' + data.proveedorPedidos + '".)\n' : '') +
+    'Esta es la foto de una factura, albarán o ticket del proveedor "' + deCual + '" del restaurante "Buenas y Santas" (el cliente). ' +
+    'Abajo están los productos de ese proveedor en la app de pedidos del restaurante (ID | producto | unidad).\n\n' +
+    '- proveedor_pedidos: escribe "' + deCual + '"; si la factura claramente NO es de ese proveedor, déjalo vacío y devuelve lineas vacío.\n' +
     '- lineas: una por cada producto facturado, en el orden de la factura. NO incluyas portes, envases o cascos retornables, ' +
     'recargos, descuentos generales, subtotales ni totales.\n' +
     '  · texto: la descripción tal como sale en la factura.\n' +
@@ -224,20 +249,20 @@ function mandarPreciosAPedidos_(data, proveedor, fecha, foto) {
     '  · unidad: la unidad en la que se cobra (unidad, caja, kg, botella, paquete...), como lo indique la factura; vacío si no lo dice.\n' +
     '  · precio_unitario: precio de UNA unidad de esa línea, SIN IVA y con los descuentos de la propia línea ya aplicados. ' +
     'Si la factura solo trae el importe de la línea, divídelo entre la cantidad.\n' +
-    '  · id_producto: el ID del producto de ESE proveedor en la lista que sea el mismo artículo, aunque esté escrito distinto ' +
+    '  · id_producto: el ID del producto de la lista que sea el mismo artículo, aunque esté escrito distinto ' +
     '(abreviaturas, marca, formato). Si no corresponde a ninguno o no estás seguro, vacío.\n' +
     'Números con punto decimal y sin símbolo de euro (ej. 12.5). Si un dato no se lee con seguridad, déjalo vacío en vez de inventarlo.\n\n' +
-    'PROVEEDORES Y PRODUCTOS DE LA APP DE PEDIDOS:\n\n' + lista;
+    'PRODUCTOS DE ' + deCual + ':\n' + cat.proveedores[deCual].join('\n');
   var r = pedirJsonAClaude_(imagenesFactura_(data).concat([
     { type: 'text', text: instrucciones }
-  ]), ESQUEMA_LINEAS_FACTURA, 'medium');
+  ]), ESQUEMA_LINEAS_FACTURA, 'medium', MODELO_BARATO_);
   if (!r.ok) return { ok: false, error: r.error };
-  if (!r.proveedor_pedidos || nombres.indexOf(r.proveedor_pedidos) < 0 || !(r.lineas || []).length) {
+  if (r.proveedor_pedidos !== deCual || !(r.lineas || []).length) {
     return { ok: true, noEsDePedidos: true };
   }
   try {
     return pedirAPedidos_({
-      accion: 'precios', proveedor: r.proveedor_pedidos, factura: String(data.numero_factura || '').trim(),
+      accion: 'precios', proveedor: deCual, factura: String(data.numero_factura || '').trim(),
       fecha: fecha, foto: foto, reemplazar: !!data.reemplazar,
       lineas: r.lineas.map(function (l) {
         return { texto: l.texto, id: l.id_producto, cantidad: l.cantidad, unidad: l.unidad, precio: l.precio_unitario };

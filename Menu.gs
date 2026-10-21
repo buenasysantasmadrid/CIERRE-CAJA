@@ -411,5 +411,5 @@ function dictarMenu_(data) {
   } else {
     return { ok: false, error: 'Pantalla desconocida' };
   }
-  return pedirJsonAClaude_([{ type: 'text', text: instrucciones + '\nDictado: """' + texto + '"""' }], esquema);
+  return pedirJsonAClaude_([{ type: 'text', text: instrucciones + '\nDictado: """' + texto + '"""' }], esquema, 'low', MODELO_BARATO_);
 }
