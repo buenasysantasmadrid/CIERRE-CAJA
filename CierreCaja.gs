@@ -520,6 +520,7 @@ function escribirHojaDelDiaExacta_(ss, data) {
   var movsMd = md.movimientos || [];
   var movsNc = nc.movimientos || [];
 
+  permitirValoresFueraDeLista_(hoja);
   hoja.getRange('B2').setValue(textoFechaLarga_(data.fecha));
   var celdas = celdasHojaDia_(hoja);
 
@@ -587,6 +588,27 @@ function escribirHojaDelDiaExacta_(ss, data) {
   escribirDenomBilletes_(hoja, nc.denom, 71);
   escribirDenomMonedas_(hoja, nc.denom, 76);
   escribirFormulasDiferencia_(hoja, celdas);
+}
+
+// La plantilla "1" trae desplegables con una lista fija de proveedores (en
+// la columna A de los gastos): un proveedor nuevo de la app (Glovo,
+// Wineup...) se rechazaba y la pestaña del día no se escribía. Se dejan
+// que avisen (triangulito) en vez de rechazar. Se mira como mucho cada 6
+// horas por pestaña.
+function permitirValoresFueraDeLista_(hoja) {
+  var cache = CacheService.getScriptCache();
+  var clave = 'validacion_libre_' + hoja.getParent().getId() + '_' + hoja.getSheetId();
+  if (cache.get(clave)) return;
+  var rango = hoja.getRange(1, 1, Math.min(hoja.getMaxRows(), 130), Math.min(hoja.getMaxColumns(), 26));
+  var reglas = rango.getDataValidations(), cambio = false;
+  for (var i = 0; i < reglas.length; i++) {
+    for (var j = 0; j < reglas[i].length; j++) {
+      var r = reglas[i][j];
+      if (r && !r.getAllowInvalid()) { reglas[i][j] = r.copy().setAllowInvalid(true).build(); cambio = true; }
+    }
+  }
+  if (cambio) rango.setDataValidations(reglas);
+  cache.put(clave, '1', 21600);
 }
 
 // Las fórmulas de la DIFERENCIA, para que den lo mismo que la app (y para
