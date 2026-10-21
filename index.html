@@ -1663,7 +1663,8 @@
       // (ver FacturaTicket.gs): el gasto (se abre igual que arriba) y debajo
       // cómo era el ticket, cuándo se pasó y quién.
       // Debajo del primer turno, además, los que se pasaron este día pero son
-      // de la caja de otro día (no se abren desde acá: están en su caja).
+      // de la caja de otro día: tocándolos se abren en su caja para
+      // corregirlos (ver abrirMovimientoHistorico).
       var pasados = delTurno.filter(function(x){ return x.m.tipo === 'gasto' && x.m.pasoAFactura; });
       var deOtras = t === TURNOS[0] ? pasadosDeOtrasCajas(state.fecha) : [];
       document.getElementById('movTicketsBox_'+t).style.display = pasados.length || deOtras.length ? '' : 'none';
@@ -1671,7 +1672,7 @@
         return filaMovimientoHTML(x, false) + detalleTicketPasado(x.m);
       }).join('') + deOtras.map(function(x){
         var fila = filaMovimientoHTML({ m: x.mov, t: t }, false)
-          .replace(/^<button type="button"/, '<div').replace(/ data-edit="[^"]*"/, '').replace(/<\/button>$/, '</div>');
+          .replace(/ data-edit="[^"]*"/, ' data-otra-caja="' + escapeHtml(x.fechaCaja) + '" data-otra-id="' + escapeHtml(x.mov.id) + '"');
         return fila + detalleTicketPasado(x.mov, x.fechaCaja);
       }).join('');
     });
@@ -1777,6 +1778,16 @@
     if(cierre){ abrirCierre(cierre.getAttribute('data-abrir-cierre')); return; }
     var ficha = e.target.closest('[data-anotar]');
     if(ficha){ openModal(null, ficha.getAttribute('data-anotar'), ficha.getAttribute('data-turno')); return; }
+    // Ticket pasado a factura que está en la caja de otro día.
+    var otra = e.target.closest('[data-otra-caja]');
+    if(otra){
+      // La copia de esa caja en este aparato puede ser de antes de pasar la
+      // factura: si no tiene nada sin subir, se trae la del Sheet.
+      var fechaOtra = otra.getAttribute('data-otra-caja'), store = getDiasStore();
+      if(store[fechaOtra] && !store[fechaOtra]._sinSubir){ delete store[fechaOtra]; saveDiasStore(store); }
+      abrirMovimientoHistorico(fechaOtra, null, otra.getAttribute('data-otra-id'));
+      return;
+    }
     var fila = e.target.closest('[data-edit]');
     if(fila){
       var t = fila.getAttribute('data-turno');
