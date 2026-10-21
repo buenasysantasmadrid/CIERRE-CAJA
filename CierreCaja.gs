@@ -20,6 +20,14 @@ function doPost(e) {
     var esClaudePost = typeof CLAVE_CLAUDE_ !== 'undefined' && CLAVE_CLAUDE_ && data.claveClaude === CLAVE_CLAUDE_;
     if (!esClaudePost && !sesionValida_(data.sesion)) return respuestaSinSesion_();
 
+    // Email de compras de los viernes (ver InformeSemanalPedidos.gs): solo Claude
+    // lo instala, lo prueba o lo manda a mano.
+    if (data.accionInformeSemanal && esClaudePost) {
+      return ContentService
+        .createTextOutput(JSON.stringify(accionInformeSemanal_(data)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (data.test) {
       return ContentService
         .createTextOutput(JSON.stringify({ ok: true, msg: 'Conexión OK' }))
