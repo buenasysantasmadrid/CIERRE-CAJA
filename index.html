@@ -347,7 +347,6 @@
   .tickets-total:empty{display:none;}
   .tickets-aviso{background:var(--red-soft);color:var(--red);border-radius:12px;padding:10px 12px;font-size:.9rem;font-weight:600;line-height:1.4;}
   .tickets-aviso:empty{display:none;}
-  .mov-ticket-dif{color:var(--red);font-weight:700;}
   .tickets-botones{display:flex;gap:8px;}
   .tickets-botones button{flex:1;}
   .tickets-botones button.btn-primary{background:var(--green);border-color:var(--green);color:#fff;}
@@ -1218,12 +1217,12 @@
 
   // ---------- toast ----------
   var toastTimer;
-  function toast(msg, ms){
+  function toast(msg){
     var t = document.getElementById('toast');
     t.textContent = msg;
     t.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function(){ t.classList.remove('show'); }, ms || 2200);
+    toastTimer = setTimeout(function(){ t.classList.remove('show'); }, 2200);
   }
 
   // ---------- pantalla de cierre (una por turno) ----------
@@ -1664,11 +1663,9 @@
         var p = x.m.pasoAFactura;
         var cuando = p.cuando ? new Date(p.cuando) : null;
         var cuandoTxt = cuando && !isNaN(cuando) ? cuando.toLocaleDateString('es-ES', {day:'2-digit', month:'2-digit'}) + ' ' + cuando.toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'}) : '';
-        var dif = diferenciaFactura(x.m.importe, p.importeTicket);
         return filaMovimientoHTML(x, false) +
           '<div class="mov-ticket-paso">Ticket ' + escapeHtml(p.ticket || 'sin número') + ' de ' + fmt(p.importeTicket) +
           ' → factura ' + escapeHtml(x.m.factura || 'sin número') + ' de ' + fmt(x.m.importe) +
-          (dif ? ' <span class="mov-ticket-dif">(no coincide: ' + textoDiferencia(dif) + ')</span>' : '') +
           '<br>Pasado' + (cuandoTxt ? ' el ' + cuandoTxt : '') + (p.quien ? ' por ' + escapeHtml(p.quien) : '') + '</div>';
       }).join('');
     });
@@ -3324,13 +3321,6 @@
       aplicarFacturaATickets(e, prov, parsed, quienAhora()).catch(function(){});
       ov.remove();
       closeModal();
-      // No se anota un gasto nuevo: cambia el ticket en la caja de su día,
-      // que puede no ser la de hoy.
-      var dias = e.map(function(f){ return fechaCorta(f.fecha); }).filter(function(x, i, a){ return a.indexOf(x) === i; });
-      var sumaE = e.reduce(function(s, f){ return s + num(f.importe); }, 0);
-      var difE = diferenciaFactura(importeFinalFactura(importe, ivaFactura, sumaE), sumaE);
-      toast('Factura pasada al ticket: está en la caja del ' + dias.join(', ') +
-        (difE ? '. ⚠ No coincide con el ticket: ' + textoDiferencia(difE) : ''), difE ? 9000 : 5000);
     });
   }
 
