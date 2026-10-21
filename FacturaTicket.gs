@@ -6,6 +6,8 @@
 //    el importe de la factura (manda siempre la factura; con varios tickets
 //    el importe y el IVA se reparten en proporción). No se anota un gasto
 //    nuevo, para no contarlo dos veces. En Info queda "Ticket <nº viejo>".
+//    Si la factura no da lo mismo que el ticket, llega un email de aviso
+//    (y la app lo avisa antes de pasarla).
 //  - Se rehacen la caja de esos días (Registro, Movimientos, pestaña del
 //    día), Contabilidad y Albaranes.
 //  - En Drive, el PDF de la factura sustituye al del ticket: la factura va a
@@ -67,6 +69,19 @@ function aplicarFacturaATickets_(data) {
   if (resultado.errorTicketsDrive) fallos.push('- no se pudo mover el PDF del ticket a Albaranes: ' + resultado.errorTicketsDrive);
   if (fallos.length) {
     avisarPorEmail_('algo falló al pasar una factura a su ticket', 'Al aplicar la factura (' + cual + ') a sus tickets:\n' + fallos.join('\n'));
+  }
+  // La factura no da lo mismo que el ticket o albarán: aviso (no es un fallo,
+  // la caja queda con el importe de la factura).
+  var diferencia = redondear2_(total - suma);
+  if (resultado.cambios.length && Math.abs(diferencia) >= 0.01) {
+    avisarPorEmail_('AVISO: una factura no coincide con su ticket o albarán',
+      'La factura (' + cual + ') es ' + Math.abs(diferencia).toFixed(2).replace('.', ',') + ' € ' + (diferencia < 0 ? 'menos' : 'más') +
+      ' que ' + (tickets.length > 1 ? 'sus ' + tickets.length + ' tickets' : 'su ticket') + ':\n' +
+      tickets.map(function (t) {
+        return '- ticket ' + (t.factura || 'sin número') + ' de la caja del ' + t.fecha + ': ' + redondear2_(t.importe).toFixed(2).replace('.', ',') + ' €';
+      }).join('\n') +
+      '\nFactura: ' + total.toFixed(2).replace('.', ',') + ' €. En la caja quedó el importe de la factura' +
+      (data.quien ? ' (la pasó ' + data.quien + ')' : '') + '.');
   }
   return resultado;
 }

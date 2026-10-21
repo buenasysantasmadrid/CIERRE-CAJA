@@ -345,6 +345,9 @@
   .tickets-imp{font-weight:700;font-variant-numeric:tabular-nums;}
   .tickets-total{font-size:.85rem;color:var(--ink);}
   .tickets-total:empty{display:none;}
+  .tickets-aviso{background:var(--red-soft);color:var(--red);border-radius:12px;padding:10px 12px;font-size:.9rem;font-weight:600;line-height:1.4;}
+  .tickets-aviso:empty{display:none;}
+  .mov-ticket-dif{color:var(--red);font-weight:700;}
   .tickets-botones{display:flex;gap:8px;}
   .tickets-botones button{flex:1;}
   .tickets-botones button.btn-primary{background:var(--green);border-color:var(--green);color:#fff;}
@@ -1215,12 +1218,12 @@
 
   // ---------- toast ----------
   var toastTimer;
-  function toast(msg){
+  function toast(msg, ms){
     var t = document.getElementById('toast');
     t.textContent = msg;
     t.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function(){ t.classList.remove('show'); }, 2200);
+    toastTimer = setTimeout(function(){ t.classList.remove('show'); }, ms || 2200);
   }
 
   // ---------- pantalla de cierre (una por turno) ----------
@@ -1661,9 +1664,11 @@
         var p = x.m.pasoAFactura;
         var cuando = p.cuando ? new Date(p.cuando) : null;
         var cuandoTxt = cuando && !isNaN(cuando) ? cuando.toLocaleDateString('es-ES', {day:'2-digit', month:'2-digit'}) + ' ' + cuando.toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'}) : '';
+        var dif = diferenciaFactura(x.m.importe, p.importeTicket);
         return filaMovimientoHTML(x, false) +
           '<div class="mov-ticket-paso">Ticket ' + escapeHtml(p.ticket || 'sin número') + ' de ' + fmt(p.importeTicket) +
           ' → factura ' + escapeHtml(x.m.factura || 'sin número') + ' de ' + fmt(x.m.importe) +
+          (dif ? ' <span class="mov-ticket-dif">(no coincide: ' + textoDiferencia(dif) + ')</span>' : '') +
           '<br>Pasado' + (cuandoTxt ? ' el ' + cuandoTxt : '') + (p.quien ? ' por ' + escapeHtml(p.quien) : '') + '</div>';
       }).join('');
     });
@@ -3266,6 +3271,7 @@
       : '<p class="muted">No hay tickets ' + (prov && !todos ? 'de ' + escapeHtml(prov.proveedor) + ' ' : '') + 'sin factura en los últimos 2 meses.</p>') +
       (todos ? '' : '<button type="button" data-tk="todos">El ticket no está: ver los de todos los proveedores</button>') +
       '<div class="tickets-total" data-total></div>' +
+      '<div class="tickets-aviso" data-aviso></div>' +
       (lista.length ? '<div class="tickets-sub">¿Quién lo pasa?</div>' + chipSelectHTML('quienPasa', null, quienesPueden, quienForm) : '') +
       '<div class="tickets-falta" data-falta></div>' +
       '<div class="tickets-botones">' +
@@ -3282,12 +3288,17 @@
     function pintarTotal(){
       var e = elegidosAhora(), el = ov.querySelector('[data-total]'), si = ov.querySelector('[data-tk="si"]');
       var falta = ov.querySelector('[data-falta]');
+      var aviso = ov.querySelector('[data-aviso]');
       if(falta && e.length && quienAhora()) falta.textContent = '';
-      if(!e.length){ el.textContent = ''; return; }
+      if(!e.length){ el.textContent = ''; aviso.textContent = ''; return; }
       var suma = e.reduce(function(s, f){ return s + num(f.importe); }, 0);
       var queda = importeFinalFactura(importe, ivaFactura, suma);
       el.textContent = (e.length === 1 ? 'Ticket: ' : e.length + ' tickets: ') + fmt(suma) +
         (Math.abs(suma - queda) >= 0.005 ? ' → queda el importe de la factura, ' + fmt(queda) : '');
+      // Si la factura no da lo mismo que el ticket o albarán, que se vea bien.
+      var dif = diferenciaFactura(queda, suma);
+      aviso.textContent = dif ? '⚠ El importe no coincide: ' + (e.length === 1 ? 'el ticket es de ' : 'los tickets suman ') + fmt(suma) +
+        ' y la factura de ' + fmt(queda) + ' (' + textoDiferencia(dif) + '). Revisá la factura antes de pasarla.' : '';
     }
     wireChipSelects(ov);
     ov.addEventListener('change', pintarTotal);
@@ -3313,8 +3324,22 @@
       aplicarFacturaATickets(e, prov, parsed, quienAhora()).catch(function(){});
       ov.remove();
       closeModal();
+      // No se anota un gasto nuevo: cambia el ticket en la caja de su día,
+      // que puede no ser la de hoy.
+      var dias = e.map(function(f){ return fechaCorta(f.fecha); }).filter(function(x, i, a){ return a.indexOf(x) === i; });
+      var sumaE = e.reduce(function(s, f){ return s + num(f.importe); }, 0);
+      var difE = diferenciaFactura(importeFinalFactura(importe, ivaFactura, sumaE), sumaE);
+      toast('Factura pasada al ticket: está en la caja del ' + dias.join(', ') +
+        (difE ? '. ⚠ No coincide con el ticket: ' + textoDiferencia(difE) : ''), difE ? 9000 : 5000);
     });
   }
+
+  // Lo que la factura se aparta del ticket o albarán (0 si da lo mismo).
+  function diferenciaFactura(importeFactura, importeTicket){
+    var d = Math.round((num(importeFactura) - num(importeTicket)) * 100) / 100;
+    return Math.abs(d) >= 0.01 ? d : 0;
+  }
+  function textoDiferencia(dif){ return 'la factura es ' + fmt(Math.abs(dif)) + (dif < 0 ? ' menos' : ' más'); }
 
   // A veces la lectura da como total la base (sin IVA): si el ticket da
   // justo base + IVA, el importe bueno es ese.
