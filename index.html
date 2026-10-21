@@ -1657,18 +1657,52 @@
       // Gastos anotados con el ticket a los que después llegó la factura
       // (ver FacturaTicket.gs): el gasto (se abre igual que arriba) y debajo
       // cómo era el ticket, cuándo se pasó y quién.
+      // Debajo del primer turno, además, los que se pasaron este día pero son
+      // de la caja de otro día (no se abren desde acá: están en su caja).
       var pasados = delTurno.filter(function(x){ return x.m.tipo === 'gasto' && x.m.pasoAFactura; });
-      document.getElementById('movTicketsBox_'+t).style.display = pasados.length ? '' : 'none';
+      var deOtras = t === TURNOS[0] ? pasadosDeOtrasCajas(state.fecha) : [];
+      document.getElementById('movTicketsBox_'+t).style.display = pasados.length || deOtras.length ? '' : 'none';
       document.getElementById('movTicketsList_'+t).innerHTML = pasados.map(function(x){
-        var p = x.m.pasoAFactura;
-        var cuando = p.cuando ? new Date(p.cuando) : null;
-        var cuandoTxt = cuando && !isNaN(cuando) ? cuando.toLocaleDateString('es-ES', {day:'2-digit', month:'2-digit'}) + ' ' + cuando.toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'}) : '';
-        return filaMovimientoHTML(x, false) +
-          '<div class="mov-ticket-paso">Ticket ' + escapeHtml(p.ticket || 'sin número') + ' de ' + fmt(p.importeTicket) +
-          ' → factura ' + escapeHtml(x.m.factura || 'sin número') + ' de ' + fmt(x.m.importe) +
-          '<br>Pasado' + (cuandoTxt ? ' el ' + cuandoTxt : '') + (p.quien ? ' por ' + escapeHtml(p.quien) : '') + '</div>';
+        return filaMovimientoHTML(x, false) + detalleTicketPasado(x.m);
+      }).join('') + deOtras.map(function(x){
+        var fila = filaMovimientoHTML({ m: x.mov, t: t }, false)
+          .replace(/^<button type="button"/, '<div').replace(/ data-edit="[^"]*"/, '').replace(/<\/button>$/, '</div>');
+        return fila + detalleTicketPasado(x.mov, x.fechaCaja);
       }).join('');
     });
+  }
+
+  function detalleTicketPasado(m, fechaCaja){
+    var p = m.pasoAFactura;
+    var cuando = p.cuando ? new Date(p.cuando) : null;
+    var cuandoTxt = cuando && !isNaN(cuando) ? cuando.toLocaleDateString('es-ES', {day:'2-digit', month:'2-digit'}) + ' ' + cuando.toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'}) : '';
+    return '<div class="mov-ticket-paso">' + (fechaCaja ? '<b>Está en la caja del ' + fechaCorta(fechaCaja) + '</b><br>' : '') +
+      'Ticket ' + escapeHtml(p.ticket || 'sin número') + ' de ' + fmt(p.importeTicket) +
+      ' → factura ' + escapeHtml(m.factura || 'sin número') + ' de ' + fmt(m.importe) +
+      '<br>Pasado' + (cuandoTxt ? ' el ' + cuandoTxt : '') + (p.quien ? ' por ' + escapeHtml(p.quien) : '') + '</div>';
+  }
+
+  // Tickets que pasaron a factura en una fecha, de cualquier caja (GET
+  // ?pasadosAFactura=, ver FacturaTicket.gs). Se piden como mucho una vez por
+  // minuto por día; cuando llegan se vuelve a pintar la caja.
+  var pasadosPorDia = {};
+  function pasadosDeOtrasCajas(fecha){
+    var guardado = pasadosPorDia[fecha];
+    var url = loadSheetUrl();
+    if(hasValidSheetUrl(url) && (!guardado || (!guardado.pidiendo && Date.now() - guardado.cuando > 60000))){
+      guardado = pasadosPorDia[fecha] = { cuando: Date.now(), lista: guardado ? guardado.lista : [], pidiendo: true };
+      fetch(url + (url.indexOf('?') > -1 ? '&' : '?') + 'pasadosAFactura=' + encodeURIComponent(fecha))
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+          if(!data || !data.ok) return;
+          var antes = JSON.stringify(guardado.lista);
+          guardado.lista = data.tickets || [];
+          if(state.fecha === fecha && JSON.stringify(guardado.lista) !== antes) renderMovimientos();
+        })
+        .catch(function(){})
+        .then(function(){ guardado.pidiendo = false; guardado.cuando = Date.now(); });
+    }
+    return ((guardado && guardado.lista) || []).filter(function(x){ return x.fechaCaja !== fecha; });
   }
 
   // ---------- bloques de turno (pantalla principal) ----------
@@ -3386,6 +3420,9 @@
       }
       // Si la caja de uno de esos tickets es la que está en pantalla, se trae ya.
       if(tickets.some(function(f){ return f.fecha === state.fecha; })) revisarActualizacionesDesdeSheet();
+      // Y en la de hoy sale en "Tickets que pasaron a factura".
+      delete pasadosPorDia[todayISO()];
+      if(state.fecha === todayISO()) renderMovimientos();
     }, function(err){
       avisarErrorPorMail('una factura no se pasó a su ticket', 'La factura (' + descripcion + ') no llegó al Apps Script (' + (err && err.message || 'sin conexión') + ').');
       throw err;

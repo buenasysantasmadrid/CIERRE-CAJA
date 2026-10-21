@@ -946,6 +946,16 @@ function doGet(e) {
       }))
       .setMimeType(ContentService.MimeType.JSON);
   }
+  // Tickets que pasaron a factura ese día, sean de la caja que sean (ver
+  // FacturaTicket.gs).
+  if (parametros.pasadosAFactura) {
+    var fechaPasados = String(parametros.pasadosAFactura);
+    return ContentService
+      .createTextOutput(respuestaConCache_('pasados_' + fechaPasados, function () {
+        return ticketsPasadosElDia_(fechaPasados);
+      }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
   var fecha = e && e.parameter && e.parameter.fecha;
   if (fecha) {
     var resultadoDia;

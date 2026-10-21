@@ -241,3 +241,51 @@ function moverTicketAAlbaranes_(t, proveedorFactura) {
     });
   });
 }
+
+// Los tickets que se pasaron a factura en esta fecha (el ticket puede ser de
+// la caja de otro día): la app los muestra en "Tickets que pasaron a
+// factura" de la caja de ese día. Se buscan en el Registro de las cajas de
+// los últimos meses; de cada movimiento, la fila guardada más nueva.
+function ticketsPasadosElDia_(fecha) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return { ok: false, error: 'Fecha inválida' };
+  try {
+    var porId = {};
+    planillasCierreCajaRecientes_(3).forEach(function (p) {
+      var registro = p.ss.getSheetByName('Registro');
+      if (!registro) return;
+      var valores = registro.getDataRange().getValues();
+      var header = valores[0];
+      var idxFecha = header.indexOf('Fecha'), idxTurno = header.indexOf('Turno'), idxUltima = header.indexOf('Última actualización');
+      var idxJSON = -1;
+      for (var h = 0; h < header.length; h++) if (String(header[h] || '').indexOf('Datos JSON') === 0) { idxJSON = h; break; }
+      if (idxJSON === -1) return;
+      for (var i = 1; i < valores.length; i++) {
+        var texto = String(valores[i][idxJSON] || '');
+        if (texto.indexOf('pasoAFactura') === -1) continue;
+        var turno;
+        try { turno = JSON.parse(texto); } catch (e) { continue; }
+        var fechaRaw = valores[i][idxFecha];
+        var fechaCaja = fechaRaw instanceof Date ? Utilities.formatDate(fechaRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(fechaRaw || '');
+        var ultima = idxUltima > -1 && valores[i][idxUltima] instanceof Date ? valores[i][idxUltima].getTime() : 0;
+        (turno.movimientos || []).forEach(function (m) {
+          var paso = m.pasoAFactura;
+          if (m.tipo !== 'gasto' || !paso || !paso.cuando) return;
+          var cuando = new Date(paso.cuando);
+          if (isNaN(cuando) || Utilities.formatDate(cuando, 'Europe/Madrid', 'yyyy-MM-dd') !== fecha) return;
+          var previo = porId[m.id];
+          if (previo && previo.ultima > ultima) return;
+          porId[m.id] = {
+            ultima: ultima, fechaCaja: fechaCaja, turno: String(valores[i][idxTurno] || ''),
+            mov: { id: m.id, tipo: m.tipo, subtipo: m.subtipo, proveedor: m.proveedor || '', proveedorDetalle: m.proveedorDetalle || '',
+              factura: m.factura || '', fecha: m.fecha || '', importe: m.importe, iva: m.iva, info: m.info || '', pasoAFactura: paso }
+          };
+        });
+      }
+    });
+    var lista = Object.keys(porId).map(function (k) { var x = porId[k]; delete x.ultima; return x; });
+    lista.sort(function (a, b) { return a.mov.pasoAFactura.cuando < b.mov.pasoAFactura.cuando ? -1 : 1; });
+    return { ok: true, tickets: lista };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
