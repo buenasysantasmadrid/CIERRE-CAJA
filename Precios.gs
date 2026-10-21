@@ -28,7 +28,13 @@ function preciosFactura_(data) {
     avisarPorEmail_('una factura NO se guardó en Drive', 'La factura escaneada (' + cual + ') no se guardó en Drive: ' + res.errorFoto + '\nHay que volver a escanearla.');
   }
   if (data.soloPdf) return res;
-  try { res.precios = mandarPreciosAPedidos_(data, proveedor, fecha, res.foto || ''); } catch (err) { res.errorPrecios = String(err); }
+  try {
+    // Frutapro (no está en la app de Pedidos): sus precios van a la pestaña
+    // "Precios proveedores" del Índice (ver más abajo).
+    res.precios = proveedorConPreciosPropios_(proveedor)
+      ? guardarPreciosPropios_(data, proveedorConPreciosPropios_(proveedor), fecha, res.foto || '')
+      : mandarPreciosAPedidos_(data, proveedor, fecha, res.foto || '');
+  } catch (err) { res.errorPrecios = String(err); }
   if (!res.errorPrecios && res.precios && res.precios.ok === false) res.errorPrecios = res.precios.error || 'error desconocido';
   if (res.errorPrecios) {
     avisarPorEmail_('los precios de una factura no llegaron a Pedidos', 'De la factura escaneada (' + cual + ') no se pudieron pasar los precios a la app de Pedidos: ' + res.errorPrecios +
@@ -270,6 +276,127 @@ function mandarPreciosAPedidos_(data, proveedor, fecha, foto) {
     });
   } catch (err) {
     return { ok: false, error: err.message };
+  }
+}
+
+
+// ============================================================================
+// Precios de proveedores que NO están en la app de Pedidos (Frutapro): para
+// el escandallo y para ver sus cambios de precio en "Compras de la semana"
+// (InformeSemanalPedidos.gs). Van a la pestaña "Precios proveedores" del
+// Índice, con las mismas columnas que APP_Precios de Pedidos:
+//   Fecha · Proveedor · Factura · En la factura · ID producto · Producto ·
+//   Cantidad · Unidad · Precio · Precio anterior · Cambio % · Foto · Registrado
+// Sin catálogo: el mismo producto se reconoce por cómo sale escrito en la
+// factura (sin mayúsculas, tildes ni signos). La misma factura escaneada
+// otra vez reemplaza sus líneas.
+// ============================================================================
+var PRECIOS_PROPIOS_PESTANA_ = 'Precios proveedores';
+// Proveedor → palabras que lo reconocen (en el proveedor que manda la app).
+var PRECIOS_PROPIOS_PROVEEDORES_ = { 'Frutapro': ['frutapro', 'mediterranean onions'] };
+
+function proveedorConPreciosPropios_(proveedor) {
+  var n = ' ' + sinAcentos_(proveedor) + ' ';
+  var nombres = Object.keys(PRECIOS_PROPIOS_PROVEEDORES_);
+  for (var i = 0; i < nombres.length; i++) {
+    if (PRECIOS_PROPIOS_PROVEEDORES_[nombres[i]].some(function (w) { return n.indexOf(' ' + w + ' ') >= 0; })) return nombres[i];
+  }
+  return '';
+}
+
+function clavePrecioPropio_(texto) { return sinAcentos_(texto); }
+
+var ESQUEMA_LINEAS_SIN_CATALOGO_ = {
+  type: 'object',
+  properties: {
+    lineas: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          texto: { type: 'string' }, producto: { type: 'string' }, cantidad: { type: 'string' },
+          unidad: { type: 'string' }, precio_unitario: { type: 'string' }
+        },
+        required: ['texto', 'producto', 'cantidad', 'unidad', 'precio_unitario'],
+        additionalProperties: false
+      }
+    }
+  },
+  required: ['lineas'],
+  additionalProperties: false
+};
+
+function hojaPreciosPropios_() {
+  var ss = SpreadsheetApp.openById(INDICE_SHEET_ID_);
+  var hoja = ss.getSheetByName(PRECIOS_PROPIOS_PESTANA_);
+  if (!hoja) {
+    hoja = ss.insertSheet(PRECIOS_PROPIOS_PESTANA_);
+    hoja.appendRow(['Fecha', 'Proveedor', 'Factura', 'En la factura', 'ID producto', 'Producto', 'Cantidad', 'Unidad',
+      'Precio', 'Precio anterior', 'Cambio %', 'Foto', 'Registrado']);
+    hoja.setFrozenRows(1);
+    hoja.getRange('1:1').setFontWeight('bold');
+  }
+  return hoja;
+}
+
+// Filas de la pestaña (para "Compras de la semana"); [] si todavía no existe.
+function filasPreciosPropios_() {
+  var hoja = SpreadsheetApp.openById(INDICE_SHEET_ID_).getSheetByName(PRECIOS_PROPIOS_PESTANA_);
+  if (!hoja || hoja.getLastRow() < 2) return [];
+  return hoja.getRange(2, 1, hoja.getLastRow() - 1, 13).getValues();
+}
+
+function guardarPreciosPropios_(data, proveedor, fecha, foto) {
+  var instrucciones =
+    'Esta es la foto de una factura o albarán del proveedor "' + proveedor + '" del restaurante "Buenas y Santas" (el cliente).\n' +
+    '- lineas: una por cada producto facturado, en el orden de la factura. NO incluyas portes, envases o cajas retornables, ' +
+    'recargos, descuentos generales, subtotales ni totales.\n' +
+    '  · texto: la descripción tal como sale en la factura (igual cada vez, para poder comparar precios entre facturas).\n' +
+    '  · producto: el nombre del producto claro y corto, en minúsculas con la primera en mayúscula (ej. "Tomate pera").\n' +
+    '  · cantidad: la cantidad facturada en esa línea.\n' +
+    '  · unidad: la unidad en la que se cobra (kg, unidad, caja, manojo...), como lo indique la factura; vacío si no lo dice.\n' +
+    '  · precio_unitario: precio de UNA unidad de esa línea, SIN IVA y con los descuentos de la propia línea ya aplicados. ' +
+    'Si la factura solo trae el importe de la línea, divídelo entre la cantidad.\n' +
+    'Números con punto decimal y sin símbolo de euro (ej. 12.5). Si un dato no se lee con seguridad, déjalo vacío en vez de inventarlo.';
+  var r = pedirJsonAClaude_(imagenesFactura_(data).concat([{ type: 'text', text: instrucciones }]),
+    ESQUEMA_LINEAS_SIN_CATALOGO_, 'medium', MODELO_BARATO_);
+  if (!r.ok) return { ok: false, error: r.error };
+  var lineas = (r.lineas || []).filter(function (l) { return String(l.texto || '').trim() && Number(l.precio_unitario) > 0; });
+  if (!lineas.length) return { ok: true, lineas: 0 };
+
+  var factura = String(data.numero_factura || '').trim();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var hoja = hojaPreciosPropios_();
+    var filas = hoja.getLastRow() > 1 ? hoja.getRange(2, 1, hoja.getLastRow() - 1, 13).getValues() : [];
+    // La misma factura otra vez: se borran sus líneas de antes.
+    if (factura) {
+      for (var i = filas.length - 1; i >= 0; i--) {
+        if (filas[i][1] === proveedor && String(filas[i][2]).trim() === factura) { hoja.deleteRow(i + 2); filas.splice(i, 1); }
+      }
+    }
+    // Precio anterior: el de la factura más reciente de antes de esta fecha.
+    var anterior = {};
+    filas.forEach(function (f) {
+      if (f[1] !== proveedor) return;
+      var fe = f[0] instanceof Date ? Utilities.formatDate(f[0], 'Europe/Madrid', 'yyyy-MM-dd') : String(f[0]);
+      if (fe > fecha) return;
+      var k = clavePrecioPropio_(f[3]);
+      if (!anterior[k] || anterior[k].fecha <= fe) anterior[k] = { fecha: fe, precio: Number(f[8]) || 0 };
+    });
+    var ahora = new Date();
+    var nuevas = lineas.map(function (l) {
+      var precio = Math.round(Number(l.precio_unitario) * 10000) / 10000;
+      var antes = (anterior[clavePrecioPropio_(l.texto)] || {}).precio || '';
+      return [fechaComoDate_(fecha), proveedor, factura, String(l.texto).trim(), '', String(l.producto || l.texto).trim(),
+        Number(l.cantidad) || l.cantidad, l.unidad, precio, antes,
+        antes ? Math.round((precio - antes) / antes * 1000) / 10 : '', foto, ahora];
+    });
+    hoja.getRange(hoja.getLastRow() + 1, 1, nuevas.length, 13).setValues(nuevas);
+    return { ok: true, lineas: nuevas.length };
+  } finally {
+    lock.releaseLock();
   }
 }
 

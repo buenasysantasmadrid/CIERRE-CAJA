@@ -12,7 +12,8 @@
 //
 // De dónde sale cada cosa:
 // - Precios y pedidos: la hoja de la app de Pedidos (APP_Precios,
-//   APP_Pedidos), que es de lfisbein y se abre directamente.
+//   APP_Pedidos), que es de lfisbein y se abre directamente. Los precios de
+//   Frutapro (no está en Pedidos), de "Precios proveedores" del Índice.
 // - Gasto por proveedor: la planilla de Albaranes (las facturas cargadas en
 //   la caja), por la fecha de la factura.
 // - Facturas escaneadas: la carpeta "Facturas proveedores" de Drive (ver
@@ -88,7 +89,9 @@ function armarInformeSemanal_(hasta) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(String(hasta || '')) && hasta < hoy) hoy = hasta;
   var inicio = semanalSumarDias_(hoy, -6);
   var ss = SpreadsheetApp.openById(PEDIDOS_HOJA_ID_);
-  var precios = semanalLeerPestana_(ss, 'APP_Precios');
+  // Y los de proveedores que no están en Pedidos (Frutapro, ver Precios.gs).
+  var precios = semanalLeerPestana_(ss, 'APP_Precios').map(function (f) { return f.slice(0, 13); });
+  try { precios = precios.concat(filasPreciosPropios_()); } catch (err) { Logger.log('Precios proveedores: ' + err); }
   var pedidos = semanalLeerPestana_(ss, 'APP_Pedidos');
   var precioActual = {};
   semanalLeerPestana_(ss, 'APP_Productos').forEach(function (f) {
