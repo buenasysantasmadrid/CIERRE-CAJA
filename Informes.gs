@@ -22,13 +22,15 @@ var MODELO_INFORMES_ = 'claude-sonnet-5-5'; // la mitad que Opus
 
 // Desde doPost. Devuelve la respuesta, o null si el pedido no es de informes.
 function accionDeInformes_(data, email) {
-  if (!data.accionInformesDatos && !data.accionInformesPregunta) return null;
+  if (!data.accionInformesDatos && !data.accionInformesPregunta && !data.accionInformesCompras) return null;
   var res;
   if (email !== EDITOR_UNICO_) {
     res = { ok: false, sinPermiso: true, error: 'Esta página es solo para ' + EDITOR_UNICO_ + '.' };
   } else {
     try {
-      res = data.accionInformesDatos ? { ok: true, datos: datosInformes_(!!data.fresco) } : preguntaInformes_(data);
+      // Compras de la semana (InformeSemanalPedidos.gs): sin IA, no cuesta nada.
+      if (data.accionInformesCompras) res = { ok: true, html: armarInformeSemanal_(data.hasta).html };
+      else res = data.accionInformesDatos ? { ok: true, datos: datosInformes_(!!data.fresco) } : preguntaInformes_(data);
     } catch (err) {
       res = { ok: false, error: String(err && err.message || err) };
     }

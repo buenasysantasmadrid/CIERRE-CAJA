@@ -1,11 +1,12 @@
 // ============================================================================
-// INFORME SEMANAL DE COMPRAS — todos los viernes a las 18:00 llega un email a
-// info@buenasysantas.es con lo de la semana (de sábado a viernes):
-//   1. Cambios de precio (facturas leídas esta semana).
+// INFORME SEMANAL DE COMPRAS — se ve en la página de informes (solo
+// lfisbein), sección "Compras de la semana": los 7 días hasta la fecha
+// elegida. Ya no se manda por email ni lleva conclusiones de la IA (costaba
+// dinero cada semana); se arma solo con los datos, gratis.
+//   1. Cambios de precio (facturas leídas esa semana).
 //   2. Productos que se pidieron más que de costumbre.
 //   3. Gasto por proveedor comparado con su media.
 //   4. Pedidos de la app cuya factura no se ha escaneado.
-//   5. Conclusiones y consejos (los escribe la IA con los datos de arriba).
 // La "media" es el promedio semanal de las INFORME_SEMANAS_MEDIA_ semanas
 // anteriores.
 //
@@ -17,44 +18,35 @@
 // - Facturas escaneadas: la carpeta "Facturas proveedores" de Drive (ver
 //   Precios.gs) y las facturas cuyos precios ya están en APP_Precios.
 //
-// El aviso semanal es un activador de tiempo de la cuenta lfisbein. Lo
-// instala Claude (doPost con accionInformeSemanal: 'instalar' y la clave de
-// Claude); también 'vista' (devuelve el email sin mandarlo) y 'enviar'
-// (lo manda ya). Desde el editor: informeSemanalPedidos.
+// Claude puede verlo con doPost accionInformeSemanal: 'vista' y su clave.
 // ============================================================================
 
-var INFORME_SEMANAL_PARA_ = 'info@buenasysantas.es';
-var INFORME_SEMANAL_HORA_ = 18;
 var INFORME_SEMANAS_MEDIA_ = 8;
 var PEDIDOS_HOJA_ID_ = '11X7L9CcmklQtHbqdCyi29O0QPzpeEUPAK-GH5c8Fr0I';
 // Pestañas de Albaranes que no son compras a proveedores.
 var INFORME_SEMANAL_SIN_ALBARANES_ = ['SERVICIOS', 'EXTRAS', 'NOO', 'INFORME MES'];
 
-// La que llama el activador de los viernes.
+// Antes la llamaba el activador de los viernes para mandar el email: ahora,
+// si todavía salta, solo borra ese activador (no manda nada).
 function informeSemanalPedidos() {
-  var inf = armarInformeSemanal_();
-  MailApp.sendEmail({ to: INFORME_SEMANAL_PARA_, subject: inf.asunto, htmlBody: inf.html, name: 'Buenas y Santas · Compras' });
+  quitarActivadorInformeSemanal_();
+}
+function quitarActivadorInformeSemanal_() {
+  var quitados = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'informeSemanalPedidos') { ScriptApp.deleteTrigger(t); quitados++; }
+  });
+  return quitados;
 }
 
 function accionInformeSemanal_(data) {
   try {
-    if (data.accionInformeSemanal === 'instalar') return { ok: true, activador: instalarInformeSemanal_() };
-    if (data.accionInformeSemanal === 'vista') { var v = armarInformeSemanal_(); return { ok: true, asunto: v.asunto, html: v.html, datos: v.datos }; }
-    if (data.accionInformeSemanal === 'enviar') { informeSemanalPedidos(); return { ok: true, enviadoA: INFORME_SEMANAL_PARA_ }; }
+    if (data.accionInformeSemanal === 'vista') { var v = armarInformeSemanal_(data.hasta); return { ok: true, asunto: v.asunto, html: v.html, datos: v.datos }; }
+    if (data.accionInformeSemanal === 'quitarEmail') return { ok: true, activadoresQuitados: quitarActivadorInformeSemanal_() };
     return { ok: false, error: 'Acción desconocida' };
   } catch (err) {
     return { ok: false, error: String(err && err.stack || err) };
   }
-}
-
-// Un solo activador: los viernes entre las 18 y las 19 (hora de Madrid).
-function instalarInformeSemanal_() {
-  ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'informeSemanalPedidos') ScriptApp.deleteTrigger(t);
-  });
-  ScriptApp.newTrigger('informeSemanalPedidos').timeBased().onWeekDay(ScriptApp.WeekDay.FRIDAY)
-    .atHour(INFORME_SEMANAL_HORA_).nearMinute(0).inTimezone('Europe/Madrid').create();
-  return 'viernes ' + INFORME_SEMANAL_HORA_ + ':00 → ' + INFORME_SEMANAL_PARA_;
 }
 
 // ---------- fechas (siempre como texto AAAA-MM-DD, hora de Madrid) ----------
@@ -90,8 +82,10 @@ function semanalNum_(v) {
 function semanalR2_(n) { return Math.round(n * 100) / 100; }
 
 // ---------- datos ----------
-function armarInformeSemanal_() {
+// hasta: último día de la semana (AAAA-MM-DD); si no, hoy.
+function armarInformeSemanal_(hasta) {
   var hoy = Utilities.formatDate(new Date(), 'Europe/Madrid', 'yyyy-MM-dd');
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(hasta || '')) && hasta < hoy) hoy = hasta;
   var inicio = semanalSumarDias_(hoy, -6);
   var ss = SpreadsheetApp.openById(PEDIDOS_HOJA_ID_);
   var precios = semanalLeerPestana_(ss, 'APP_Precios');
@@ -108,7 +102,6 @@ function armarInformeSemanal_() {
     proveedores: semanalGastoProveedores_(inicio, hoy),
     facturasQueFaltan: semanalFacturasQueFaltan_(pedidos, precios, hoy)
   };
-  datos.conclusiones = semanalConclusiones_(datos);
   var asunto = 'Compras de la semana: ' + semanalFechaCorta_(inicio) + ' – ' + semanalFechaCorta_(hoy);
   return { asunto: asunto, html: semanalHtml_(datos), datos: datos };
 }
@@ -282,61 +275,7 @@ function semanalFacturasQueFaltan_(pedidos, precios, hoy) {
   return { revisados: lista.length, faltan: faltan, desde: desde, hasta: hasta };
 }
 
-// ---------- conclusiones (IA) ----------
-var ESQUEMA_CONCLUSIONES_SEMANA_ = {
-  type: 'object', additionalProperties: false, required: ['conclusiones'],
-  properties: {
-    conclusiones: {
-      type: 'array',
-      items: {
-        type: 'object', additionalProperties: false, required: ['titulo', 'texto'],
-        properties: { titulo: { type: 'string' }, texto: { type: 'string' } }
-      }
-    }
-  }
-};
-
-function semanalConclusiones_(datos) {
-  var clave = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
-  if (!clave) return { error: 'Falta la clave ANTHROPIC_API_KEY' };
-  var instrucciones =
-    'Eres el responsable de compras de "Buenas y Santas", un restaurante argentino de empanadas en Madrid. ' +
-    'Abajo están los datos de compras de esta semana (de ' + datos.semana.desde + ' a ' + datos.semana.hasta + '). ' +
-    'Escribe entre 3 y 6 conclusiones o consejos para el dueño, en español de España, claros y prácticos.\n' +
-    '- Basados SOLO en estos datos. Con cifras concretas (importes en formato español: 1.234,56 €).\n' +
-    '- Prioriza lo que le ahorra dinero o le evita problemas: subidas de precio a vigilar o a negociar, ' +
-    'proveedores o productos que se dispararon, facturas que faltan, pedidos que se podrían juntar para llegar a un pedido mínimo, etc.\n' +
-    '- Si hay pocos datos (la app de pedidos es nueva o casi no hay precios), dilo en una conclusión y no saques conclusiones fuertes.\n' +
-    '- No repitas las tablas: interpreta. Cada conclusión: un título corto y un texto de 1 a 3 frases.\n\n' +
-    'Cómo leer los datos: cambiosDePrecio = precios de facturas leídas esta semana (antes, ahora, cambio en %, sin IVA). ' +
-    'productos = cantidades pedidas en la app esta semana frente a la media semanal de las semanas anteriores (semanasAnteriores dice cuántas hay). ' +
-    'proveedores = gasto por proveedor según las facturas cargadas en la caja (Albaranes, con IVA) esta semana frente a la media semanal de 8 semanas; ' +
-    'una factura de esta semana puede no estar cargada todavía. facturasQueFaltan = pedidos enviados en la app sin factura escaneada ' +
-    '(puede ser que el proveedor factura una vez al mes o que una factura cubra varios pedidos).\n\nDATOS:\n' + JSON.stringify(datos);
-  var cuerpo = {
-    model: MODELO_INFORMES_, max_tokens: 8000,
-    output_config: { effort: 'medium', format: { type: 'json_schema', schema: ESQUEMA_CONCLUSIONES_SEMANA_ } },
-    fallbacks: 'default',
-    messages: [{ role: 'user', content: instrucciones }]
-  };
-  var resp, codigo, json;
-  for (var intento = 0; intento < 3; intento++) {
-    resp = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
-      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      headers: { 'x-api-key': clave, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'server-side-fallback-2026-07-01' },
-      payload: JSON.stringify(cuerpo)
-    });
-    codigo = resp.getResponseCode();
-    if (codigo !== 429 && codigo < 500) break;
-    Utilities.sleep(3000 * (intento + 1));
-  }
-  try { json = JSON.parse(resp.getContentText()); } catch (err) { json = null; }
-  if (codigo !== 200 || !json) return { error: (json && json.error && json.error.message) || ('Error de la IA (' + codigo + ')') };
-  var texto = (json.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('');
-  try { return { lista: JSON.parse(texto).conclusiones || [] }; } catch (err) { return { error: 'No se pudo entender la respuesta de la IA' }; }
-}
-
-// ---------- email ----------
+// ---------- HTML (se ve en la página de informes) ----------
 function semanalEsc_(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -429,17 +368,6 @@ function semanalHtml_(d) {
         'Si un proveedor factura una vez al mes, o una factura cubre varios pedidos, puede salir aquí sin que falte nada.');
   }
 
-  // 5. Conclusiones
-  var cc = d.conclusiones, s5;
-  if (cc.error || !cc.lista || !cc.lista.length) {
-    s5 = nada('No se pudieron preparar las conclusiones esta semana' + (cc.error ? ' (' + semanalEsc_(cc.error) + ')' : '') + '.');
-  } else {
-    s5 = cc.lista.map(function (x) {
-      return '<div style="margin:0 0 10px"><div style="font-weight:600;font-size:15px">' + semanalEsc_(x.titulo) + '</div>' +
-        '<div style="font-size:14px;line-height:1.45">' + semanalEsc_(x.texto).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>') + '</div></div>';
-    }).join('');
-  }
-
   return '<div style="background:#f4f5ef;padding:18px 12px;font-family:Helvetica,Arial,sans-serif;color:#23261f">' +
     '<div style="max-width:640px;margin:0 auto">' +
     '<div style="background:' + OLIVO + ';color:#fff;border-radius:14px;padding:16px 18px;margin:0 0 14px">' +
@@ -449,7 +377,5 @@ function semanalHtml_(d) {
     seccion(2, 'Lo que se ha pedido más que de costumbre', s2) +
     seccion(3, 'Gasto por proveedor frente a su media', s3) +
     seccion(4, 'Facturas que faltan por escanear', s4) +
-    seccion(5, 'Conclusiones y consejos', s5) +
-    '<p style="font-size:12px;color:' + GRIS + ';text-align:center;margin:8px 0 0">Email automático de los viernes (app de Pedidos y Cierre de caja).</p>' +
     '</div></div>';
 }

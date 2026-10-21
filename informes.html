@@ -48,6 +48,9 @@
   header.top h1 { font-size: 22px; margin: 0; flex: 1 1 auto; }
   header.top .sub { color: var(--ink-2); font-size: 13px; }
   select, button, textarea { font: inherit; color: var(--ink); }
+  #compras { overflow-x: auto; color-scheme: light; }
+  #compras th, #compras td { white-space: normal; }
+  input[type=date] { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
   select, textarea { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; }
   button { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 14px; cursor: pointer; }
   button.prim { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
@@ -115,6 +118,13 @@
       <div class="ejemplos" id="ejemplos"></div>
       <div class="fila"><button class="prim" id="preguntar">Preguntar</button><span class="estado" id="estadoPregunta"></span></div>
       <div id="respuestas"></div>
+    </section>
+
+    <section class="card full">
+      <h2>Compras de la semana</h2>
+      <p class="nota">Cambios de precio, lo que se pidió más que de costumbre, gasto por proveedor y facturas que faltan: los 7 días hasta la fecha elegida. No usa la IA (no cuesta nada).</p>
+      <div class="fila"><label class="sub">Hasta el <input type="date" id="comprasHasta"></label><button class="prim" id="verCompras">Ver</button><span class="estado" id="estadoCompras"></span></div>
+      <div id="compras"></div>
     </section>
 
     <section class="card full">
@@ -240,6 +250,20 @@
       .then(function(){ $('actualizar').disabled = false; });
   }
   $('actualizar').addEventListener('click', function(){ cargar(true); });
+
+  // ---------- compras de la semana (el HTML lo arma Apps Script) ----------
+  $('comprasHasta').value = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  $('verCompras').addEventListener('click', function(){
+    $('estadoCompras').textContent = 'Preparando… (tarda unos segundos)';
+    $('verCompras').disabled = true;
+    api({ accionInformesCompras: true, hasta: $('comprasHasta').value })
+      .then(function(d){
+        if (!d || !d.ok) throw new Error((d && d.error) || 'Respuesta inválida');
+        $('compras').innerHTML = d.html; $('estadoCompras').textContent = '';
+      })
+      .catch(function(e){ if (e.message !== 'sin sesión' && e.message !== 'sin permiso') $('estadoCompras').textContent = 'No se pudo preparar: ' + e.message; })
+      .then(function(){ $('verCompras').disabled = false; });
+  });
   $('anio').addEventListener('change', function(){ pintarTodo(true); });
   $('proveedor').addEventListener('change', function(){ pintarProveedorAnios(); });
 
