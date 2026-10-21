@@ -817,6 +817,23 @@ function doGet(e) {
       .createTextOutput(JSON.stringify(leerRegistroErrores_(parametros.desde)))
       .setMimeType(ContentService.MimeType.JSON);
   }
+  // ?totalesAlbaranes=AAAA: pone bien la fila TOTAL de TOTALES (ver
+  // totalSinServiciosNiExtras_) y devuelve la pestaña, para comprobarla.
+  if (esClaude && parametros.totalesAlbaranes) {
+    var idAlb = buscarEnIndice_('ALBARANES', String(parametros.totalesAlbaranes));
+    var resTot = { ok: !!idAlb };
+    if (idAlb) {
+      var ssAlb = SpreadsheetApp.openById(idAlb);
+      CacheService.getScriptCache().remove('totales_sin_servicios_extras_' + ssAlb.getId());
+      totalSinServiciosNiExtras_(ssAlb);
+      SpreadsheetApp.flush();
+      var hTot = ssAlb.getSheetByName('TOTALES');
+      var filaT = filaTotalDeTotales_(hTot);
+      resTot.filas = hTot.getRange(1, 1, filaT, 14).getDisplayValues().map(function (f) { return f.join(' | '); });
+      resTot.formulaEnero = hTot.getRange(filaT, 3).getFormula();
+    }
+    return ContentService.createTextOutput(JSON.stringify(resTot)).setMimeType(ContentService.MimeType.JSON);
+  }
   // Todo lo demás necesita una sesión válida (ver "Acceso" al final).
   if (!esClaude && !sesionValida_(parametros.sesion)) return respuestaSinSesion_();
 

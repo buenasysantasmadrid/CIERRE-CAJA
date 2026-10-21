@@ -795,39 +795,25 @@ function arreglarTotalesAlbaranes_(ss, nuevas) {
   return resumen;
 }
 
-// En TOTALES, la fila TOTAL no suma SERVICIOS ni EXTRAS: cada
-// =SUM(C3:C28) de esa fila pasa a restar lo de las filas con ese nombre en
-// la columna B (SUMIF, así da igual en qué fila estén o si se agregan
-// después). Una sola vez por planilla (marca en las propiedades).
+// En TOTALES, la fila TOTAL (lo que se compró en el mes; también lo usa
+// Contabilidad) no suma SERVICIOS ni EXTRAS, y tampoco NOO (copia vieja de
+// FRUTAPRO). Se reescribe al guardar mientras la fila TOTAL no lleve ya los
+// SUMIF de todos (alguien la pudo cambiar a mano), como mucho cada 6 horas.
 var ALBARANES_FUERA_DEL_TOTAL_ = ['SERVICIOS', 'EXTRAS'];
 function totalSinServiciosNiExtras_(ss) {
-  var props = PropertiesService.getScriptProperties();
-  var marca = 'totales_sin_servicios_extras_' + ss.getId();
-  if (props.getProperty(marca)) return;
+  var cache = CacheService.getScriptCache(), clave = 'totales_sin_servicios_extras_' + ss.getId();
+  if (cache.get(clave)) return;
   var hoja = ss.getSheetByName('TOTALES');
   if (!hoja) return;
-  var ultima = hoja.getLastRow();
-  var b = hoja.getRange(1, 2, ultima, 1).getValues();
-  var filaTotal = 0;
-  for (var r = 1; r <= ultima; r++) if (normalizarClave_(b[r - 1][0]) === 'TOTAL') { filaTotal = r; break; }
-  if (!filaTotal) return;
-  var ancho = hoja.getLastColumn();
-  var formulas = hoja.getRange(filaTotal, 1, 1, ancho).getFormulas()[0];
-  var cambiadas = 0;
-  formulas.forEach(function (f, i) {
-    // Solo una suma de la misma columna hacia arriba: =SUM(C3:C28).
-    var m = /^=\s*SUM\(\s*\$?([A-Z]+)\$?(\d+)\s*:\s*\$?([A-Z]+)\$?(\d+)\s*\)\s*$/i.exec(f || '');
-    if (!m || m[1].toUpperCase() !== m[3].toUpperCase() || m[2] === m[4]) return;
-    var rango = m[1] + m[2] + ':' + m[3] + m[4];
-    var nombres = '$B$' + m[2] + ':$B$' + m[4];
-    var nueva = '=SUM(' + rango + ')' + ALBARANES_FUERA_DEL_TOTAL_.map(function (n) {
-      return '-SUMIF(' + nombres + ',"' + n + '",' + rango + ')';
-    }).join('');
-    hoja.getRange(filaTotal, i + 1).setFormula(formulaLocal_(hoja, nueva));
-    cambiadas++;
+  var filaTotal = filaTotalDeTotales_(hoja);
+  if (filaTotal === -1) return;
+  var fuera = [ALBARANES_COPIA_VIEJA_.de].concat(ALBARANES_FUERA_DEL_TOTAL_);
+  var formulas = hoja.getRange(filaTotal, 3, 1, 12).getFormulas()[0];
+  var bien = formulas.every(function (f) {
+    return fuera.every(function (n) { return String(f).toUpperCase().indexOf('"' + n + '"') > -1; });
   });
-  if (cambiadas) props.setProperty(marca, '1');
-  else Logger.log('TOTALES de ' + ss.getName() + ': la fila TOTAL no tiene sumas =SUM(C3:C28); no se cambió nada');
+  if (!bien) Logger.log(sacarDelTotalAlbaranes_(ss, ALBARANES_COPIA_VIEJA_.de).join('\n') + ' (' + ss.getName() + ')');
+  cache.put(clave, '1', 21600);
 }
 
 function albaranesPasarAFormatoNuevo() {
@@ -1091,25 +1077,29 @@ function completarFrutaproDesdeNooDesdeMenu() {
   ui.alert('Listo', completarFrutaproDesdeNoo().join('\n'), ui.ButtonSet.OK);
 }
 
-// En TOTALES, la fila TOTAL suma todas las filas de proveedores menos la de
-// `nombre` (de la fila 2 hasta la de antes del TOTAL).
+// En TOTALES, la fila TOTAL suma todas las filas de proveedores (hasta la de
+// antes del TOTAL) menos las de `nombre` y las de
+// ALBARANES_FUERA_DEL_TOTAL_ (SERVICIOS, EXTRAS): SUMIF por el nombre de la
+// columna B, así da igual en qué fila estén o si se agregan después.
 function sacarDelTotalAlbaranes_(ss, nombre) {
   var hoja = ss.getSheetByName('TOTALES');
   if (!hoja) return ['No hay pestaña TOTALES.'];
   var filaTotal = filaTotalDeTotales_(hoja);
   if (filaTotal === -1) return ['TOTALES: no se encontró la fila TOTAL.'];
-  var colB = hoja.getRange(1, 2, filaTotal, 1).getValues();
-  var filaFuera = -1;
-  for (var i = 1; i < filaTotal; i++) if (normalizarClave_(colB[i][0]) === normalizarClave_(nombre)) { filaFuera = i + 1; break; }
+  var fuera = [nombre].concat(ALBARANES_FUERA_DEL_TOTAL_).filter(function (n, i, a) { return n && a.indexOf(n) === i; });
+  // Desde la misma fila que ya sumaba (la 2 si no se sabe).
+  var antes = /SUM\(\s*\$?[A-Z]+\$?(\d+)\s*:/i.exec(hoja.getRange(filaTotal, 3).getFormula() || '');
+  var desde = antes && Number(antes[1]) < filaTotal ? Number(antes[1]) : 2;
+  var nombres = '$B$' + desde + ':$B$' + (filaTotal - 1);
   var formulas = [];
   for (var c = 3; c <= 14; c++) { // C..N = enero..diciembre
-    var L = letraColumna_(c);
-    var f = '=SUM(' + L + '2:' + L + (filaTotal - 1) + ')';
-    if (filaFuera > 0) f += '-' + L + filaFuera;
-    formulas.push(f);
+    var L = letraColumna_(c), rango = L + desde + ':' + L + (filaTotal - 1);
+    formulas.push(formulaLocal_(hoja, '=SUM(' + rango + ')' + fuera.map(function (n) {
+      return '-SUMIF(' + nombres + ',"' + n + '",' + rango + ')';
+    }).join('')));
   }
   hoja.getRange(filaTotal, 3, 1, 12).setFormulas([formulas]);
-  return ['TOTALES: el TOTAL (fila ' + filaTotal + ') ya no suma ' + nombre + (filaFuera > 0 ? ' (fila ' + filaFuera + ')' : '')];
+  return ['TOTALES: el TOTAL (fila ' + filaTotal + ') ya no suma ' + fuera.join(', ')];
 }
 
 function filaTotalDeTotales_(hoja) {
