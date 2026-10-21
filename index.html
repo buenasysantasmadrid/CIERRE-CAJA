@@ -506,8 +506,9 @@
   .arreglo-det{font-size:.88rem;margin-top:6px;}
   .cajita-mas{color:var(--green);}
   .cajita-menos{color:var(--red);}
-  .cajita-sub{display:flex;justify-content:space-between;gap:10px;}
-  .cajita-saldo{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .cajita-item{display:flex;align-items:stretch;gap:12px;}
+  .cajita-mov{flex:1;min-width:0;}
+  .cajita-saldo{display:flex;align-items:center;justify-content:flex-end;min-width:92px;padding-left:12px;border-left:1px solid var(--line);font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;}
   .cajita-item{cursor:pointer;}
   .cajita-item.editando{border-color:var(--green);box-shadow:0 0 0 2px var(--green) inset;}
   .tinta-card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-top:14px;}
@@ -5614,10 +5615,13 @@
         var fecha = /^\d{4}-\d{2}-\d{2}$/.test(m.fecha) ? fechaCorta(m.fecha) : String(m.fecha || '');
         var importe = m.ingreso != null ? '<span class="cajita-mas">+' + fmt(m.ingreso) + '</span>' : '<span class="cajita-menos">' + fmt(m.egreso) + '</span>';
         return '<div class="arreglo-item cajita-item" data-fila="' + m.fila + '">' +
-          '<div class="arreglo-top"><b>' + escapeHtml(m.motivo || '') + '</b>' + importe + '</div>' +
-          '<div class="arreglo-sub cajita-sub"><span>' + escapeHtml(fecha) + (m.responsable ? ' · ' + escapeHtml(m.responsable) : '') + (m.desdeCaja ? ' · desde la caja del día' : '') + '</span>' +
-            // Lo que quedó en el sobrecito después de este movimiento (TOTAL de su fila).
-            (m.total != null ? '<span class="cajita-saldo">Total ' + fmt(m.total) + '</span>' : '') + '</div>' +
+          '<div class="cajita-mov">' +
+            '<div class="arreglo-top"><b>' + escapeHtml(m.motivo || '') + '</b>' + importe + '</div>' +
+            '<div class="arreglo-sub">' + escapeHtml(fecha) + (m.responsable ? ' · ' + escapeHtml(m.responsable) : '') + (m.desdeCaja ? ' · desde la caja del día' : '') + '</div>' +
+          '</div>' +
+          // Columna de la derecha: lo que quedó en el sobrecito después de
+          // este movimiento (TOTAL de su fila).
+          '<div class="cajita-saldo">' + (m.total != null ? fmt(m.total) : '') + '</div>' +
         '</div>';
       }).join('') : '<div class="empty-row">Todavía no hay movimientos.</div>';
     })();
