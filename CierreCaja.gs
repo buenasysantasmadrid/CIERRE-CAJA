@@ -9,9 +9,16 @@ function doPost(e) {
         .createTextOutput(JSON.stringify(iniciarSesion_(data.idToken)))
         .setMimeType(ContentService.MimeType.JSON);
     }
-    // La app de Pedidos (sin sesión): listar las facturas de Drive y releer
-    // los precios de una (ver Precios.gs). No tocan la caja.
+    // La app de Pedidos (con su propio acceso, ver "Acceso de la app de
+    // Pedidos" en Precios.gs): iniciar sesión, listar las facturas de Drive y
+    // releer los precios de una. No tocan la caja.
+    if (data.accionSesionPedidos) {
+      return ContentService
+        .createTextOutput(JSON.stringify(sesionPedidos_(data.idToken)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
     if (data.accionFacturasPedidos || data.accionPreciosDesdeDrive) {
+      if (!accesoPedidosValido_(data.acceso)) return respuestaSinSesion_();
       return ContentService
         .createTextOutput(JSON.stringify(data.accionFacturasPedidos ? facturasParaPedidos_(data) : preciosDesdeDrive_(data)))
         .setMimeType(ContentService.MimeType.JSON);

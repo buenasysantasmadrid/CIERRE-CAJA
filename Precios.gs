@@ -158,7 +158,7 @@ function pedirAPedidos_(cuerpo) {
     if (intento) Utilities.sleep(3000);
     resp = UrlFetchApp.fetch(PEDIDOS_URL_, {
       method: 'post', contentType: 'text/plain;charset=utf-8', muteHttpExceptions: true,
-      payload: JSON.stringify(cuerpo)
+      payload: JSON.stringify(Object.assign({ claveServidor: CLAVE_PEDIDOS_ }, cuerpo))
     });
     texto = resp.getContentText();
     try { return JSON.parse(texto); } catch (err) { /* página de error */ }
@@ -517,4 +517,41 @@ function preciosDesdeDrive_(data) {
   var r = mandarPreciosAPedidos_(lectura, carpeta || 'Sin proveedor', fecha, archivo.getUrl());
   if (r && r.noEsDePedidos) return { ok: false, error: 'En esa factura no se ha reconocido ningún producto de este proveedor' };
   return r;
+}
+
+// ============================================================================
+// Acceso de la app de Pedidos: solo las cuentas de CUENTAS_PERMITIDAS_
+// (CierreCaja.gs). La app inicia sesión con Google (el mismo ID de cliente que
+// la caja) y manda aquí el "credential". Si la cuenta vale, se le devuelve un
+// "acceso" firmado con CLAVE_PEDIDOS_ (ClavePedidos.gs) que dura DIAS_SESION_
+// días. El script de Pedidos, que no puede hablar con Google, solo comprueba la
+// firma. Quitar una cuenta de la lista la deja fuera aquí al momento; en
+// Pedidos, cuando venza su acceso (o enseguida, si se cambia la clave).
+// ============================================================================
+function firmaPedidos_(texto) {
+  return Utilities.computeHmacSha256Signature(texto, CLAVE_PEDIDOS_).map(function (b) {
+    return ('0' + (b & 255).toString(16)).slice(-2);
+  }).join('');
+}
+
+function sesionPedidos_(idToken) {
+  if (!idToken) return { ok: false, error: 'No llegó el inicio de sesión de Google.' };
+  var resp = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken), { muteHttpExceptions: true });
+  if (resp.getResponseCode() !== 200) return { ok: false, error: 'Google no dio por válido el inicio de sesión. Prueba de nuevo.' };
+  var info = JSON.parse(resp.getContentText());
+  if (info.aud !== GOOGLE_CLIENT_ID_) return { ok: false, error: 'El inicio de sesión no es de esta app.' };
+  var email = String(info.email || '').toLowerCase();
+  if (String(info.email_verified) !== 'true') return { ok: false, error: 'La cuenta ' + email + ' no está verificada por Google.' };
+  if (CUENTAS_PERMITIDAS_.indexOf(email) === -1) return { ok: false, error: 'La cuenta ' + email + ' no tiene acceso a los pedidos.' };
+  var expira = Date.now() + DIAS_SESION_ * 24 * 60 * 60 * 1000;
+  var texto = email + '|' + expira;
+  return { ok: true, acceso: texto + '|' + firmaPedidos_(texto), email: email, expira: expira };
+}
+
+// Devuelve la cuenta del acceso, o null si no vale.
+function accesoPedidosValido_(acceso) {
+  var p = String(acceso || '').split('|');
+  if (p.length !== 3 || !(Number(p[1]) > Date.now())) return null;
+  if (firmaPedidos_(p[0] + '|' + p[1]) !== p[2]) return null;
+  return CUENTAS_PERMITIDAS_.indexOf(p[0]) === -1 ? null : p[0];
 }
