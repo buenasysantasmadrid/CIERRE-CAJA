@@ -855,6 +855,8 @@ function doGet(e) {
   // ?carpetaFacturas=AAAA/MM/Proveedor (o vacío para la raíz): lo que hay en
   // esa carpeta de "Facturas proveedores" y sus subcarpetas (solo lectura).
   if (esClaude && parametros.carpetaFacturas != null) {
+    // &crearBandejas=1: antes, crea las carpetas de entrada y el activador (ver Bandejas.gs).
+    if (parametros.crearBandejas) asegurarBandejasFacturas_();
     var dir = DriveApp.getFolderById(CARPETA_FACTURAS_ID_);
     String(parametros.carpetaFacturas).split('/').filter(String).forEach(function (n) {
       var it = dir.getFoldersByName(n);
