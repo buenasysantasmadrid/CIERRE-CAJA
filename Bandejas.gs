@@ -5,8 +5,9 @@
 //   · "📥 Facturas de albarán": compras a un proveedor cuyo albarán ya se
 //     cargó en la caja cuando llegó la mercadería. No se carga otra vez: se
 //     busca en ALBARANES (mismo número, un albarán que la factura menciona,
-//     o el mismo importe en esas fechas) y, si no aparece o el importe no
-//     cuadra, se avisa.
+//     o el mismo importe en esas fechas) y ese gasto pasa a ser la factura
+//     (número, fecha, IVA e importe de la factura), como la factura de un
+//     ticket. Si no aparece, se avisa.
 //   · "📥 Facturas pagadas por transferencia": servicios y demás que se
 //     pagan desde el banco. Se escriben directo en ALBARANES (la pestaña del
 //     proveedor, o SERVICIOS si no tiene), con forma TRANSFERENCIA y día de
@@ -185,7 +186,7 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista) {
 
   var resultado;
   if (tipo === 'albaran') {
-    resultado = comprobarAlbaranCargado_(ss, proveedor, fecha, numero, importe, r.referencias || []);
+    resultado = pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, isNaN(iva) ? null : iva, r.referencias || []);
   } else {
     resultado = escribirTransferenciaEnAlbaranes_(ss, proveedor, detalle, fecha, numero, importe, isNaN(iva) ? null : iva, 'pdf-' + archivo.getId());
   }
@@ -246,11 +247,16 @@ function filasDelMesAlbaranes_(hoja, mesIndex) {
   return { filaEnc: filaEnc, mapa: mapa, filas: filas };
 }
 
-// Factura de albarán: ¿está lo cargado en la caja? Se mira el mes de la
-// factura, el anterior y los de los albaranes que menciona (del mismo año).
-function comprobarAlbaranCargado_(ss, proveedor, fecha, numero, importe, referencias) {
+// Factura de albarán: se buscan los albaranes cargados en la caja (en
+// ALBARANES: el mes de la factura, el anterior y los de los albaranes que
+// menciona, del mismo año) y se pasan a la factura igual que un ticket (ver
+// aplicarFacturaATickets_ en FacturaTicket.gs): el gasto se queda con el
+// número, la fecha, el IVA y el importe de la factura (manda la factura,
+// aunque el albarán dijera otro total), y el PDF del albarán se aparta a
+// <proveedor>/Albaranes.
+function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, referencias) {
   var hoja = pestanaAlbaranesParaProveedor_(ss, proveedor);
-  if (!hoja) return { texto: 'guardada en Drive', problema: 'no hay pestaña de "' + proveedor + '" en ALBARANES, así que no se pudo comprobar que el albarán esté cargado.' };
+  if (!hoja) return { texto: 'guardada en Drive', problema: 'no hay pestaña de "' + proveedor + '" en ALBARANES, así que no se pudo buscar el albarán para ponerle los datos de la factura.' };
 
   var numeros = [numero].concat(referencias.map(function (x) { return x.numero; })).map(claveNumeroFactura_).filter(String);
   var fechasRef = referencias.map(function (x) { return x.fecha; }).filter(function (f) { return /^\d{4}-\d{2}-\d{2}$/.test(f); });
@@ -284,13 +290,36 @@ function comprobarAlbaranCargado_(ss, proveedor, fecha, numero, importe, referen
   if (!encontradas.length) {
     return { texto: 'guardada en Drive', problema: 'no encontré en ALBARANES (pestaña ' + hoja.getName() + ') el albarán cargado en la caja. Si no se cargó, hay que cargarlo.' };
   }
-  var suma = Math.round(encontradas.reduce(function (s, f) { return s + f.importe; }, 0) * 100) / 100;
   var cuales = encontradas.map(function (f) { return (f.numero ? 'nº ' + f.numero + ' ' : '') + 'del ' + fechaCorta_(dia(f.fecha)) + ' (' + euros_(f.importe) + ')'; }).join(', ');
-  var texto = 'coincide con lo cargado: ' + cuales;
-  if (Math.abs(suma - importe) > 0.02) {
-    return { texto: texto, problema: 'la factura es de ' + euros_(importe) + ' pero lo cargado (' + cuales + ') suma ' + euros_(suma) + '. Revisar.' };
+
+  // De qué caja es cada uno ("IDs app"). Los cargados a mano en la planilla
+  // (sin ID) no se pueden cambiar desde aquí.
+  var cajaDe = {};
+  getOrCrearHojaIdsAlbaranes_(ss).getDataRange().getValues().slice(1).forEach(function (f) { cajaDe[String(f[0])] = textoFechaIds_(f[1]); });
+  var conCaja = encontradas.filter(function (f) { return f.id && f.id.indexOf('pdf-') !== 0 && cajaDe[f.id]; });
+  if (conCaja.length < encontradas.length) {
+    return { texto: 'coincide con ' + cuales, problema: 'el albarán (' + cuales + ') está escrito a mano en ALBARANES, no viene de una caja: hay que ponerle los datos de la factura a mano.' };
   }
-  return { texto: texto };
+
+  var r = aplicarFacturaATickets_({
+    tickets: conCaja.map(function (f) {
+      return { idMovimiento: f.id, fecha: cajaDe[f.id], importe: f.importe, factura: f.numero, fechaFactura: dia(f.fecha), proveedorTexto: proveedor };
+    }),
+    factura: { numero: numero, fecha: fecha, importe: importe, iva: iva == null ? 0 : iva },
+    proveedor: proveedor, quien: 'Factura PDF de Drive', sinDrive: true
+  });
+  if (!r.ok) {
+    return { texto: 'coincide con ' + cuales, problema: 'no se pudo pasar el albarán (' + cuales + ') a la factura: ' + r.dias.filter(function (d) { return !d.ok; }).map(function (d) { return 'caja del ' + fechaCorta_(d.fecha) + ': ' + d.error; }).join('; ') };
+  }
+  // El PDF del albarán (escaneado con su número) se aparta a <proveedor>/Albaranes.
+  try {
+    conCaja.forEach(function (f) { moverTicketAAlbaranes_({ factura: f.numero, fecha: cajaDe[f.id], fechaFactura: dia(f.fecha), proveedorTexto: proveedor }, proveedor); });
+  } catch (err) { Logger.log('PDF del albarán: ' + err); }
+  var suma = Math.round(encontradas.reduce(function (s, f) { return s + f.importe; }, 0) * 100) / 100;
+  return {
+    texto: 'el albarán ' + cuales + ' ahora es la factura' + (numero ? ' nº ' + numero : '') +
+      (Math.abs(suma - importe) > 0.02 ? ' (el importe cambió de ' + euros_(suma) + ' a ' + euros_(importe) + ')' : '')
+  };
 }
 
 // Factura pagada por transferencia: una fila nueva en ALBARANES. Si ya
