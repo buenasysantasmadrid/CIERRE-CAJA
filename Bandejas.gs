@@ -83,16 +83,17 @@ function proveedorDeLaListaLeida_(nombre, lista) {
   return '';
 }
 
-// Lo que corre cada hora.
+// Lo que corre cada hora (también lo puede lanzar Claude: ?procesarBandejas=1,
+// ver doGet). Devuelve lo hecho, para verlo.
 function procesarBandejasFacturas() {
   var cache = CacheService.getScriptCache();
-  if (cache.get('bandejas_corriendo')) return; // la vuelta anterior todavía no terminó
+  if (cache.get('bandejas_corriendo')) return { ok: false, error: 'ya se están procesando' }; // la vuelta anterior todavía no terminó
   cache.put('bandejas_corriendo', '1', 400);
   try {
     var inicio = Date.now();
     var raiz = DriveApp.getFolderById(CARPETA_FACTURAS_ID_);
     var lista = proveedoresParaLeer_();
-    var hechas = [], problemas = 0;
+    var hechas = [], problemas = 0, salida = { ok: true, hechas: hechas, problemas: [], seReintentan: [] };
     [[BANDEJA_ALBARAN_, 'albaran'], [BANDEJA_TRANSFERENCIA_, 'transferencia']].forEach(function (b) {
       var bandeja = carpetaHija_(raiz, b[0]);
       var archivos = bandeja.getFiles();
@@ -102,17 +103,20 @@ function procesarBandejasFacturas() {
         try {
           r = procesarFacturaDeBandeja_(archivo, b[1], raiz, lista);
         } catch (err) {
+          salida.seReintentan.push(archivo.getName() + ': ' + (err.message || err));
           r = reintentarDespues_(archivo, bandeja, String(err.message || err));
         }
         if (r.hecha) hechas.push(r.hecha);
         if (r.problema) {
           problemas++;
+          salida.problemas.push(r.problema);
           avisarPorEmail_('una factura de la carpeta "' + b[0] + '" ' + (r.hecha ? 'tiene algo que revisar' : 'no se cargó'),
             r.problema + (r.enlace ? '\nEl PDF: ' + r.enlace : ''));
         }
       }
     });
     if (hechas.length) mandarResumenBandejas_(hechas, problemas);
+    return salida;
   } finally {
     cache.remove('bandejas_corriendo');
   }

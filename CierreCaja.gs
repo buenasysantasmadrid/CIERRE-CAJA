@@ -854,6 +854,10 @@ function doGet(e) {
   }
   // ?carpetaFacturas=AAAA/MM/Proveedor (o vacío para la raíz): lo que hay en
   // esa carpeta de "Facturas proveedores" y sus subcarpetas (solo lectura).
+  // ?procesarBandejas=1: procesa ya las carpetas de entrada de facturas (Bandejas.gs).
+  if (esClaude && parametros.procesarBandejas) {
+    return ContentService.createTextOutput(JSON.stringify(procesarBandejasFacturas() || {})).setMimeType(ContentService.MimeType.JSON);
+  }
   if (esClaude && parametros.carpetaFacturas != null) {
     // &crearBandejas=1: antes, crea las carpetas de entrada y el activador (ver Bandejas.gs).
     if (parametros.crearBandejas) asegurarBandejasFacturas_();
