@@ -33,6 +33,7 @@ var BANDEJA_PROVEEDORES_GENERICOS_ = ['VARIOS', 'SUPER', 'EXTRAS', 'SERVICIOS', 
 // Desde cada guardado de la caja (doPost): crea las dos carpetas y el
 // activador de cada hora, si no están.
 function asegurarBandejasFacturas_() {
+  try { asegurarActivadorPaqueteContables_(); } catch (err) { Logger.log('Paquete contables: ' + err); } // ver Contables.gs
   try {
     var cache = CacheService.getScriptCache();
     if (cache.get('bandejas_facturas')) return;
@@ -248,6 +249,7 @@ function filasDelMesAlbaranes_(hoja, mesIndex) {
       fecha: mapa.fecha != null && v[mapa.fecha] instanceof Date ? v[mapa.fecha] : null,
       numero: mapa.factura != null ? String(v[mapa.factura] || '') : '',
       importe: mapa.importe != null ? Number(v[mapa.importe]) || 0 : 0,
+      iva: mapa.iva != null ? Number(v[mapa.iva]) || 0 : 0,
       forma: mapa.formaPago != null ? normalizarClave_(v[mapa.formaPago]) : '',
       detalle: mapa.detalle != null ? String(v[mapa.detalle] || '') : '',
       obs: mapa.obs != null ? String(v[mapa.obs] || '') : '',

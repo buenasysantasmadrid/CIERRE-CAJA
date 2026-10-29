@@ -870,6 +870,11 @@ function doGet(e) {
   }
   // ?carpetaFacturas=AAAA/MM/Proveedor (o vacío para la raíz): lo que hay en
   // esa carpeta de "Facturas proveedores" y sus subcarpetas (solo lectura).
+  // ?paqueteContables=AAAA-MM[&email=1]: prepara ya el paquete de ese mes (Contables.gs).
+  if (esClaude && parametros.paqueteContables) {
+    asegurarActivadorPaqueteContables_();
+    return ContentService.createTextOutput(JSON.stringify(paqueteContables_(String(parametros.paqueteContables), !!parametros.email))).setMimeType(ContentService.MimeType.JSON);
+  }
   // ?muestraResumenFacturas=1: manda ya una muestra del resumen de los lunes (ResumenFacturas.gs).
   if (esClaude && parametros.muestraResumenFacturas) {
     return ContentService.createTextOutput(JSON.stringify(mandarMuestraResumenFacturas_())).setMimeType(ContentService.MimeType.JSON);
