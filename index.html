@@ -3894,6 +3894,7 @@
       state[t].movimientos.push(mov);
     }
     actualizarParejaEmpanadas(t, mov, anterior);
+    moverPdfSiCambioProveedor(anterior, mov);
 
     saveDraft();
     renderMovimientos(t);
@@ -3923,6 +3924,22 @@
     if(!modalTocado){ closeModal(); return; }
     preguntar('¿Cerrar sin guardar? Se pierde lo que cambiaste.', 'Seguir editando', 'Cerrar sin guardar', null, closeModal);
   });
+  // Un gasto al que se le cambió el proveedor (o el nº o la fecha de la
+  // factura): su PDF en Drive se mueve a la carpeta que le toca, en segundo
+  // plano (ver moverPdfDeGasto_ en Precios.gs). Sin número no se busca.
+  function moverPdfSiCambioProveedor(anterior, mov){
+    if(!anterior || anterior.tipo !== 'gasto' || mov.tipo !== 'gasto' || !String(anterior.factura || '').trim()) return;
+    var cambio = ['proveedor', 'proveedorDetalle', 'factura', 'fecha'].some(function(k){ return String(anterior[k] || '') !== String(mov[k] || ''); });
+    if(!cambio) return;
+    var datos = function(m){ return { proveedor: m.proveedor || '', proveedorDetalle: m.proveedorDetalle || '', factura: m.factura || '', fecha: m.fecha || '' }; };
+    var desc = anterior.proveedor + ' nº ' + anterior.factura + ' → ' + mov.proveedor;
+    postConReintentos(JSON.stringify({ accionMoverPdfGasto: true, antes: datos(anterior), ahora: datos(mov), fechaCaja: state.fecha,
+        ticket: anterior.pasoAFactura ? anterior.pasoAFactura.ticket || '' : '' }))
+      .catch(function(err){
+        avisarErrorPorMail('el PDF de un gasto no se movió de carpeta', 'Se cambió el proveedor de un gasto (' + desc + ') pero no se llegó al Apps Script para mover su PDF (' + (err && err.message || 'sin conexión') + ').');
+      });
+  }
+
   // Empanadas pagadas: el movimiento de Empanadas (se resta del cierre) va
   // con un ingreso de Empanadas "pareja" (entra la plata), unidos por
   // `pareja` (el id del otro). Al guardar uno se actualiza el otro; al

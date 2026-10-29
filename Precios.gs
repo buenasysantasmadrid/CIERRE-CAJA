@@ -87,6 +87,91 @@ function guardarFotoFactura_(data, proveedor, fecha) {
   return archivo.getUrl();
 }
 
+// Carpeta y detalle (lo que va en el nombre) de un gasto, como al
+// escanearlo: Super y Servicios tienen su carpeta y el nombre real va en el
+// archivo; Varios va a la carpeta con el nombre real.
+function carpetaDeGasto_(proveedor, detalle) {
+  proveedor = String(proveedor || '').trim();
+  detalle = String(detalle || '').trim();
+  if (proveedor === 'Varios') return { carpeta: detalle || 'Varios', detalle: '' };
+  if (proveedor === 'Super' || proveedor === 'Servicios') return { carpeta: proveedor, detalle: detalle };
+  return { carpeta: proveedor || 'Sin proveedor', detalle: '' };
+}
+
+// Al editar en la app un gasto y cambiarle el proveedor (o el número o la
+// fecha), su PDF se mueve a la carpeta que le toca y se le pone el nombre
+// nuevo. Se busca por el número de antes en las carpetas de proveedor del
+// mes de la factura y del de la caja. Si se había pasado a factura, el
+// ticket (en <proveedor>/Albaranes) va con ella. Sin número no se puede
+// saber cuál es: no se hace nada.
+function moverPdfDeGasto_(data) {
+  var antes = data.antes || {}, ahora = data.ahora || {};
+  var numero = sinCaracteresRaros_(String(antes.factura || '').trim());
+  if (numero.replace(/[^0-9A-Za-z]/g, '').length < 3) return { ok: true, nada: 'sin número' };
+  var fecha = /^\d{4}-\d{2}-\d{2}$/.test(String(ahora.fecha || '')) ? ahora.fecha : data.fechaCaja;
+  var destino = carpetaDeGasto_(ahora.proveedor, ahora.proveedorDetalle);
+  var raiz = carpetaFacturas_();
+
+  var conNumero = function (archivo, num) {
+    var base = archivo.getName().replace(/\.[a-z0-9]{2,4}$/i, '').replace(/ \(\d+\)$/, '');
+    return base.slice(-num.length - 1) === ' ' + num;
+  };
+  var movidos = [], vistos = {};
+  var meses = [antes.fecha, data.fechaCaja].filter(function (f, i, a) { return /^\d{4}-\d{2}-\d{2}$/.test(String(f || '')) && a.indexOf(f) === i; });
+  meses.forEach(function (f) {
+    var anio = raiz.getFoldersByName(f.slice(0, 4));
+    if (!anio.hasNext()) return;
+    var mes = anio.next().getFoldersByName(f.slice(5, 7));
+    if (!mes.hasNext()) return;
+    var provs = mes.next().getFolders();
+    while (provs.hasNext()) {
+      var prov = provs.next();
+      if (prov.getName().indexOf('📥') === 0) continue;
+      var archivos = prov.getFiles();
+      while (archivos.hasNext()) {
+        var a = archivos.next();
+        if (vistos[a.getId()] || !conNumero(a, numero)) continue;
+        vistos[a.getId()] = true;
+        var ext = (/\.[a-z0-9]{2,4}$/i.exec(a.getName()) || ['.pdf'])[0];
+        var nombre = nombreArchivoFactura_(fecha, destino.carpeta, destino.detalle, String(ahora.factura || antes.factura).trim()) + ext;
+        movidos.push(moverConNombre_(a, carpetaDelMes_(raiz, fecha, destino.carpeta), nombre));
+      }
+      // El ticket que pasó a esta factura.
+      var ticket = sinCaracteresRaros_(String(data.ticket || '').trim());
+      var subAlb = ticket ? prov.getFoldersByName('Albaranes') : null;
+      if (subAlb && subAlb.hasNext()) {
+        var tickets = subAlb.next().getFiles();
+        while (tickets.hasNext()) {
+          var t = tickets.next();
+          if (vistos[t.getId()] || !conNumero(t, ticket)) continue;
+          vistos[t.getId()] = true;
+          var dirT = carpetaHija_(carpetaDelMes_(raiz, fecha, destino.carpeta), 'Albaranes');
+          var fechaT = t.getName().slice(0, 10);
+          movidos.push(moverConNombre_(t, dirT, nombreArchivoFactura_(/^\d{4}-\d{2}-\d{2}$/.test(fechaT) ? fechaT : fecha, destino.carpeta, destino.detalle, ticket) + '.pdf'));
+        }
+      }
+    }
+  });
+  return { ok: true, movidos: movidos };
+}
+
+// "Facturas proveedores" / AAAA / MM / <carpeta>.
+function carpetaDelMes_(raiz, fecha, carpeta) {
+  return carpetaHija_(carpetaHija_(carpetaHija_(raiz, fecha.slice(0, 4)), fecha.slice(5, 7)), sinCaracteresRaros_(carpeta));
+}
+
+// Mueve y renombra; si en el destino ya hay otro con ese nombre, " (2)".
+function moverConNombre_(archivo, dir, nombre) {
+  if (archivo.getName() === nombre && archivo.getParents().hasNext() && archivo.getParents().next().getId() === dir.getId()) return nombre;
+  var existe = dir.getFilesByName(nombre);
+  while (existe.hasNext()) {
+    if (existe.next().getId() !== archivo.getId()) { nombre = nombre.replace(/(\.[a-z0-9]+)?$/i, ' (2)$1'); break; }
+  }
+  archivo.setName(nombre);
+  archivo.moveTo(dir);
+  return nombre;
+}
+
 // Nombre (sin extensión) de una factura en Drive: "AAAA-MM-DD Proveedor
 // [detalle] número"; sin número, la hora.
 function nombreArchivoFactura_(fecha, proveedor, detalle, numero) {

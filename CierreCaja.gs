@@ -134,6 +134,17 @@ function doPost(e) {
         .createTextOutput(JSON.stringify(aplicarFacturaATickets_(data)))
         .setMimeType(ContentService.MimeType.JSON);
     }
+    // Un gasto editado con otro proveedor: su PDF va a la carpeta nueva (ver Precios.gs).
+    if (data.accionMoverPdfGasto) {
+      var movido;
+      try { movido = moverPdfDeGasto_(data); }
+      catch (errPdf) {
+        movido = { ok: false, error: String(errPdf) };
+        avisarPorEmail_('el PDF de un gasto no se movió de carpeta', 'Se cambió el proveedor de un gasto (' + ((data.antes || {}).proveedor || '?') + ' nº ' + ((data.antes || {}).factura || '?') +
+          ' → ' + ((data.ahora || {}).proveedor || '?') + ') pero su PDF no se pudo mover en Drive: ' + errPdf);
+      }
+      return ContentService.createTextOutput(JSON.stringify(movido)).setMimeType(ContentService.MimeType.JSON);
+    }
 
     // Planilla de Cierre de Caja DEL MES al que pertenece esta fecha (ver
     // Indice.gs) — se crea sola la primera vez que hace falta.
