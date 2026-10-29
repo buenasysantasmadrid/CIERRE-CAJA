@@ -864,7 +864,7 @@ function doGet(e) {
       dir = it.next();
     });
     var listar = function (carpeta, nivel) {
-      var out = { carpeta: carpeta.getName(), archivos: [], subcarpetas: [] };
+      var out = { carpeta: carpeta.getName(), id: carpeta.getId(), archivos: [], subcarpetas: [] };
       var fs = carpeta.getFiles();
       while (fs.hasNext()) {
         var f = fs.next();
