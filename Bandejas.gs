@@ -239,6 +239,7 @@ function filasDelMesAlbaranes_(hoja, mesIndex) {
       fecha: mapa.fecha != null && v[mapa.fecha] instanceof Date ? v[mapa.fecha] : null,
       numero: mapa.factura != null ? String(v[mapa.factura] || '') : '',
       importe: mapa.importe != null ? Number(v[mapa.importe]) || 0 : 0,
+      forma: mapa.formaPago != null ? normalizarClave_(v[mapa.formaPago]) : '',
       detalle: mapa.detalle != null ? String(v[mapa.detalle] || '') : '',
       obs: mapa.obs != null ? String(v[mapa.obs] || '') : '',
       id: String(ids[i][0] || '')
@@ -253,7 +254,9 @@ function filasDelMesAlbaranes_(hoja, mesIndex) {
 // aplicarFacturaATickets_ en FacturaTicket.gs): el gasto se queda con el
 // número, la fecha, el IVA y el importe de la factura (manda la factura,
 // aunque el albarán dijera otro total), y el PDF del albarán se aparta a
-// <proveedor>/Albaranes.
+// <proveedor>/Albaranes. La forma de pago no cambia. Si se pagó en efectivo,
+// el importe se queda en lo que salió de la caja (si no, cambiaría la
+// diferencia de esa caja) y, si la factura dice otro, se avisa.
 function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, referencias) {
   var hoja = pestanaAlbaranesParaProveedor_(ss, proveedor);
   if (!hoja) return { texto: 'guardada en Drive', problema: 'no hay pestaña de "' + proveedor + '" en ALBARANES, así que no se pudo buscar el albarán para ponerle los datos de la factura.' };
@@ -301,11 +304,13 @@ function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, ref
     return { texto: 'coincide con ' + cuales, problema: 'el albarán (' + cuales + ') está escrito a mano en ALBARANES, no viene de una caja: hay que ponerle los datos de la factura a mano.' };
   }
 
+  var suma = Math.round(encontradas.reduce(function (s, f) { return s + f.importe; }, 0) * 100) / 100;
+  var enEfectivo = encontradas.some(function (f) { return f.forma === 'EFECTIVO'; });
   var r = aplicarFacturaATickets_({
     tickets: conCaja.map(function (f) {
       return { idMovimiento: f.id, fecha: cajaDe[f.id], importe: f.importe, factura: f.numero, fechaFactura: dia(f.fecha), proveedorTexto: proveedor };
     }),
-    factura: { numero: numero, fecha: fecha, importe: importe, iva: iva == null ? 0 : iva },
+    factura: { numero: numero, fecha: fecha, importe: enEfectivo ? suma : importe, iva: iva == null ? 0 : iva },
     proveedor: proveedor, quien: 'Factura PDF de Drive', sinDrive: true
   });
   if (!r.ok) {
@@ -315,10 +320,14 @@ function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, ref
   try {
     conCaja.forEach(function (f) { moverTicketAAlbaranes_({ factura: f.numero, fecha: cajaDe[f.id], fechaFactura: dia(f.fecha), proveedorTexto: proveedor }, proveedor); });
   } catch (err) { Logger.log('PDF del albarán: ' + err); }
-  var suma = Math.round(encontradas.reduce(function (s, f) { return s + f.importe; }, 0) * 100) / 100;
+  var distinto = Math.abs(suma - importe) > 0.02;
   return {
     texto: 'el albarán ' + cuales + ' ahora es la factura' + (numero ? ' nº ' + numero : '') +
-      (Math.abs(suma - importe) > 0.02 ? ' (el importe cambió de ' + euros_(suma) + ' a ' + euros_(importe) + ')' : '')
+      (distinto && !enEfectivo ? ' (el importe cambió de ' + euros_(suma) + ' a ' + euros_(importe) + ')' : ''),
+    problema: distinto && enEfectivo
+      ? 'se pagó en efectivo ' + euros_(suma) + ' pero la factura' + (numero ? ' nº ' + numero : '') + ' es de ' + euros_(importe) +
+        '. Se dejó lo pagado (' + euros_(suma) + ') para no cambiar la caja: revisar con el proveedor.'
+      : ''
   };
 }
 
