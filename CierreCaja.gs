@@ -34,6 +34,13 @@ function doPost(e) {
       (data.filas || []).forEach(function (f) { apuntarMovFactura_(f[0], f[1], f[2], f[3], f[4]); }); // tipo, proveedor, total, qué pasa, enlace
       return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
     }
+    // Claude borra filas repetidas de ALBARANES (RevisionAlbaranes.gs).
+    if (data.accionQuitarGastoRepetido && esClaudePost) {
+      return ContentService.createTextOutput(JSON.stringify(quitarGastoRepetido_(data))).setMimeType(ContentService.MimeType.JSON);
+    }
+    if (data.accionBorrarFilasAlbaranes && esClaudePost) {
+      return ContentService.createTextOutput(JSON.stringify(borrarFilasAlbaranes_(data))).setMimeType(ContentService.MimeType.JSON);
+    }
     if (data.accionMoverFacturaDrive && esClaudePost) {
       return ContentService
         .createTextOutput(JSON.stringify(moverArchivoFacturas_(data))) // ver Bandejas.gs
@@ -874,6 +881,10 @@ function doGet(e) {
   if (esClaude && parametros.paqueteContables) {
     asegurarActivadorPaqueteContables_();
     return ContentService.createTextOutput(JSON.stringify(paqueteContables_(String(parametros.paqueteContables), !!parametros.email))).setMimeType(ContentService.MimeType.JSON);
+  }
+  // ?revisarAlbaranes=AAAA: repetidos, sin pagar y albaranes sin factura (RevisionAlbaranes.gs).
+  if (esClaude && parametros.revisarAlbaranes) {
+    return ContentService.createTextOutput(JSON.stringify(revisionParaClaude_(String(parametros.revisarAlbaranes)))).setMimeType(ContentService.MimeType.JSON);
   }
   // ?muestraResumenFacturas=1: manda ya una muestra del resumen de los lunes (ResumenFacturas.gs).
   if (esClaude && parametros.muestraResumenFacturas) {

@@ -3137,7 +3137,7 @@
           imagenes: imagenesParaLeer(), pdfBase64: pdfDeHojas(scanPaginas),
           proveedor: elegido ? elegido.proveedor : esSuper ? 'Super' : (parsed.proveedor_lista || parsed.proveedor || ''),
           detalle: elegido ? elegido.detalle : esSuper ? leido : '',
-          numero_factura: parsed.numero_factura || '', fecha: parsed.fecha || '' })
+          numero_factura: parsed.numero_factura || '', fecha: parsed.fecha || '', tipo_documento: parsed.tipo_documento || '' })
       ).then(function(resp){ return resp.json(); }).then(function(r){
         if(!r || r.ok === false) avisarErrorPorMail('una factura NO se guardó en Drive', 'La factura escaneada (' + descripcion + ') no se guardó en Drive: ' + ((r && r.error) || 'respuesta vacía') + '.\nHay que volver a escanearla.');
       }).catch(function(err){

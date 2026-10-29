@@ -167,32 +167,42 @@ function aplicarFacturaEnDia_(fecha, tickets, numero, fechaFactura, quien) {
     });
     if (!cambios.length) return { ok: false, fecha: fecha, error: 'no se encontró el ticket en esa caja (¿se borró?)' };
 
-    var registro = getOrCrearRegistro_(ss);
-    var mov = getOrCrearMovimientos_(ss);
-    var ahora = new Date();
-    var datos = { fecha: fecha, negocio: dia.negocio, dispositivo: 'sheet' };
-    Object.keys(tocados).forEach(function (k) {
-      escribirRegistroYMovimientos_(registro, mov, datos, turnoComoLoMandaLaApp_(dia[k]), k === 'noche' ? 'Noche' : 'Mediodía', ahora);
-    });
-    SpreadsheetApp.flush();
-    lock.releaseLock();
-    conCandado = false;
-
-    var hoja = { mediodia: turnoParaHojaExacta_(dia.mediodia), noche: turnoParaHojaExacta_(dia.noche) };
-    var r = { ok: true, fecha: fecha, cambios: cambios };
-    try { escribirHojaDelDiaComprobada_(ss, { fecha: fecha, negocio: dia.negocio, mediodia: hoja.mediodia, noche: hoja.noche }); }
-    catch (errHoja) { r.ok = false; r.error = 'pestaña del día: ' + errHoja; }
-    marcarCajaCambiada_(fecha, ahora);
-    var cont = escribirContabilidad_({ fecha: fecha, mediodia: dia.mediodia, noche: dia.noche });
-    if (cont && cont.ok === false) { r.ok = false; r.error = (r.error ? r.error + '; ' : '') + 'Contabilidad: ' + cont.error; }
-    try { sincronizarAlbaranesDelDia_(fecha, gastosDelDia_(obtenerDiaJSON_(ss, fecha)), true); }
-    catch (errAlb) { r.ok = false; r.error = (r.error ? r.error + '; ' : '') + 'Albaranes: ' + errAlb; }
+    conCandado = false; // lo suelta guardarDiaCambiado_
+    var r = guardarDiaCambiado_(ss, fecha, dia, tocados, lock);
+    r.cambios = cambios;
     return r;
   } catch (err) {
     return { ok: false, fecha: fecha, error: String(err) };
   } finally {
     if (conCandado) lock.releaseLock();
   }
+}
+
+// Vuelve a escribir todo lo de un día después de cambiar sus turnos
+// `tocados` (mediodia/noche) en `dia` (leído con obtenerDiaJSON_): Registro y
+// Movimientos (con el candado ya tomado; aquí se suelta), la pestaña del
+// día, Contabilidad y Albaranes.
+function guardarDiaCambiado_(ss, fecha, dia, tocados, lock) {
+  var registro = getOrCrearRegistro_(ss);
+  var mov = getOrCrearMovimientos_(ss);
+  var ahora = new Date();
+  var datos = { fecha: fecha, negocio: dia.negocio, dispositivo: 'sheet' };
+  Object.keys(tocados).forEach(function (k) {
+    escribirRegistroYMovimientos_(registro, mov, datos, turnoComoLoMandaLaApp_(dia[k]), k === 'noche' ? 'Noche' : 'Mediodía', ahora);
+  });
+  SpreadsheetApp.flush();
+  lock.releaseLock();
+
+  var hoja = { mediodia: turnoParaHojaExacta_(dia.mediodia), noche: turnoParaHojaExacta_(dia.noche) };
+  var r = { ok: true, fecha: fecha };
+  try { escribirHojaDelDiaComprobada_(ss, { fecha: fecha, negocio: dia.negocio, mediodia: hoja.mediodia, noche: hoja.noche }); }
+  catch (errHoja) { r.ok = false; r.error = 'pestaña del día: ' + errHoja; }
+  marcarCajaCambiada_(fecha, ahora);
+  var cont = escribirContabilidad_({ fecha: fecha, mediodia: dia.mediodia, noche: dia.noche });
+  if (cont && cont.ok === false) { r.ok = false; r.error = (r.error ? r.error + '; ' : '') + 'Contabilidad: ' + cont.error; }
+  try { sincronizarAlbaranesDelDia_(fecha, gastosDelDia_(obtenerDiaJSON_(ss, fecha)), true); }
+  catch (errAlb) { r.ok = false; r.error = (r.error ? r.error + '; ' : '') + 'Albaranes: ' + errAlb; }
+  return r;
 }
 
 // El turno guardado (claves internas) con la forma en que lo manda la app

@@ -83,6 +83,9 @@ function guardarFotoFactura_(data, proveedor, fecha) {
   }
   var blob = Utilities.newBlob(Utilities.base64Decode(esPdf ? data.pdfBase64 : data.imageBase64), tipo, nombre);
   var archivo = dir.createFile(blob);
+  // factura / albaran / ticket: con 'albaran', sale en el resumen de los lunes
+  // hasta que llegue su factura (ver albaranesSinFactura_).
+  if (data.tipo_documento) archivo.setDescription(String(data.tipo_documento));
   if (claveEscaneo) cache.put(claveEscaneo, archivo.getId(), 6 * 60 * 60);
   return archivo.getUrl();
 }
