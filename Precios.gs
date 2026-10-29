@@ -67,8 +67,7 @@ function guardarFotoFactura_(data, proveedor, fecha) {
   var numero = String(data.numero_factura || '').trim() || String(data.idEscaneo || '').trim();
   // detalle: el nombre del súper cuando la carpeta es "Super" (ej. "Carrefour Market").
   var detalle = String(data.detalle || '').trim();
-  var nombre = sinCaracteresRaros_(fecha + ' ' + proveedor + (detalle ? ' ' + detalle : '') + ' ' +
-    (numero || Utilities.formatDate(new Date(), 'Europe/Madrid', 'HH.mm.ss'))) + (esPdf ? '.pdf' : (tipo === 'image/png' ? '.png' : '.jpg'));
+  var nombre = nombreArchivoFactura_(fecha, proveedor, detalle, numero) + (esPdf ? '.pdf' : (tipo === 'image/png' ? '.png' : '.jpg'));
   if (numero) {
     var existe = dir.getFilesByName(nombre);
     while (existe.hasNext()) existe.next().setTrashed(true);
@@ -86,6 +85,13 @@ function guardarFotoFactura_(data, proveedor, fecha) {
   var archivo = dir.createFile(blob);
   if (claveEscaneo) cache.put(claveEscaneo, archivo.getId(), 6 * 60 * 60);
   return archivo.getUrl();
+}
+
+// Nombre (sin extensión) de una factura en Drive: "AAAA-MM-DD Proveedor
+// [detalle] número"; sin número, la hora.
+function nombreArchivoFactura_(fecha, proveedor, detalle, numero) {
+  return sinCaracteresRaros_(fecha + ' ' + proveedor + (detalle ? ' ' + detalle : '') + ' ' +
+    (numero || Utilities.formatDate(new Date(), 'Europe/Madrid', 'HH.mm.ss')));
 }
 
 // La carpeta de las facturas es la de buenasysantasmadrid ("Mi unidad /

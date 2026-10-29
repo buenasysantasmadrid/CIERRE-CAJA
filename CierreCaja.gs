@@ -192,6 +192,7 @@ function doPost(e) {
     var glovo = escribirGlovo_(data); // ver Glovo.gs
     var cajita = escribirCajita_(data); // ver Cajita.gs
     asegurarCarpetaFacturasCompartida_(); // ver Precios.gs
+    asegurarBandejasFacturas_(); // ver Bandejas.gs
     avisarFallosDelGuardado_(data, { 'pestaña del día': hojaDia, Contabilidad: contabilidad, Albaranes: albaranes, Glovo: glovo, Sobrecito: cajita }); // ver Avisos.gs
 
     return ContentService
@@ -2845,19 +2846,23 @@ var INSTRUCCIONES_FACTURA =
 function escanearFactura_(data) {
   if (!data.imageBase64) return { ok: false, error: 'No llegó la foto' };
   var lista = (data.proveedores || []).join('\n');
+  guardarProveedoresParaLeer_(data.proveedores); // para las facturas de las bandejas de Drive (Bandejas.gs)
   // Una imagen por hoja de la factura (ver imagenesFactura_ en Precios.gs).
   var r = pedirJsonAClaude_(imagenesFactura_(data).concat([
     { type: 'text', text: INSTRUCCIONES_FACTURA + '\n\nProveedores habituales:\n' + (lista || '(no hay lista)') }
   ]), ESQUEMA_FACTURA);
-  // A veces (tickets de Dia) da como total la base: el total es base + IVA.
-  if (r && r.ok !== false) {
-    var n = function (x) { return parseFloat(String(x || '').replace(',', '.')) || 0; };
-    var total = n(r.importe_total), base = n(r.base_imponible), iva = n(r.importe_iva);
-    if (base > 0 && iva > 0 && Math.abs(total - (base + iva)) > 0.02 && (Math.abs(total - base) <= 0.02 || !total)) {
-      r.importe_total = (Math.round((base + iva) * 100) / 100).toFixed(2);
-    }
-  }
+  corregirTotalFactura_(r);
   return r;
+}
+
+// A veces (tickets de Dia) da como total la base: el total es base + IVA.
+function corregirTotalFactura_(r) {
+  if (!r || r.ok === false) return;
+  var n = function (x) { return parseFloat(String(x || '').replace(',', '.')) || 0; };
+  var total = n(r.importe_total), base = n(r.base_imponible), iva = n(r.importe_iva);
+  if (base > 0 && iva > 0 && Math.abs(total - (base + iva)) > 0.02 && (Math.abs(total - base) <= 0.02 || !total)) {
+    r.importe_total = (Math.round((base + iva) * 100) / 100).toFixed(2);
+  }
 }
 
 var ESQUEMA_DICTADO = {
