@@ -152,13 +152,7 @@ function moverPdfDeGasto_(data) {
       }
     }
   });
-  movidos = movidos.filter(String);
-  if (movidos.length) {
-    var gasto = function (g) { return (g.proveedor || '?') + (g.proveedorDetalle ? ' — ' + g.proveedorDetalle : ''); };
-    apuntarMovFactura_('movido', 'Se cambió ' + gasto(antes) + ' nº ' + antes.factura + ' a ' + gasto(ahora) + ': ' + movidos.join(', ') +
-      ' → carpeta ' + destino.carpeta + ' (' + fecha.slice(5, 7) + '/' + fecha.slice(0, 4) + ')'); // ver ResumenFacturas.gs
-  }
-  return { ok: true, movidos: movidos };
+  return { ok: true, movidos: movidos.filter(String) };
 }
 
 // "Facturas proveedores" / AAAA / MM / <carpeta>.

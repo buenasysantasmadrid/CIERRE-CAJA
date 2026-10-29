@@ -107,11 +107,11 @@ function procesarBandejasFacturas() {
           salida.seReintentan.push(archivo.getName() + ': ' + (err.message || err));
           r = reintentarDespues_(archivo, bandeja, String(err.message || err));
         }
-        if (r.hecha) { hechas.push(r.hecha); apuntarMovFactura_('cargada', r.hecha, r.enlace); } // ver ResumenFacturas.gs
-        if (r.sinProveedor) apuntarMovFactura_('sin proveedor', r.sinProveedor, r.enlace);
+        if (r.hecha) hechas.push(r.hecha);
+        // Para el resumen de los lunes: solo lo que hay que mirar (ver ResumenFacturas.gs).
+        (r.avisos || []).forEach(function (a) { apuntarMovFactura_(a.tipo, r.proveedor, r.importe, a.que, r.enlace); });
         if (r.problema) {
           salida.problemas.push(r.problema);
-          apuntarMovFactura_('revisar', r.problema, r.enlace);
           avisarPorEmail_('una factura de la carpeta "' + b[0] + '" ' + (r.hecha ? 'tiene algo que revisar' : 'no se cargó'),
             r.problema + (r.enlace ? '\nEl PDF: ' + r.enlace : ''));
         }
@@ -134,12 +134,20 @@ function reintentarDespues_(archivo, bandeja, error) {
   }
   archivo.setDescription('');
   archivo.moveTo(carpetaHija_(bandeja, BANDEJA_NO_LEIDAS_));
-  return { problema: '"' + archivo.getName() + '" falló ' + intentos + ' veces (' + error + '). Quedó en "' + BANDEJA_NO_LEIDAS_ + '": se puede volver a poner en la carpeta para probar otra vez, o cargarla a mano.', enlace: archivo.getUrl() };
+  return {
+    problema: '"' + archivo.getName() + '" falló ' + intentos + ' veces (' + error + '). Quedó en "' + BANDEJA_NO_LEIDAS_ + '": se puede volver a poner en la carpeta para probar otra vez, o cargarla a mano.',
+    proveedor: archivo.getName(), avisos: [{ tipo: 'fallo', que: 'No se pudo cargar: está en "' + BANDEJA_NO_LEIDAS_ + '". Cargarla a mano o volver a ponerla en la carpeta.' }],
+    enlace: archivo.getUrl()
+  };
 }
 
 function noSePudoLeer_(archivo, bandeja, motivo) {
   archivo.moveTo(carpetaHija_(bandeja, BANDEJA_NO_LEIDAS_));
-  return { problema: '"' + archivo.getName() + '": ' + motivo + '. Quedó en "' + BANDEJA_NO_LEIDAS_ + '" para cargarla a mano.', enlace: archivo.getUrl() };
+  return {
+    problema: '"' + archivo.getName() + '": ' + motivo + '. Quedó en "' + BANDEJA_NO_LEIDAS_ + '" para cargarla a mano.',
+    proveedor: archivo.getName(), avisos: [{ tipo: 'fallo', que: 'No se pudo leer (' + motivo + '): cargarla a mano.' }],
+    enlace: archivo.getUrl()
+  };
 }
 
 function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista) {
@@ -190,11 +198,12 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista) {
   }
 
   var enlace = moverFacturaACarpetaProveedor_(archivo, raiz, fecha, proveedor, detalle, numero);
+  var avisos = (resultado.avisos || []).slice();
+  if (!deLista) avisos.push({ tipo: 'varios', que: 'No es de ningún proveedor de la lista: ' + (detalle ? 'cargada en Servicios' : 'guardada como "' + proveedor + '"') });
   return {
     hecha: cual + ': ' + resultado.texto,
     problema: resultado.problema ? cual + ': ' + resultado.problema : '',
-    sinProveedor: deLista ? '' : 'Leído "' + (leido || '?') + '"' + (numero ? ' nº ' + numero : '') + ' del ' + fechaCorta_(fecha) + ', ' + euros_(importe) +
-      ': quedó como ' + (detalle ? 'Servicios — ' + detalle : proveedor) + '.',
+    proveedor: detalle || proveedor, importe: importe, avisos: avisos,
     enlace: enlace
   };
 }
@@ -263,7 +272,7 @@ function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, ref
   // hay a quién).
   var esDia = / DIA /.test(' ' + normalizarClave_(proveedor).replace(/[^A-Z]+/g, ' ') + ' ');
   var hojas = (esDia ? ['Dia Carne', 'Super'] : [proveedor]).map(function (p) { return pestanaAlbaranesParaProveedor_(ss, p); }).filter(Boolean);
-  if (!hojas.length) return { texto: 'guardada en Drive', problema: 'no hay pestaña de "' + proveedor + '" en ALBARANES, así que no se pudo buscar el albarán para ponerle los datos de la factura.' };
+  if (!hojas.length) return { avisos: [{ tipo: 'fallo', que: 'No tiene pestaña en ALBARANES: no se pudo buscar su albarán' }], texto: 'guardada en Drive', problema: 'no hay pestaña de "' + proveedor + '" en ALBARANES, así que no se pudo buscar el albarán para ponerle los datos de la factura.' };
   var hoja = hojas[0];
 
   var numeros = [numero].concat(referencias.map(function (x) { return x.numero; })).map(claveNumeroFactura_).filter(String);
@@ -304,7 +313,7 @@ function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, ref
     }).slice(0, 1);
   }
   if (!encontradas.length) {
-    return { texto: 'guardada en Drive', problema: 'no encontré en ALBARANES (' + (esDia ? 'pestañas DIA CARNE y SUPER' : 'pestaña ' + hoja.getName()) + ') el albarán cargado en la caja. Si no se cargó, hay que cargarlo.' };
+    return { avisos: [{ tipo: 'fallo', que: 'No encontré su albarán en la caja: ¿se cargó?' }], texto: 'guardada en Drive', problema: 'no encontré en ALBARANES (' + (esDia ? 'pestañas DIA CARNE y SUPER' : 'pestaña ' + hoja.getName()) + ') el albarán cargado en la caja. Si no se cargó, hay que cargarlo.' };
   }
   // La carpeta de Drive: la del proveedor donde está cargado el ticket.
   var enSuper = esDia && normalizarClave_(encontradas[0].pestana) === 'SUPER';
@@ -317,7 +326,7 @@ function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, ref
   getOrCrearHojaIdsAlbaranes_(ss).getDataRange().getValues().slice(1).forEach(function (f) { cajaDe[String(f[0])] = textoFechaIds_(f[1]); });
   var conCaja = encontradas.filter(function (f) { return f.id && f.id.indexOf('pdf-') !== 0 && cajaDe[f.id]; });
   if (conCaja.length < encontradas.length) {
-    return { proveedor: donde.proveedor, detalle: donde.detalle, texto: 'coincide con ' + cuales, problema: 'el albarán (' + cuales + ') está escrito a mano en ALBARANES, no viene de una caja: hay que ponerle los datos de la factura a mano.' };
+    return { proveedor: donde.proveedor, detalle: donde.detalle, avisos: [{ tipo: 'fallo', que: 'Su albarán está escrito a mano en ALBARANES: ponerle la factura a mano' }], texto: 'coincide con ' + cuales, problema: 'el albarán (' + cuales + ') está escrito a mano en ALBARANES, no viene de una caja: hay que ponerle los datos de la factura a mano.' };
   }
 
   var suma = Math.round(encontradas.reduce(function (s, f) { return s + f.importe; }, 0) * 100) / 100;
@@ -330,7 +339,7 @@ function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, ref
     proveedor: proveedor, quien: 'Factura PDF de Drive', sinDrive: true
   });
   if (!r.ok) {
-    return { proveedor: donde.proveedor, detalle: donde.detalle, texto: 'coincide con ' + cuales, problema: 'no se pudo pasar el albarán (' + cuales + ') a la factura: ' + r.dias.filter(function (d) { return !d.ok; }).map(function (d) { return 'caja del ' + fechaCorta_(d.fecha) + ': ' + d.error; }).join('; ') };
+    return { proveedor: donde.proveedor, detalle: donde.detalle, avisos: [{ tipo: 'fallo', que: 'No se pudo pasar su albarán a factura (va en el resumen de avisos)' }], texto: 'coincide con ' + cuales, problema: 'no se pudo pasar el albarán (' + cuales + ') a la factura: ' + r.dias.filter(function (d) { return !d.ok; }).map(function (d) { return 'caja del ' + fechaCorta_(d.fecha) + ': ' + d.error; }).join('; ') };
   }
   // El PDF del albarán (escaneado con su número) se aparta a <proveedor>/Albaranes.
   try {
@@ -342,10 +351,13 @@ function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, ref
     proveedor: donde.proveedor, detalle: donde.detalle,
     texto: 'el albarán ' + cuales + ' ahora es la factura' + (numero ? ' nº ' + numero : '') +
       (distinto && !enEfectivo ? ' (el importe cambió de ' + euros_(suma) + ' a ' + euros_(importe) + ')' : ''),
-    problema: distinto && enEfectivo
-      ? 'se pagó en efectivo ' + euros_(suma) + ' pero la factura' + (numero ? ' nº ' + numero : '') + ' es de ' + euros_(importe) +
-        '. Se dejó lo pagado (' + euros_(suma) + ') para no cambiar la caja: revisar con el proveedor.'
-      : ''
+    // Una diferencia no es un fallo: va solo al resumen de los lunes.
+    avisos: !distinto ? [] : [{
+      tipo: 'diferencia',
+      que: enEfectivo
+        ? 'Se pagaron ' + euros_(suma) + ' en efectivo y la factura es de ' + euros_(importe) + '. Se dejó lo pagado: hablar con el proveedor'
+        : 'El albarán era de ' + euros_(suma) + '; se cambió a lo de la factura'
+    }]
   };
 }
 

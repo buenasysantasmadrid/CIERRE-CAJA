@@ -31,7 +31,7 @@ function doPost(e) {
     // lo puede ver o quitar el activador del email de los viernes.
     // Claude apunta para el resumen de los lunes lo que hizo a mano (ResumenFacturas.gs).
     if (data.accionApuntarMovFacturas && esClaudePost) {
-      (data.filas || []).forEach(function (f) { apuntarMovFactura_(f[0], f[1], f[2]); });
+      (data.filas || []).forEach(function (f) { apuntarMovFactura_(f[0], f[1], f[2], f[3], f[4]); }); // tipo, proveedor, total, qué pasa, enlace
       return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
     }
     if (data.accionMoverFacturaDrive && esClaudePost) {
