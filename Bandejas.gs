@@ -187,6 +187,7 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista) {
   var resultado;
   if (tipo === 'albaran') {
     resultado = pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, isNaN(iva) ? null : iva, r.referencias || []);
+    if (resultado.proveedor) { proveedor = resultado.proveedor; detalle = resultado.detalle || ''; } // Dia: donde estaba el ticket
   } else {
     resultado = escribirTransferenciaEnAlbaranes_(ss, proveedor, detalle, fecha, numero, importe, isNaN(iva) ? null : iva, 'pdf-' + archivo.getId());
   }
@@ -258,8 +259,13 @@ function filasDelMesAlbaranes_(hoja, mesIndex) {
 // el importe se queda en lo que salió de la caja (si no, cambiaría la
 // diferencia de esa caja) y, si la factura dice otro, se avisa.
 function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, referencias) {
-  var hoja = pestanaAlbaranesParaProveedor_(ss, proveedor);
-  if (!hoja) return { texto: 'guardada en Drive', problema: 'no hay pestaña de "' + proveedor + '" en ALBARANES, así que no se pudo buscar el albarán para ponerle los datos de la factura.' };
+  // Dia: el ticket puede estar en DIA CARNE o en SUPER (como "Dia"); la
+  // factura se queda donde esté el ticket (en la app se pregunta, aquí no
+  // hay a quién).
+  var esDia = / DIA /.test(' ' + normalizarClave_(proveedor).replace(/[^A-Z]+/g, ' ') + ' ');
+  var hojas = (esDia ? ['Dia Carne', 'Super'] : [proveedor]).map(function (p) { return pestanaAlbaranesParaProveedor_(ss, p); }).filter(Boolean);
+  if (!hojas.length) return { texto: 'guardada en Drive', problema: 'no hay pestaña de "' + proveedor + '" en ALBARANES, así que no se pudo buscar el albarán para ponerle los datos de la factura.' };
+  var hoja = hojas[0];
 
   var numeros = [numero].concat(referencias.map(function (x) { return x.numero; })).map(claveNumeroFactura_).filter(String);
   var fechasRef = referencias.map(function (x) { return x.fecha; }).filter(function (f) { return /^\d{4}-\d{2}-\d{2}$/.test(f); });
@@ -270,9 +276,17 @@ function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, ref
   fechasRef.forEach(function (f) { if (f.slice(0, 4) === fecha.slice(0, 4)) meses[Number(f.slice(5, 7)) - 1] = true; });
 
   var todas = [];
-  Object.keys(meses).forEach(function (m) {
-    var b = filasDelMesAlbaranes_(hoja, Number(m));
-    if (b) todas = todas.concat(b.filas);
+  hojas.forEach(function (h) {
+    var esSuper = normalizarClave_(h.getName()) === 'SUPER';
+    Object.keys(meses).forEach(function (m) {
+      var b = filasDelMesAlbaranes_(h, Number(m));
+      if (!b) return;
+      b.filas.forEach(function (f) {
+        if (esSuper && !/ DIA /.test(' ' + normalizarClave_(f.detalle).replace(/[^A-Z]+/g, ' ') + ' ')) return; // en SUPER, solo los de Dia
+        f.pestana = h.getName();
+        todas.push(f);
+      });
+    });
   });
 
   var dia = function (d) { return d ? Utilities.formatDate(d, 'Europe/Madrid', 'yyyy-MM-dd') : ''; };
@@ -291,8 +305,11 @@ function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, ref
     }).slice(0, 1);
   }
   if (!encontradas.length) {
-    return { texto: 'guardada en Drive', problema: 'no encontré en ALBARANES (pestaña ' + hoja.getName() + ') el albarán cargado en la caja. Si no se cargó, hay que cargarlo.' };
+    return { texto: 'guardada en Drive', problema: 'no encontré en ALBARANES (' + (esDia ? 'pestañas DIA CARNE y SUPER' : 'pestaña ' + hoja.getName()) + ') el albarán cargado en la caja. Si no se cargó, hay que cargarlo.' };
   }
+  // La carpeta de Drive: la del proveedor donde está cargado el ticket.
+  var enSuper = esDia && normalizarClave_(encontradas[0].pestana) === 'SUPER';
+  var donde = esDia ? { proveedor: enSuper ? 'Super' : 'Dia Carne', detalle: enSuper ? 'Dia' : '' } : {};
   var cuales = encontradas.map(function (f) { return (f.numero ? 'nº ' + f.numero + ' ' : '') + 'del ' + fechaCorta_(dia(f.fecha)) + ' (' + euros_(f.importe) + ')'; }).join(', ');
 
   // De qué caja es cada uno ("IDs app"). Los cargados a mano en la planilla
@@ -301,7 +318,7 @@ function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, ref
   getOrCrearHojaIdsAlbaranes_(ss).getDataRange().getValues().slice(1).forEach(function (f) { cajaDe[String(f[0])] = textoFechaIds_(f[1]); });
   var conCaja = encontradas.filter(function (f) { return f.id && f.id.indexOf('pdf-') !== 0 && cajaDe[f.id]; });
   if (conCaja.length < encontradas.length) {
-    return { texto: 'coincide con ' + cuales, problema: 'el albarán (' + cuales + ') está escrito a mano en ALBARANES, no viene de una caja: hay que ponerle los datos de la factura a mano.' };
+    return { proveedor: donde.proveedor, detalle: donde.detalle, texto: 'coincide con ' + cuales, problema: 'el albarán (' + cuales + ') está escrito a mano en ALBARANES, no viene de una caja: hay que ponerle los datos de la factura a mano.' };
   }
 
   var suma = Math.round(encontradas.reduce(function (s, f) { return s + f.importe; }, 0) * 100) / 100;
@@ -314,14 +331,16 @@ function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, ref
     proveedor: proveedor, quien: 'Factura PDF de Drive', sinDrive: true
   });
   if (!r.ok) {
-    return { texto: 'coincide con ' + cuales, problema: 'no se pudo pasar el albarán (' + cuales + ') a la factura: ' + r.dias.filter(function (d) { return !d.ok; }).map(function (d) { return 'caja del ' + fechaCorta_(d.fecha) + ': ' + d.error; }).join('; ') };
+    return { proveedor: donde.proveedor, detalle: donde.detalle, texto: 'coincide con ' + cuales, problema: 'no se pudo pasar el albarán (' + cuales + ') a la factura: ' + r.dias.filter(function (d) { return !d.ok; }).map(function (d) { return 'caja del ' + fechaCorta_(d.fecha) + ': ' + d.error; }).join('; ') };
   }
   // El PDF del albarán (escaneado con su número) se aparta a <proveedor>/Albaranes.
   try {
-    conCaja.forEach(function (f) { moverTicketAAlbaranes_({ factura: f.numero, fecha: cajaDe[f.id], fechaFactura: dia(f.fecha), proveedorTexto: proveedor }, proveedor); });
+    // (Dia: se mira en las dos carpetas, Super y Dia Carne.)
+    conCaja.forEach(function (f) { moverTicketAAlbaranes_({ factura: f.numero, fecha: cajaDe[f.id], fechaFactura: dia(f.fecha), proveedorTexto: esDia ? 'Super' : proveedor }, esDia ? 'Dia Carne' : proveedor); });
   } catch (err) { Logger.log('PDF del albarán: ' + err); }
   var distinto = Math.abs(suma - importe) > 0.02;
   return {
+    proveedor: donde.proveedor, detalle: donde.detalle,
     texto: 'el albarán ' + cuales + ' ahora es la factura' + (numero ? ' nº ' + numero : '') +
       (distinto && !enEfectivo ? ' (el importe cambió de ' + euros_(suma) + ' a ' + euros_(importe) + ')' : ''),
     problema: distinto && enEfectivo
@@ -363,6 +382,36 @@ function escribirTransferenciaEnAlbaranes_(ss, proveedor, detalle, fecha, numero
   try { refrescarInformeMesSiToca_(ss, [mesIndex]); } catch (err) { Logger.log('INFORME MES: ' + err); }
   try { actualizarProveedoresContabilidad_(fecha.slice(0, 4)); } catch (err) { Logger.log('PROVEEDORES Contabilidad: ' + err); }
   return { texto: 'cargada en ALBARANES (pestaña ' + hoja.getName() + '), pagada por transferencia el ' + fechaCorta_(fecha) };
+}
+
+// Solo Claude (POST con claveClaude, ver doPost): mueve y/o renombra un
+// archivo dentro de "Facturas proveedores", para ordenar a mano lo que quedó
+// en otra carpeta. Rutas como "2026/10/Dia Carne". Si en el destino ya hay
+// uno con ese nombre, se le añade " (2)".
+function moverArchivoFacturas_(data) {
+  var raiz = DriveApp.getFolderById(CARPETA_FACTURAS_ID_);
+  var ir = function (ruta, crear) {
+    var dir = raiz;
+    String(ruta || '').split('/').filter(String).forEach(function (n) {
+      var it = dir.getFoldersByName(n);
+      if (it.hasNext()) dir = it.next();
+      else if (crear) dir = dir.createFolder(n);
+      else throw new Error('No existe la carpeta ' + n);
+    });
+    return dir;
+  };
+  var origen = ir(data.desde, false);
+  var it = origen.getFilesByName(String(data.nombre || ''));
+  if (!it.hasNext()) return { ok: false, error: 'No está "' + data.nombre + '" en ' + data.desde };
+  var archivo = it.next();
+  var destino = data.hasta ? ir(data.hasta, true) : origen;
+  var nombre = String(data.nuevoNombre || archivo.getName());
+  if (destino.getFilesByName(nombre).hasNext() && !(destino.getId() === origen.getId() && nombre === archivo.getName())) {
+    nombre = nombre.replace(/(\.[a-z0-9]+)?$/i, ' (2)$1');
+  }
+  archivo.setName(nombre);
+  if (destino.getId() !== origen.getId()) archivo.moveTo(destino);
+  return { ok: true, nombre: nombre, carpeta: data.hasta || data.desde };
 }
 
 function fechaCorta_(fechaISO) {

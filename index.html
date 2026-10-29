@@ -3079,12 +3079,16 @@
       // Si como total vino la base (sin IVA), el total es base + IVA.
       var totalLeido = num(parsed.importe_total), baseLeida = num(parsed.base_imponible), ivaLeido = num(parsed.importe_iva);
       if(ivaLeido > 0 && baseLeida > 0 && Math.abs(totalLeido - baseLeida) < 0.005) parsed.importe_total = String(Math.round((baseLeida + ivaLeido) * 100) / 100);
-      mandarFotoParaPrecios(parsed);
-      aplicarDatosFactura(parsed);
       document.getElementById('scanOkLine').style.display = 'block';
-      // ¿Es la factura de un ticket ya anotado? Si encaja, pregunta; si se
-      // escaneó con "Es la factura de un ticket", se elige el ticket a mano.
-      if(!editingId) buscarTicketsDeFactura(parsed, scanModoTicket);
+      // Dia: antes de nada se pregunta si es de Super o de Carne (de eso
+      // dependen la carpeta de Drive, el proveedor y los tickets que se buscan).
+      preguntarSiDiaEsSuperOCarne(parsed, function(){
+        mandarFotoParaPrecios(parsed);
+        aplicarDatosFactura(parsed);
+        // ¿Es la factura de un ticket ya anotado? Si encaja, pregunta; si se
+        // escaneó con "Es la factura de un ticket", se elige el ticket a mano.
+        if(!editingId) buscarTicketsDeFactura(parsed, scanModoTicket);
+      });
     })
     .catch(function(err){
       var msg = err.message || '';
@@ -3124,12 +3128,15 @@
       scanUltimaLectura = parsed;
       // Un supermercado (Carrefour, Dia...) va a la carpeta "Super", igual que
       // en la caja (ver aplicarDatosFactura); su nombre queda en el archivo.
+      // Dia, donde se contestó (ver preguntarSiDiaEsSuperOCarne).
       var leido = String(parsed.proveedor || '').trim();
+      var elegido = parsed.proveedorElegido;
       var esSuper = !!leido && !proveedorDeLaLista(parsed.proveedor_lista) && !buscarProveedorPorNombre(leido) && esSupermercado(leido);
       descripcion = (parsed.proveedor_lista || parsed.proveedor || 'proveedor sin leer') + ', nº ' + (parsed.numero_factura || '?') + ', fecha ' + (parsed.fecha || '?') + ', ' + scanPaginas.length + ' hoja(s)';
       postConReintentos(JSON.stringify({ accionPreciosFactura: true, soloPdf: !!soloPdf, idEscaneo: scanIdFactura, imageBase64: scanImageBase64, mediaType: scanMediaType,
           imagenes: imagenesParaLeer(), pdfBase64: pdfDeHojas(scanPaginas),
-          proveedor: esSuper ? 'Super' : (parsed.proveedor_lista || parsed.proveedor || ''), detalle: esSuper ? leido : '',
+          proveedor: elegido ? elegido.proveedor : esSuper ? 'Super' : (parsed.proveedor_lista || parsed.proveedor || ''),
+          detalle: elegido ? elegido.detalle : esSuper ? leido : '',
           numero_factura: parsed.numero_factura || '', fecha: parsed.fecha || '' })
       ).then(function(resp){ return resp.json(); }).then(function(r){
         if(!r || r.ok === false) avisarErrorPorMail('una factura NO se guardó en Drive', 'La factura escaneada (' + descripcion + ') no se guardó en Drive: ' + ((r && r.error) || 'respuesta vacía') + '.\nHay que volver a escanearla.');
@@ -3196,6 +3203,7 @@
 
   // El proveedor de la lista que corresponde a lo leído (o "Super" para un súper).
   function proveedorDeLectura(parsed){
+    if(parsed.proveedorElegido) return parsed.proveedorElegido;
     var leido = String(parsed.proveedor || '').trim();
     var deLista = proveedorDeLaLista(parsed.proveedor_lista) || (leido && buscarProveedorPorNombre(leido));
     if(deLista) return { proveedor: deLista, detalle: '' };
@@ -3584,6 +3592,22 @@
       / supermercados? dia /.test(n) || /distribuidora internacional de alimentacion/.test(n) || n === ' dia ';
   }
 
+  // Dia vende tanto lo de "Dia Carne" como lo del súper (Super — Dia) y la
+  // factura es igual: se pregunta. La respuesta queda en
+  // parsed.proveedorElegido y manda en el formulario, en la carpeta de
+  // Drive y en la búsqueda de tickets.
+  function esFacturaDeDia(parsed){
+    if(proveedorDeLaLista(parsed.proveedor_lista) === 'Dia Carne') return true;
+    var leido = String(parsed.proveedor || '');
+    return !/carrefour/i.test(leido) && palabrasProveedor(leido).indexOf('dia') > -1;
+  }
+  function preguntarSiDiaEsSuperOCarne(parsed, seguir){
+    if(parsed.proveedorElegido || !esFacturaDeDia(parsed)){ seguir(); return; }
+    preguntar('ES DE DIA. ¿VA A SUPER O A CARNE?', 'Super', 'Carne',
+      function(){ parsed.proveedorElegido = { proveedor: 'Super', detalle: 'Dia' }; seguir(); },
+      function(){ parsed.proveedorElegido = { proveedor: 'Dia Carne', detalle: '' }; seguir(); });
+  }
+
   function aplicarDatosFactura(data){
     data = data || {};
 
@@ -3599,7 +3623,10 @@
         if(detalleInput) detalleInput.value = detalle;
       }
     };
-    if(nombreExtraido && sel){
+    if(data.proveedorElegido && sel){
+      ponerProveedor(data.proveedorElegido.proveedor, data.proveedorElegido.detalle);
+      aplicarRestoFactura(data);
+    } else if(nombreExtraido && sel){
       // Primero lo que dijo la IA comparando con la lista; si no dijo
       // ninguno, se compara el nombre leído aquí.
       var match = proveedorDeLaLista(data.proveedor_lista) || buscarProveedorPorNombre(nombreExtraido);

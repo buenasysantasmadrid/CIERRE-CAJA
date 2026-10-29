@@ -29,6 +29,11 @@ function doPost(e) {
 
     // Informe de compras de la semana (ver InformeSemanalPedidos.gs): Claude
     // lo puede ver o quitar el activador del email de los viernes.
+    if (data.accionMoverFacturaDrive && esClaudePost) {
+      return ContentService
+        .createTextOutput(JSON.stringify(moverArchivoFacturas_(data))) // ver Bandejas.gs
+        .setMimeType(ContentService.MimeType.JSON);
+    }
     if (data.accionInformeSemanal && esClaudePost) {
       return ContentService
         .createTextOutput(JSON.stringify(accionInformeSemanal_(data)))
@@ -846,6 +851,32 @@ function doGet(e) {
     return ContentService
       .createTextOutput(JSON.stringify(leerRegistroErrores_(parametros.desde)))
       .setMimeType(ContentService.MimeType.JSON);
+  }
+  // ?carpetaFacturas=AAAA/MM/Proveedor (o vacío para la raíz): lo que hay en
+  // esa carpeta de "Facturas proveedores" y sus subcarpetas (solo lectura).
+  if (esClaude && parametros.carpetaFacturas != null) {
+    var dir = DriveApp.getFolderById(CARPETA_FACTURAS_ID_);
+    String(parametros.carpetaFacturas).split('/').filter(String).forEach(function (n) {
+      var it = dir.getFoldersByName(n);
+      if (!it.hasNext()) throw new Error('No existe la carpeta ' + n);
+      dir = it.next();
+    });
+    var listar = function (carpeta, nivel) {
+      var out = { carpeta: carpeta.getName(), archivos: [], subcarpetas: [] };
+      var fs = carpeta.getFiles();
+      while (fs.hasNext()) {
+        var f = fs.next();
+        out.archivos.push(f.getName() + ' | creado ' + Utilities.formatDate(f.getDateCreated(), 'Europe/Madrid', 'dd/MM HH:mm') + ' | ' + f.getSize() + ' B');
+      }
+      out.archivos.sort();
+      var ds = carpeta.getFolders();
+      while (ds.hasNext()) {
+        var d = ds.next();
+        out.subcarpetas.push(nivel < 2 ? listar(d, nivel + 1) : d.getName());
+      }
+      return out;
+    };
+    return ContentService.createTextOutput(JSON.stringify(listar(dir, 0))).setMimeType(ContentService.MimeType.JSON);
   }
   // ?totalesAlbaranes=AAAA: pone bien la fila TOTAL de TOTALES (ver
   // totalSinServiciosNiExtras_) y devuelve la pestaña, para comprobarla.
