@@ -170,7 +170,7 @@ function datosMesContabilidad_(ss, mesIndex) {
     if (tot > 0) r.lista.push({
       fecha: Utilities.formatDate(f[1], Session.getScriptTimeZone(), 'yyyy-MM-dd'),
       sistema: redondear_(tot), mediodia: redondear_(md), noche: redondear_(nc),
-      delivery: redondear_(n('deliv') + n('web')), empanadas: redondear_(n('emp')), tarjetas: redondear_(n('tarj'))
+      delivery: redondear_(n('deliv') + n('web')), empanadas: redondear_(n('emp')), tarjetas: redondear_(n('tarj')), diferencia: redondear_(n('dif'))
     });
   }
   if (!hayDias) return null;

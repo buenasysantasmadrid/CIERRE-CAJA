@@ -5,28 +5,35 @@
 //   · Fallos: facturas de las carpetas de Drive (Bandejas.gs) que no se
 //     pudieron cargar o cuyo albarán no apareció.
 //   · Diferencias: la factura dice otro importe que el albarán.
-//   · En Varios o sin proveedor: gastos cargados en Varios en la semana (de
-//     las cajas) y facturas de las carpetas que no son de ningún proveedor
-//     de la lista, para ver si hay que pasarlos a uno.
+//   · Sin proveedor: facturas puestas en las carpetas de Drive que no son de
+//     ningún proveedor de la lista (lo cargado en Varios en la caja, no).
 //   · Y cómo está todo hoy (RevisionAlbaranes.gs): errores de la semana,
 //     facturas repetidas en ALBARANES, lo que falta pagar y los albaranes
 //     que todavía no tienen su factura.
-// De cada uno, solo proveedor, total y qué pasa. Los fallos y diferencias se
-// apuntan en la pestaña "Movimientos facturas" del Índice; lo de Varios se
-// saca de las cajas al armar el email. Si no hay nada, no se manda.
+//   · La semana en números (ver extrasDeLaSemana_): ventas, diferencias de
+//     caja, proveedores que gastaron más que de costumbre, subidas de
+//     precio y facturas del mes sin PDF.
+// De cada uno, solo lo necesario (nombre, importe y qué pasa). Los fallos,
+// diferencias y "sin proveedor" se apuntan en la pestaña "Movimientos
+// facturas" del Índice; lo demás se calcula al armar el email.
 // ============================================================================
 
 var MOV_FACTURAS_PESTANA_ = 'Movimientos facturas';
 var MOV_FACTURAS_ENCABEZADOS_ = ['Fecha', 'Tipo', 'Proveedor', 'Total', 'Qué pasa', 'Enlace'];
 // Secciones del email: tipo, título, explicación, color.
 var MOV_FACTURAS_SECCIONES_ = [
+  ['ventas', 'Ventas de la semana', 'Lo vendido (local, delivery y web), comparado.', '#1e8449'],
   ['fallo', 'Fallos', 'No se pudieron hacer solas: hay que mirarlas.', '#c0392b'],
   ['error', 'Errores al guardar', 'Lo que falló esta semana (también llegó en los avisos de las 9 y las 18).', '#c0392b'],
   ['repetido', 'Repetidas en ALBARANES', 'La misma factura está dos veces: una sobra.', '#8e44ad'],
   ['diferencia', 'Diferencias de importe', 'La factura no dice lo mismo que el albarán.', '#d35400'],
   ['sinpagar', 'Falta pagar', 'Cargadas como "No pagado" y sin día de pago.', '#2471a3'],
   ['albaran', 'Albaranes sin factura', 'Escaneados como albarán; su factura todavía no llegó.', '#16a085'],
-  ['varios', 'En Varios o sin proveedor', '¿Hay que pasarlas a un proveedor?', '#b7950b']
+  ['varios', 'Sin proveedor', 'Facturas de las carpetas que no son de ningún proveedor de la lista: ¿hay que pasarlas a uno?', '#b7950b'],
+  ['caja', 'Diferencias de caja', 'Días que la caja no cuadró (más de 5 €).', '#c0392b'],
+  ['gasto', 'Proveedores por encima de lo normal', 'Gastado esta semana comparado con su media de las 8 semanas anteriores.', '#d35400'],
+  ['precio', 'Subidas de precio', 'Productos más caros que la última vez (de las facturas escaneadas).', '#8e44ad'],
+  ['sinpdf', 'Facturas del mes sin PDF', 'Están en ALBARANES pero no en Drive: faltarán en el paquete de los contables del día 5.', '#7f8c8d']
 ];
 
 // tipo: 'fallo', 'diferencia' o 'varios'.
@@ -63,7 +70,7 @@ function mandarResumenFacturas() {
   var desde = props.getProperty('resumen_facturas_desde') || new Date(Date.now() - 7 * 86400000).toISOString();
   var ahora = new Date();
   var r = resumenFacturas_(new Date(desde), ahora);
-  if (r.cuantos) MailApp.sendEmail({ to: Session.getEffectiveUser().getEmail(), subject: r.asunto, htmlBody: r.html, body: r.texto });
+  MailApp.sendEmail({ to: Session.getEffectiveUser().getEmail(), subject: r.asunto, htmlBody: r.html, body: r.texto });
   props.setProperty('resumen_facturas_desde', ahora.toISOString());
 }
 
@@ -75,18 +82,6 @@ function mandarMuestraResumenFacturas_() {
   return { ok: true, cuantos: r.cuantos };
 }
 
-// Los gastos cargados en Varios en las cajas de esas fechas.
-function gastosEnVarios_(desde, hasta) {
-  var d = Utilities.formatDate(desde, 'Europe/Madrid', 'yyyy-MM-dd'), h = Utilities.formatDate(hasta, 'Europe/Madrid', 'yyyy-MM-dd');
-  var r = listarFacturasProveedores_('Varios', '');
-  return (r.facturas || []).filter(function (f) { return f.fecha >= d && f.fecha <= h; }).map(function (f) {
-    return {
-      fecha: fechaComoDate_(f.fecha), proveedor: String(f.proveedorTexto || '').replace(/^Varios\s*—\s*/, '') || 'Varios',
-      total: Number(f.importe) || 0, que: 'Cargada en Varios (caja del ' + fechaCorta_(f.fecha).slice(0, 5) + ')', enlace: ''
-    };
-  });
-}
-
 function resumenFacturas_(desde, hasta) {
   var hoja = SpreadsheetApp.openById(INDICE_SHEET_ID_).getSheetByName(MOV_FACTURAS_PESTANA_);
   var filas = [];
@@ -95,9 +90,7 @@ function resumenFacturas_(desde, hasta) {
       .filter(function (f) { return f[0] instanceof Date && f[0] >= desde && f[0] <= hasta; })
       .map(function (f) { return { fecha: f[0], tipo: f[1], proveedor: f[2], total: f[3], que: f[4], enlace: f[5] }; });
   }
-  try {
-    gastosEnVarios_(desde, hasta).forEach(function (g) { g.tipo = 'varios'; filas.push(g); });
-  } catch (err) { Logger.log('Resumen de facturas, Varios: ' + err); }
+  try { extrasDeLaSemana_(hasta).forEach(function (f) { filas.push(f); }); } catch (err) { Logger.log('Resumen de facturas, la semana: ' + err); }
   try { estadoAlbaranes_(hasta).forEach(function (f) { filas.push(f); }); } catch (err) { Logger.log('Resumen de facturas, ALBARANES: ' + err); }
   try {
     erroresDeLaSemana_(desde).forEach(function (e) {
@@ -112,7 +105,7 @@ function resumenFacturas_(desde, hasta) {
   MOV_FACTURAS_SECCIONES_.forEach(function (s) {
     var deEsta = filas.filter(function (f) { return f.tipo === s[0]; });
     if (!deEsta.length) return;
-    deEsta.sort(function (a, b) { return a.fecha - b.fecha; });
+    if (s[0] !== 'ventas' && s[0] !== 'gasto' && s[0] !== 'precio') deEsta.sort(function (a, b) { return a.fecha - b.fecha; });
     var suma = deEsta.reduce(function (t, f) { return t + (Number(f.total) || 0); }, 0);
     var cuenta = deEsta.length + (s[0] === 'sinpagar' && suma ? ' · ' + euros_(suma) : '');
     html.push('<h2 style="margin:28px 0 4px;font-size:17px;color:' + s[3] + '">' + s[1] + ' <span style="font-weight:normal;color:#888">(' + cuenta + ')</span></h2>' +
@@ -123,7 +116,7 @@ function resumenFacturas_(desde, hasta) {
           '<td style="padding:8px 10px;font-weight:bold;white-space:nowrap">' + esc(f.proveedor) + '</td>' +
           '<td style="padding:8px 10px;text-align:right;white-space:nowrap">' + (f.total ? euros_(f.total) : '') + '</td>' +
           '<td style="padding:8px 10px">' + esc(f.que) + '</td>' +
-          '<td style="padding:8px 10px;color:#999;font-size:12px;white-space:nowrap">' + dia(f.fecha) +
+          '<td style="padding:8px 10px;color:#999;font-size:12px;white-space:nowrap">' + (['ventas', 'gasto', 'precio', 'caja', 'error'].indexOf(f.tipo) > -1 ? '' : dia(f.fecha)) +
           (f.enlace ? ' · <a href="' + esc(f.enlace) + '" style="color:#2471a3">PDF</a>' : '') + '</td></tr>';
       }).join('') + '</table>');
     texto.push(s[1].toUpperCase() + ' (' + cuenta + ')\n' + deEsta.map(function (f) {
@@ -131,13 +124,13 @@ function resumenFacturas_(desde, hasta) {
     }).join('\n'));
   });
   return {
-    cuantos: filas.length,
-    asunto: 'Facturas para revisar ' + periodo + (filas.length ? ' (' + filas.length + ')' : ''),
+    cuantos: filas.filter(function (f) { return f.tipo !== 'ventas'; }).length,
+    asunto: 'Resumen de la semana ' + periodo,
     html: '<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;color:#222">' +
-      '<h1 style="font-size:20px;margin:0 0 4px">Facturas para revisar</h1>' +
+      '<h1 style="font-size:20px;margin:0 0 4px">Resumen de la semana</h1>' +
       '<p style="margin:0;color:#888;font-size:13px">Semana ' + periodo + '. Solo lo que necesita que lo mires (lo pendiente, como está hoy).</p>' +
       (html.length ? html.join('') : '<p style="margin-top:24px">No hay nada que revisar esta semana. 👍</p>') +
-      '<p style="margin-top:32px;color:#aaa;font-size:11px">Llega los lunes a las 8:00 si hay algo.</p></div>',
+      '<p style="margin-top:32px;color:#aaa;font-size:11px">Llega los lunes a las 8:00.</p></div>',
     texto: texto.join('\n\n') || 'No hay nada que revisar esta semana.'
   };
 }
@@ -173,5 +166,68 @@ function estadoAlbaranes_(hoy) {
     var iso = /^\d{4}-\d{2}-\d{2}$/.test(a.fecha) ? a.fecha : '';
     filas.push({ tipo: 'albaran', fecha: iso ? fechaComoDate_(iso) : hoy, proveedor: a.proveedor, total: '', que: 'Albarán del ' + dia(iso) + (iso ? hace(iso) : ''), enlace: a.enlace });
   });
+  return filas;
+}
+
+// La semana (los 7 días hasta ayer) en números.
+function extrasDeLaSemana_(hoy) {
+  var filas = [];
+  var iso = function (d) { return Utilities.formatDate(d, 'Europe/Madrid', 'yyyy-MM-dd'); };
+  var ayer = new Date(hoy.getTime() - 86400000);
+  var hasta = iso(ayer), desde = iso(new Date(ayer.getTime() - 6 * 86400000));
+  var pct = function (a, b) { return b ? (a >= b ? '+' : '') + Math.round((a - b) / b * 100) + ' %' : '—'; };
+
+  // Ventas y diferencias de caja: de Contabilidad (este año y el anterior).
+  try {
+    var dias = {};
+    [ayer.getFullYear() - 1, ayer.getFullYear()].forEach(function (anio) {
+      var id = buscarEnIndice_('CONTABILIDAD', String(anio));
+      if (!id) return;
+      var ss = SpreadsheetApp.openById(id);
+      var mesHasta = ayer.getMonth(), mesDesde = Math.max(0, mesHasta - 1);
+      for (var m = mesDesde; m <= mesHasta; m++) {
+        var d = datosMesContabilidad_(ss, m);
+        if (d) d.lista.forEach(function (x) { dias[x.fecha] = x; });
+      }
+    });
+    var ventas = function (ini, fin) {
+      var t = 0;
+      Object.keys(dias).forEach(function (f) { if (f >= ini && f <= fin) t += (dias[f].sistema || 0) + (dias[f].delivery || 0); });
+      return Math.round(t * 100) / 100;
+    };
+    var menos = function (f, n) { return iso(new Date(fechaComoDate_(f).getTime() - n * 86400000)); };
+    var esta = ventas(desde, hasta), anterior = ventas(menos(desde, 7), menos(hasta, 7)), anioPasado = ventas(menos(desde, 364), menos(hasta, 364));
+    filas.push({ tipo: 'ventas', fecha: ayer, proveedor: 'Esta semana', total: esta, que: fechaCorta_(desde).slice(0, 5) + ' al ' + fechaCorta_(hasta).slice(0, 5) });
+    if (anterior) filas.push({ tipo: 'ventas', fecha: ayer, proveedor: 'Semana anterior', total: anterior, que: 'Esta semana ' + pct(esta, anterior) });
+    if (anioPasado) filas.push({ tipo: 'ventas', fecha: ayer, proveedor: 'Hace un año', total: anioPasado, que: 'Esta semana ' + pct(esta, anioPasado) + ' (los mismos días de la semana)' });
+    var nombresDia = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    Object.keys(dias).sort().forEach(function (f) {
+      var dif = dias[f].diferencia || 0;
+      if (f < desde || f > hasta || Math.abs(dif) <= 5) return;
+      filas.push({ tipo: 'caja', fecha: fechaComoDate_(f), proveedor: nombresDia[fechaComoDate_(f).getDay()] + ' ' + fechaCorta_(f).slice(0, 5), total: '', que: 'Diferencia de ' + (dif > 0 ? '+' : '') + euros_(dif) });
+    });
+  } catch (err) { Logger.log('Resumen, ventas: ' + err); }
+
+  // Gasto por proveedor y precios: lo mismo que la página de informes
+  // (InformeSemanalPedidos.gs).
+  try {
+    var inf = armarInformeSemanal_(hasta).datos;
+    inf.proveedores.proveedores.filter(function (p) { return p.cambio !== null && p.cambio >= 30 && p.diferencia >= 50; }).slice(0, 10).forEach(function (p) {
+      filas.push({ tipo: 'gasto', fecha: ayer, proveedor: p.proveedor, total: p.estaSemana, que: 'Lo normal: ' + euros_(p.media) + ' (+' + p.cambio + ' %)' });
+    });
+    inf.cambiosDePrecio.cambios.filter(function (c) { return c.cambio >= 3; }).slice(0, 15).forEach(function (c) {
+      filas.push({ tipo: 'precio', fecha: ayer, proveedor: c.producto + ' (' + c.proveedor + ')', total: c.ahora, que: 'Antes ' + euros_(c.antes) + (c.unidad ? ' / ' + c.unidad : '') + ' · +' + String(c.cambio).replace('.', ',') + ' %' });
+    });
+  } catch (err) { Logger.log('Resumen, compras: ' + err); }
+
+  // Facturas del mes (hasta hace 3 días, para dar tiempo a escanearlas) sin PDF.
+  try {
+    var anio = hasta.slice(0, 4), mm = hasta.slice(5, 7);
+    var limite = iso(new Date(hoy.getTime() - 3 * 86400000));
+    facturasConPdf_(anio, mm, pdfsDelMes_(DriveApp.getFolderById(CARPETA_FACTURAS_ID_), anio, mm)).forEach(function (f) {
+      if (f.pdf !== 'NO' || f.fecha > limite) return;
+      filas.push({ tipo: 'sinpdf', fecha: fechaComoDate_(f.fecha), proveedor: f.proveedor, total: f.total, que: 'Del ' + fechaCorta_(f.fecha).slice(0, 5) });
+    });
+  } catch (err) { Logger.log('Resumen, sin PDF: ' + err); }
   return filas;
 }

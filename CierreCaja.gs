@@ -886,6 +886,10 @@ function doGet(e) {
   if (esClaude && parametros.revisarAlbaranes) {
     return ContentService.createTextOutput(JSON.stringify(revisionParaClaude_(String(parametros.revisarAlbaranes)))).setMimeType(ContentService.MimeType.JSON);
   }
+  // ?verResumenFacturas=1: el texto del resumen de los lunes, sin mandarlo.
+  if (esClaude && parametros.verResumenFacturas) {
+    return ContentService.createTextOutput(resumenFacturas_(new Date(Date.now() - 7 * 86400000), new Date()).texto);
+  }
   // ?muestraResumenFacturas=1: manda ya una muestra del resumen de los lunes (ResumenFacturas.gs).
   if (esClaude && parametros.muestraResumenFacturas) {
     return ContentService.createTextOutput(JSON.stringify(mandarMuestraResumenFacturas_())).setMimeType(ContentService.MimeType.JSON);
