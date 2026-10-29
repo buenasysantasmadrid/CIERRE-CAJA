@@ -29,6 +29,11 @@ function doPost(e) {
 
     // Informe de compras de la semana (ver InformeSemanalPedidos.gs): Claude
     // lo puede ver o quitar el activador del email de los viernes.
+    // Claude apunta para el resumen de los lunes lo que hizo a mano (ResumenFacturas.gs).
+    if (data.accionApuntarMovFacturas && esClaudePost) {
+      (data.filas || []).forEach(function (f) { apuntarMovFactura_(f[0], f[1], f[2]); });
+      return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
+    }
     if (data.accionMoverFacturaDrive && esClaudePost) {
       return ContentService
         .createTextOutput(JSON.stringify(moverArchivoFacturas_(data))) // ver Bandejas.gs
@@ -865,6 +870,10 @@ function doGet(e) {
   }
   // ?carpetaFacturas=AAAA/MM/Proveedor (o vacío para la raíz): lo que hay en
   // esa carpeta de "Facturas proveedores" y sus subcarpetas (solo lectura).
+  // ?muestraResumenFacturas=1: manda ya una muestra del resumen de los lunes (ResumenFacturas.gs).
+  if (esClaude && parametros.muestraResumenFacturas) {
+    return ContentService.createTextOutput(JSON.stringify(mandarMuestraResumenFacturas_())).setMimeType(ContentService.MimeType.JSON);
+  }
   // ?procesarBandejas=1: procesa ya las carpetas de entrada de facturas (Bandejas.gs).
   if (esClaude && parametros.procesarBandejas) {
     return ContentService.createTextOutput(JSON.stringify(procesarBandejasFacturas() || {})).setMimeType(ContentService.MimeType.JSON);

@@ -152,6 +152,12 @@ function moverPdfDeGasto_(data) {
       }
     }
   });
+  movidos = movidos.filter(String);
+  if (movidos.length) {
+    var gasto = function (g) { return (g.proveedor || '?') + (g.proveedorDetalle ? ' — ' + g.proveedorDetalle : ''); };
+    apuntarMovFactura_('movido', 'Se cambió ' + gasto(antes) + ' nº ' + antes.factura + ' a ' + gasto(ahora) + ': ' + movidos.join(', ') +
+      ' → carpeta ' + destino.carpeta + ' (' + fecha.slice(5, 7) + '/' + fecha.slice(0, 4) + ')'); // ver ResumenFacturas.gs
+  }
   return { ok: true, movidos: movidos };
 }
 
@@ -161,8 +167,9 @@ function carpetaDelMes_(raiz, fecha, carpeta) {
 }
 
 // Mueve y renombra; si en el destino ya hay otro con ese nombre, " (2)".
+// Devuelve el nombre nuevo, o '' si ya estaba así.
 function moverConNombre_(archivo, dir, nombre) {
-  if (archivo.getName() === nombre && archivo.getParents().hasNext() && archivo.getParents().next().getId() === dir.getId()) return nombre;
+  if (archivo.getName() === nombre && archivo.getParents().hasNext() && archivo.getParents().next().getId() === dir.getId()) return '';
   var existe = dir.getFilesByName(nombre);
   while (existe.hasNext()) {
     if (existe.next().getId() !== archivo.getId()) { nombre = nombre.replace(/(\.[a-z0-9]+)?$/i, ' (2)$1'); break; }

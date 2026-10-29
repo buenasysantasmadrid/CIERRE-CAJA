@@ -17,8 +17,9 @@
 // Cada hora (activador procesarBandejasFacturas, se pone solo con el primer
 // guardado de la caja) Claude lee lo que haya y el archivo se mueve a
 // "Facturas proveedores / AAAA / MM / Proveedor", con el mismo nombre que
-// las escaneadas: es lo que se entrega a los contables. Llega un email con
-// lo cargado; los problemas van al resumen de avisos. Lo que no se puede
+// las escaneadas: es lo que se entrega a los contables. Todo se apunta para
+// el resumen de los lunes (ResumenFacturas.gs); los problemas van además al
+// resumen de avisos. Lo que no se puede
 // leer queda en la subcarpeta "⚠️ No se pudo leer" de su bandeja.
 // ============================================================================
 
@@ -93,7 +94,7 @@ function procesarBandejasFacturas() {
     var inicio = Date.now();
     var raiz = DriveApp.getFolderById(CARPETA_FACTURAS_ID_);
     var lista = proveedoresParaLeer_();
-    var hechas = [], problemas = 0, salida = { ok: true, hechas: hechas, problemas: [], seReintentan: [] };
+    var hechas = [], salida ={ ok: true, hechas: hechas, problemas: [], seReintentan: [] };
     [[BANDEJA_ALBARAN_, 'albaran'], [BANDEJA_TRANSFERENCIA_, 'transferencia']].forEach(function (b) {
       var bandeja = carpetaHija_(raiz, b[0]);
       var archivos = bandeja.getFiles();
@@ -106,28 +107,20 @@ function procesarBandejasFacturas() {
           salida.seReintentan.push(archivo.getName() + ': ' + (err.message || err));
           r = reintentarDespues_(archivo, bandeja, String(err.message || err));
         }
-        if (r.hecha) hechas.push(r.hecha);
+        if (r.hecha) { hechas.push(r.hecha); apuntarMovFactura_('cargada', r.hecha, r.enlace); } // ver ResumenFacturas.gs
+        if (r.sinProveedor) apuntarMovFactura_('sin proveedor', r.sinProveedor, r.enlace);
         if (r.problema) {
-          problemas++;
           salida.problemas.push(r.problema);
+          apuntarMovFactura_('revisar', r.problema, r.enlace);
           avisarPorEmail_('una factura de la carpeta "' + b[0] + '" ' + (r.hecha ? 'tiene algo que revisar' : 'no se cargó'),
             r.problema + (r.enlace ? '\nEl PDF: ' + r.enlace : ''));
         }
       }
     });
-    if (hechas.length) mandarResumenBandejas_(hechas, problemas);
     return salida;
   } finally {
     cache.remove('bandejas_corriendo');
   }
-}
-
-function mandarResumenBandejas_(hechas, problemas) {
-  var para = Session.getEffectiveUser().getEmail();
-  if (!para) return;
-  MailApp.sendEmail(para, 'Cierre de caja: ' + hechas.length + (hechas.length === 1 ? ' factura cargada' : ' facturas cargadas') + ' desde Drive',
-    hechas.map(function (h, i) { return (i + 1) + '. ' + h; }).join('\n\n') +
-    (problemas ? '\n\n' + problemas + (problemas === 1 ? ' tuvo algo para revisar: va' : ' tuvieron algo para revisar: van') + ' en el resumen de avisos.' : ''));
 }
 
 // Un fallo que puede ser pasajero (Claude saturado, Google lento): se
@@ -198,8 +191,10 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista) {
 
   var enlace = moverFacturaACarpetaProveedor_(archivo, raiz, fecha, proveedor, detalle, numero);
   return {
-    hecha: cual + ': ' + resultado.texto + '\n   ' + enlace,
+    hecha: cual + ': ' + resultado.texto,
     problema: resultado.problema ? cual + ': ' + resultado.problema : '',
+    sinProveedor: deLista ? '' : 'Leído "' + (leido || '?') + '"' + (numero ? ' nº ' + numero : '') + ' del ' + fechaCorta_(fecha) + ', ' + euros_(importe) +
+      ': quedó como ' + (detalle ? 'Servicios — ' + detalle : proveedor) + '.',
     enlace: enlace
   };
 }
