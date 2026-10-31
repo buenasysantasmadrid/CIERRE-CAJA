@@ -511,11 +511,13 @@
   .cajita-saldo{display:flex;align-items:center;justify-content:flex-end;min-width:92px;padding-left:12px;border-left:1px solid var(--line);font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;}
   .cajita-item{cursor:pointer;}
   .cajita-item.editando{border-color:var(--green);box-shadow:0 0 0 2px var(--green) inset;}
-  .cambio-fila{display:grid;grid-template-columns:1fr 56px 76px;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);}
-  .cambio-fila small{display:block;font-size:.8rem;}
-  .cambio-fila .cambio-hay{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;}
-  .cambio-fila.head{font-size:.8rem;padding-top:0;}
+  .cambio-fila{display:grid;grid-template-columns:1fr 72px 84px;align-items:center;column-gap:18px;padding:9px 0;border-bottom:1px solid var(--line);}
+  .cambio-fila .cambio-hay{text-align:center;font-size:1.25rem;font-weight:700;font-variant-numeric:tabular-nums;padding:6px 0;border-radius:8px;background:var(--green-soft);}
+  .cambio-fila.head{font-size:.9rem;font-weight:700;padding-top:0;}
+  .cambio-fila.head span{text-align:center;}
   .cambio-fila input{width:100%;min-width:0;text-align:center;}
+  .cambio-resumen-fila{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line);}
+  .cambio-resumen-fila b{font-variant-numeric:tabular-nums;}
   .tinta-card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-top:14px;}
   .tinta-card h3{font-family:var(--serif);font-weight:400;font-size:1.3rem;margin:0 0 8px;}
   .tinta-fila{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--line);}
@@ -836,9 +838,7 @@
     <div class="screen-inner">
       <div id="cambioCajaCargando" class="menu-estado" style="margin-top:14px;"></div>
       <div id="cambioCajaContenido" style="display:none;">
-        <div class="calc-total"><span>Total de cambio</span><span id="cambioCajaTotal"></span></div>
         <div id="cambioCajaFilas" style="margin-top:14px;"></div>
-        <div class="calc-total" style="margin-top:10px;"><span>Vas a agregar</span><span id="cambioCajaAgregar"></span></div>
         <div class="form-grid" style="margin-top:14px;">
           <div class="field span-2"><label for="cambioCajaFecha">Fecha</label><input type="date" id="cambioCajaFecha"></div>
           <div class="field span-2"><label>Responsable</label><div id="cambioCajaResponsableBox"></div></div>
@@ -5755,10 +5755,10 @@
   // que hay y se agrega; lo que sale se anota en la caja del día (Ingreso
   // "Cambio") y el Sheet lo descuenta.
   var CAMBIO_CAJA_TIPOS = [
-    {k:'blister-0.1', l:'Blister 0,10 €', v:4}, {k:'blister-0.2', l:'Blister 0,20 €', v:8},
-    {k:'blister-0.5', l:'Blister 0,50 €', v:20}, {k:'blister-1', l:'Blister 1 €', v:25},
-    {k:'blister-2', l:'Blister 2 €', v:50}, {k:'billete-5', l:'Billetes 5 €', v:5},
-    {k:'billete-10', l:'Billetes 10 €', v:10}, {k:'billete-20', l:'Billetes 20 €', v:20}
+    {k:'blister-0.1', l:'Blister 0,10 €'}, {k:'blister-0.2', l:'Blister 0,20 €'},
+    {k:'blister-0.5', l:'Blister 0,50 €'}, {k:'blister-1', l:'Blister 1 €'},
+    {k:'blister-2', l:'Blister 2 €'}, {k:'billete-5', l:'Billetes 5 €'},
+    {k:'billete-10', l:'Billetes 10 €'}, {k:'billete-20', l:'Billetes 20 €'}
   ];
   function abrirCambioCaja(){
     document.getElementById('cambioCajaContenido').style.display = 'none';
@@ -5785,36 +5785,32 @@
     return Number(n).toLocaleString('es-ES', {maximumFractionDigits:2});
   }
   function mostrarCambioCaja(d){
-    document.getElementById('cambioCajaTotal').textContent = fmt(d.total);
     var stock = {};
     (d.stock || []).forEach(function(s){ stock[s.clave] = s; });
     // Abajo del todo: lo que queda, separado en billetes y monedas.
     var resumenDe = function(titulo, prefijo){
       var tipos = CAMBIO_CAJA_TIPOS.filter(function(t){ return t.k.indexOf(prefijo) === 0; });
-      var euros = tipos.reduce(function(s, t){ return s + (stock[t.k] ? stock[t.k].euros : 0); }, 0);
-      return '<div class="calc-total" style="margin-top:10px;"><span>' + titulo + '</span><span>' + fmt(euros) + '</span></div>' +
+      return '<div style="font-weight:700;margin-top:12px;">' + titulo + '</div>' +
         tipos.map(function(t){
-          var s = stock[t.k] || {hay:0, euros:0};
-          return '<div class="arreglo-top" style="padding:6px 0;border-bottom:1px solid var(--line);"><span>' + escapeHtml(t.l) + ': <b' + (s.hay < 0 ? ' class="cajita-menos"' : '') + '>' + cantidadCambioCaja(s.hay) + '</b></span><span>' + fmt(s.euros) + '</span></div>';
+          var hay = stock[t.k] ? stock[t.k].hay : 0;
+          return '<div class="cambio-resumen-fila"><span>' + escapeHtml(t.l) + '</span><b' + (hay < 0 ? ' class="cajita-menos"' : '') + '>' + cantidadCambioCaja(hay) + '</b></div>';
         }).join('');
     };
     document.getElementById('cambioCajaResumen').innerHTML = resumenDe('Billetes', 'billete') + resumenDe('Monedas', 'blister');
     document.getElementById('cambioCajaFilas').innerHTML =
-      '<div class="cambio-fila head"><span></span><span style="text-align:right;">Hay</span><span style="text-align:center;">Agregar</span></div>' +
+      '<div class="cambio-fila head"><span></span><span>Hay</span><span>Agregar</span></div>' +
       CAMBIO_CAJA_TIPOS.map(function(t){
-        var s = stock[t.k] || {hay:0, euros:0};
-        return '<div class="cambio-fila"><span>' + escapeHtml(t.l) + '<small>' + fmt(s.euros) + (t.k.indexOf('blister') === 0 ? ' · cada uno ' + fmt(t.v) : '') + '</small></span>' +
-          '<span class="cambio-hay' + (s.hay < 0 ? ' cajita-menos' : '') + '">' + cantidadCambioCaja(s.hay) + '</span>' +
+        var hay = stock[t.k] ? stock[t.k].hay : 0;
+        return '<div class="cambio-fila"><span>' + escapeHtml(t.l) + '</span>' +
+          '<span class="cambio-hay' + (hay < 0 ? ' cajita-menos' : '') + '">' + cantidadCambioCaja(hay) + '</span>' +
           '<input type="number" inputmode="numeric" min="0" step="1" data-cambio-caja="' + t.k + '" aria-label="Agregar ' + escapeHtml(t.l) + '"></div>';
       }).join('');
-    actualizarAgregarCambioCaja();
     if(d.ultimoError) estadoMenu('cambioCajaEstado', 'Falló al pasar desde la caja: ' + d.ultimoError, false, true);
     document.getElementById('cambioCajaLista').innerHTML = (d.movimientos || []).length ? d.movimientos.map(function(m){
       var fecha = /^\d{4}-\d{2}-\d{2}$/.test(m.fecha) ? fechaCorta(m.fecha) : String(m.fecha || '');
-      var importe = m.importe >= 0 ? '<span class="cajita-mas">+' + fmt(m.importe) + '</span>' : '<span class="cajita-menos">' + fmt(m.importe) + '</span>';
       return '<div class="arreglo-item">' +
-        '<div class="arreglo-top"><b>' + escapeHtml(m.movimiento) + '</b>' + importe + '</div>' +
-        '<div class="arreglo-sub">' + escapeHtml(m.cantidades) + '</div>' +
+        '<div class="arreglo-top"><b>' + escapeHtml(m.movimiento) + '</b></div>' +
+        (m.cantidades ? '<div class="arreglo-sub ' + (m.importe >= 0 ? 'cajita-mas">+ ' : 'cajita-menos">− ') + escapeHtml(m.cantidades) + '</div>' : '') +
         '<div class="arreglo-sub">' + escapeHtml(fecha) + (m.responsable ? ' · ' + escapeHtml(m.responsable) : '') + (m.detalle ? ' · ' + escapeHtml(m.detalle) : '') + '</div>' +
       '</div>';
     }).join('') : '<div class="empty-row">Todavía no hay movimientos.</div>';
@@ -5827,11 +5823,6 @@
     });
     return c;
   }
-  function actualizarAgregarCambioCaja(){
-    var c = cantidadesCambioCaja();
-    document.getElementById('cambioCajaAgregar').textContent = fmt(CAMBIO_CAJA_TIPOS.reduce(function(s, t){ return s + (c[t.k] || 0) * t.v; }, 0));
-  }
-  document.getElementById('cambioCajaFilas').addEventListener('input', actualizarAgregarCambioCaja);
   document.getElementById('cambioCajaGuardar').addEventListener('click', function(){
     var mov = {
       fecha: document.getElementById('cambioCajaFecha').value,
