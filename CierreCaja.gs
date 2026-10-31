@@ -894,6 +894,10 @@ function doGet(e) {
   if (esClaude && parametros.muestraResumenFacturas) {
     return ContentService.createTextOutput(JSON.stringify(mandarMuestraResumenFacturas_())).setMimeType(ContentService.MimeType.JSON);
   }
+  // ?marcarDiferenciasTpv=1: pinta T y U (más del 0,50%) en todas las pestañas de Contabilidad.
+  if (esClaude && parametros.marcarDiferenciasTpv) {
+    return ContentService.createTextOutput(JSON.stringify(marcarDiferenciasTpvContabilidad())).setMimeType(ContentService.MimeType.JSON);
+  }
   // ?procesarBandejas=1: procesa ya las carpetas de entrada de facturas (Bandejas.gs).
   if (esClaude && parametros.procesarBandejas) {
     return ContentService.createTextOutput(JSON.stringify(procesarBandejasFacturas() || {})).setMimeType(ContentService.MimeType.JSON);
@@ -2342,7 +2346,7 @@ var OBJETIVOS_CONTABILIDAD_ = [
 ];
 
 function colorearObjetivosContabilidad_(hoja, anio, mesIndex) {
-  if (anio == null) { hoja.setConditionalFormatRules([]); return; } // MASTER
+  if (anio == null) { hoja.setConditionalFormatRules([]); colorearDiferenciasTpvContabilidad_(hoja); return; } // MASTER
   if (!llevaTablasContabilidad_(anio, mesIndex)) return;
   var diasMes = new Date(anio, mesIndex + 1, 0).getDate();
   var reglas = OBJETIVOS_CONTABILIDAD_.map(function (obj) {
@@ -2357,6 +2361,47 @@ function colorearObjetivosContabilidad_(hoja, anio, mesIndex) {
       .build();
   });
   hoja.setConditionalFormatRules(reglas);
+  colorearDiferenciasTpvContabilidad_(hoja);
+}
+
+// 4) % de diferencia con los TPV del banco (T y U, filas 3-33): se pinta la
+//    celda cuando pasa del 0,50%. No toca las demás reglas de la pestaña. Solo
+//    en las pestañas con esas columnas (T2 y U2 dicen "TPV ..."). Devuelve si
+//    la pintó.
+var COLOR_DIFERENCIA_TPV_ = '#f4c7c3';
+var RANGO_DIFERENCIA_TPV_ = 'T3:U33';
+var MAXIMO_DIFERENCIA_TPV_ = 0.005;
+
+function colorearDiferenciasTpvContabilidad_(hoja) {
+  if (hoja.getMaxColumns() < 21) return false;
+  var enc = hoja.getRange('T2:U2').getValues()[0];
+  if (!enc.every(function (x) { return /^TPV/.test(normalizarClave_(x)); })) return false;
+  var reglas = hoja.getConditionalFormatRules().filter(function (regla) {
+    return !regla.getRanges().some(function (r) { return r.getA1Notation() === RANGO_DIFERENCIA_TPV_; });
+  });
+  reglas.push(SpreadsheetApp.newConditionalFormatRule()
+    .whenNumberGreaterThan(MAXIMO_DIFERENCIA_TPV_)
+    .setBackground(COLOR_DIFERENCIA_TPV_)
+    .setRanges([hoja.getRange(RANGO_DIFERENCIA_TPV_)])
+    .build());
+  hoja.setConditionalFormatRules(reglas);
+  return true;
+}
+
+// Todas las pestañas de todas las planillas de Contabilidad (también se
+// lanza con GET ?marcarDiferenciasTpv=1, ver doGet). Los meses nuevos salen
+// de la MASTER y ya la llevan.
+function marcarDiferenciasTpvContabilidad() {
+  var resumen = [];
+  planillasDelTipo_('CONTABILIDAD').forEach(function (p) {
+    try {
+      var hechas = SpreadsheetApp.openById(p.id).getSheets().filter(colorearDiferenciasTpvContabilidad_).map(function (h) { return h.getName(); });
+      resumen.push(p.nombre + ': ' + (hechas.join(', ') || 'ninguna pestaña'));
+    } catch (err) {
+      resumen.push(p.nombre + ': error — ' + err);
+    }
+  });
+  return resumen;
 }
 
 // Al guardar un día: semanas de ese mes y de los de al lado (una semana que
