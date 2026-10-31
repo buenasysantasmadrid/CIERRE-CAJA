@@ -511,6 +511,11 @@
   .cajita-saldo{display:flex;align-items:center;justify-content:flex-end;min-width:92px;padding-left:12px;border-left:1px solid var(--line);font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;}
   .cajita-item{cursor:pointer;}
   .cajita-item.editando{border-color:var(--green);box-shadow:0 0 0 2px var(--green) inset;}
+  .cambio-fila{display:grid;grid-template-columns:1fr 56px 76px;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);}
+  .cambio-fila small{display:block;font-size:.8rem;}
+  .cambio-fila .cambio-hay{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;}
+  .cambio-fila.head{font-size:.8rem;padding-top:0;}
+  .cambio-fila input{width:100%;min-width:0;text-align:center;}
   .tinta-card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-top:14px;}
   .tinta-card h3{font-family:var(--serif);font-weight:400;font-size:1.3rem;margin:0 0 8px;}
   .tinta-fila{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--line);}
@@ -588,6 +593,7 @@
           <button type="button" data-menu-archivo="tinta" class="menu-con-ico"><span data-icon="impresora"></span>Cambio de tinta</button>
           <button type="button" data-menu-archivo="arreglos" class="menu-con-ico"><span data-icon="nevera"></span>Arreglo electrodomésticos</button>
           <button type="button" data-menu-archivo="cajita" class="menu-con-ico"><span data-icon="cajita"></span>Sobrecito</button>
+          <button type="button" data-menu-archivo="cambio" class="menu-con-ico"><span data-icon="coins"></span>Cambio</button>
         </div>
       </nav>
     </div>
@@ -810,6 +816,43 @@
       <div id="cajitaEstado" class="menu-estado"></div>
       <div class="menu-grupo">Últimos movimientos</div>
       <div id="cajitaLista"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Cambio: el cambio que hay en la caja de seguridad (menú de tres rayas) -->
+<div class="screen" id="cambioCajaScreen">
+  <div class="screen-head">
+    <div class="screen-head-inner">
+      <div>
+        <div class="eyebrow">Caja de seguridad</div>
+        <h2>Cambio</h2>
+      </div>
+      <button type="button" class="x-btn" data-cerrar-menu-screen aria-label="Cerrar" data-icon="x"></button>
+    </div>
+  </div>
+  <div class="screen-body">
+    <div class="screen-inner">
+      <div id="cambioCajaCandado" style="margin-top:14px;">
+        <div class="field"><label for="cambioCajaClave">Contraseña</label><input type="password" id="cambioCajaClave" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+        <div class="scan-actions" style="margin-top:10px;"><button type="button" class="btn-primary" id="cambioCajaClaveOk">Entrar</button></div>
+        <div id="cambioCajaCandadoEstado" class="menu-estado"></div>
+      </div>
+      <div id="cambioCajaContenido" style="display:none;">
+        <div class="calc-total"><span>Total de cambio</span><span id="cambioCajaTotal"></span></div>
+        <div id="cambioCajaFilas" style="margin-top:14px;"></div>
+        <div class="calc-total" style="margin-top:10px;"><span>Vas a agregar</span><span id="cambioCajaAgregar"></span></div>
+        <div class="form-grid" style="margin-top:14px;">
+          <div class="field span-2"><label for="cambioCajaFecha">Fecha</label><input type="date" id="cambioCajaFecha"></div>
+          <div class="field span-2"><label>Responsable</label><div id="cambioCajaResponsableBox"></div></div>
+          <div class="field span-2"><label for="cambioCajaDetalle">Detalle (opcional)</label><input type="text" id="cambioCajaDetalle" placeholder="De dónde viene"></div>
+        </div>
+        <div class="scan-actions" style="margin-top:12px;"><button type="button" class="btn-primary" id="cambioCajaGuardar">Agregar a la caja de seguridad</button></div>
+        <div id="cambioCajaEstado" class="menu-estado"></div>
+        <div class="menu-grupo">Últimos movimientos</div>
+        <div id="cambioCajaLista"></div>
+        <div style="margin-top:14px;"><a id="cambioCajaPlanilla" target="_blank" rel="noopener">Abrir la planilla de Google</a></div>
       </div>
     </div>
   </div>
@@ -5214,6 +5257,7 @@
     else if(cual === 'tinta') abrirTinta();
     else if(cual === 'arreglos') abrirArreglos();
     else if(cual === 'cajita') abrirCajita();
+    else if(cual === 'cambio') abrirCambioCaja();
   });
 
   // ---------- pantallas del menú ----------
@@ -5707,6 +5751,125 @@
       cargarCajita();
     }).catch(function(err){
       estadoMenu('cajitaEstado', 'No se pudo guardar. (' + err.message + ')', false, true);
+    }).finally(function(){ btn.disabled = false; });
+  });
+
+  // Cambio (lo que hay en la caja de seguridad, ver Cambio.gs): con la misma
+  // contraseña que el Sobrecito. Aquí se ve lo que hay y se agrega; lo que
+  // sale se anota en la caja del día (Ingreso "Cambio") y el Sheet lo descuenta.
+  var CAMBIO_CAJA_TIPOS = [
+    {k:'blister-0.1', l:'Blister 0,10 €', v:4}, {k:'blister-0.2', l:'Blister 0,20 €', v:8},
+    {k:'blister-0.5', l:'Blister 0,50 €', v:20}, {k:'blister-1', l:'Blister 1 €', v:25},
+    {k:'blister-2', l:'Blister 2 €', v:50}, {k:'billete-5', l:'Billetes 5 €', v:5},
+    {k:'billete-10', l:'Billetes 10 €', v:10}, {k:'billete-20', l:'Billetes 20 €', v:20}
+  ];
+  var cambioCajaClave = '';
+  function abrirCambioCaja(){
+    cambioCajaClave = '';
+    document.getElementById('cambioCajaContenido').style.display = 'none';
+    document.getElementById('cambioCajaCandado').style.display = '';
+    estadoMenu('cambioCajaCandadoEstado', '');
+    var claveEl = document.getElementById('cambioCajaClave');
+    claveEl.value = '';
+    abrirPantallaMenu('cambioCajaScreen');
+    setTimeout(function(){ try{ claveEl.focus(); }catch(e){} }, 50);
+  }
+  function entrarCambioCaja(){
+    var claveEl = document.getElementById('cambioCajaClave');
+    var clave = claveEl.value;
+    if(!clave){ toast('Escribe la contraseña'); return; }
+    var btn = document.getElementById('cambioCajaClaveOk');
+    btn.disabled = true;
+    estadoMenu('cambioCajaCandadoEstado', 'Comprobando…', true);
+    pedirAlSheet({ accionCambioLeer: true, clave: clave }).then(function(d){
+      claveEl.value = '';
+      claveEl.blur();
+      cambioCajaClave = clave;
+      estadoMenu('cambioCajaCandadoEstado', '');
+      document.getElementById('cambioCajaCandado').style.display = 'none';
+      document.getElementById('cambioCajaContenido').style.display = '';
+      limpiarFormCambioCaja();
+      mostrarCambioCaja(d);
+    }).catch(function(err){
+      claveEl.value = '';
+      if(/contrase/i.test(err.message)){ estadoMenu('cambioCajaCandadoEstado', ''); toast('Contraseña incorrecta'); claveEl.focus(); }
+      else estadoMenu('cambioCajaCandadoEstado', 'No se pudo abrir la planilla de cambio. (' + err.message + ')', false, true);
+    }).finally(function(){ btn.disabled = false; });
+  }
+  document.getElementById('cambioCajaClaveOk').addEventListener('click', entrarCambioCaja);
+  document.getElementById('cambioCajaClave').addEventListener('keydown', function(e){
+    if(e.key === 'Enter'){ e.preventDefault(); entrarCambioCaja(); }
+  });
+  function limpiarFormCambioCaja(){
+    document.getElementById('cambioCajaFecha').value = todayISO();
+    document.getElementById('cambioCajaDetalle').value = '';
+    var respBox = document.getElementById('cambioCajaResponsableBox');
+    respBox.innerHTML = chipSelectHTML('cambioCajaResponsable', 'cambioCajaResponsable', CAJITA_RESPONSABLES, '');
+    wireChipSelects(respBox);
+  }
+  function cantidadCambioCaja(n){
+    return Number(n).toLocaleString('es-ES', {maximumFractionDigits:2});
+  }
+  function mostrarCambioCaja(d){
+    document.getElementById('cambioCajaTotal').textContent = fmt(d.total);
+    document.getElementById('cambioCajaPlanilla').href = d.url;
+    var stock = {};
+    (d.stock || []).forEach(function(s){ stock[s.clave] = s; });
+    document.getElementById('cambioCajaFilas').innerHTML =
+      '<div class="cambio-fila head"><span></span><span style="text-align:right;">Hay</span><span style="text-align:center;">Agregar</span></div>' +
+      CAMBIO_CAJA_TIPOS.map(function(t){
+        var s = stock[t.k] || {hay:0, euros:0};
+        return '<div class="cambio-fila"><span>' + escapeHtml(t.l) + '<small>' + fmt(s.euros) + (t.k.indexOf('blister') === 0 ? ' · cada uno ' + fmt(t.v) : '') + '</small></span>' +
+          '<span class="cambio-hay' + (s.hay < 0 ? ' cajita-menos' : '') + '">' + cantidadCambioCaja(s.hay) + '</span>' +
+          '<input type="number" inputmode="numeric" min="0" step="1" data-cambio-caja="' + t.k + '" aria-label="Agregar ' + escapeHtml(t.l) + '"></div>';
+      }).join('');
+    actualizarAgregarCambioCaja();
+    if(d.ultimoError) estadoMenu('cambioCajaEstado', 'Falló al pasar desde la caja: ' + d.ultimoError, false, true);
+    document.getElementById('cambioCajaLista').innerHTML = (d.movimientos || []).length ? d.movimientos.map(function(m){
+      var fecha = /^\d{4}-\d{2}-\d{2}$/.test(m.fecha) ? fechaCorta(m.fecha) : String(m.fecha || '');
+      var importe = m.importe >= 0 ? '<span class="cajita-mas">+' + fmt(m.importe) + '</span>' : '<span class="cajita-menos">' + fmt(m.importe) + '</span>';
+      return '<div class="arreglo-item">' +
+        '<div class="arreglo-top"><b>' + escapeHtml(m.movimiento) + '</b>' + importe + '</div>' +
+        '<div class="arreglo-sub">' + escapeHtml(m.cantidades) + '</div>' +
+        '<div class="arreglo-sub">' + escapeHtml(fecha) + (m.responsable ? ' · ' + escapeHtml(m.responsable) : '') + (m.detalle ? ' · ' + escapeHtml(m.detalle) : '') + '</div>' +
+      '</div>';
+    }).join('') : '<div class="empty-row">Todavía no hay movimientos.</div>';
+  }
+  function cantidadesCambioCaja(){
+    var c = {};
+    document.querySelectorAll('[data-cambio-caja]').forEach(function(inp){
+      var q = num(inp.value);
+      if(q) c[inp.getAttribute('data-cambio-caja')] = q;
+    });
+    return c;
+  }
+  function actualizarAgregarCambioCaja(){
+    var c = cantidadesCambioCaja();
+    document.getElementById('cambioCajaAgregar').textContent = fmt(CAMBIO_CAJA_TIPOS.reduce(function(s, t){ return s + (c[t.k] || 0) * t.v; }, 0));
+  }
+  document.getElementById('cambioCajaFilas').addEventListener('input', actualizarAgregarCambioCaja);
+  document.getElementById('cambioCajaGuardar').addEventListener('click', function(){
+    var mov = {
+      fecha: document.getElementById('cambioCajaFecha').value,
+      responsable: document.getElementById('cambioCajaResponsable').value,
+      detalle: document.getElementById('cambioCajaDetalle').value.trim(),
+      cantidades: cantidadesCambioCaja()
+    };
+    if(!Object.keys(mov.cantidades).length){ toast('Pon la cantidad de lo que agregas'); return; }
+    if(!mov.fecha){ toast('Pon la fecha'); return; }
+    if(!mov.responsable){ toast('Elige el responsable'); return; }
+    var btn = this;
+    btn.disabled = true;
+    estadoMenu('cambioCajaEstado', 'Guardando…', true);
+    pedirAlSheet({ accionCambioGuardar: true, movimiento: mov, clave: cambioCajaClave }).then(function(){
+      return pedirAlSheet({ accionCambioLeer: true, clave: cambioCajaClave });
+    }).then(function(d){
+      estadoMenu('cambioCajaEstado', '');
+      limpiarFormCambioCaja();
+      mostrarCambioCaja(d);
+      toast('Cambio agregado');
+    }).catch(function(err){
+      estadoMenu('cambioCajaEstado', 'No se pudo guardar. (' + err.message + ')', false, true);
     }).finally(function(){ btn.disabled = false; });
   });
 

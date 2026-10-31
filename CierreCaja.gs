@@ -219,9 +219,10 @@ function doPost(e) {
     var albaranes = escribirAlbaranes_(data); // ver Albaranes.gs
     var glovo = escribirGlovo_(data); // ver Glovo.gs
     var cajita = escribirCajita_(data); // ver Cajita.gs
+    var cambio = escribirCambio_(data); // ver Cambio.gs
     asegurarCarpetaFacturasCompartida_(); // ver Precios.gs
     asegurarBandejasFacturas_(); // ver Bandejas.gs
-    avisarFallosDelGuardado_(data, { 'pestaña del día': hojaDia, Contabilidad: contabilidad, Albaranes: albaranes, Glovo: glovo, Sobrecito: cajita }); // ver Avisos.gs
+    avisarFallosDelGuardado_(data, { 'pestaña del día': hojaDia, Contabilidad: contabilidad, Albaranes: albaranes, Glovo: glovo, Sobrecito: cajita, Cambio: cambio }); // ver Avisos.gs
 
     return ContentService
       .createTextOutput(JSON.stringify({ ok: true, actualizadoEn: ahora.toISOString(), hojaDia: hojaDia, contabilidad: contabilidad, albaranes: albaranes, glovo: glovo, cajita: cajita }))
@@ -897,6 +898,10 @@ function doGet(e) {
   // ?marcarDiferenciasTpv=1: pinta T y U (más del 0,50%) en todas las pestañas de Contabilidad.
   if (esClaude && parametros.marcarDiferenciasTpv) {
     return ContentService.createTextOutput(JSON.stringify(marcarDiferenciasTpvContabilidad())).setMimeType(ContentService.MimeType.JSON);
+  }
+  // ?probarCambio=1: prueba la planilla de Cambio y la deja como estaba (Cambio.gs).
+  if (esClaude && parametros.probarCambio) {
+    return ContentService.createTextOutput(JSON.stringify(probarCambio_())).setMimeType(ContentService.MimeType.JSON);
   }
   // ?procesarBandejas=1: procesa ya las carpetas de entrada de facturas (Bandejas.gs).
   if (esClaude && parametros.procesarBandejas) {
@@ -2815,6 +2820,14 @@ function borrarDiaEnTodosLados_(fecha) {
     resumen.cajita = rCajita.ok ? 'listo' : 'error: ' + rCajita.error;
   } catch (errCajita) {
     resumen.cajita = 'error: ' + errCajita;
+  }
+
+  // Cambio: lo mismo.
+  try {
+    var rCambio = sincronizarCambioDelDia_(fecha, []);
+    resumen.cambio = rCambio.ok ? 'listo' : 'error: ' + rCambio.error;
+  } catch (errCambio) {
+    resumen.cambio = 'error: ' + errCambio;
   }
 
   return resumen;
