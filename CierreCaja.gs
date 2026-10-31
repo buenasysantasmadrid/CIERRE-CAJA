@@ -776,7 +776,9 @@ function filaGasto_(m) {
   return [m.proveedor || m.motivo || '', colB, m.factura || '', (m.info || ''), (m.iva != null ? m.iva : ''), m.importe || 0];
 }
 function filaMotivoImporte_(m) {
-  return [m.proveedor || m.motivo || '', m.responsable || '', m.importe || 0];
+  var motivo = m.proveedor || m.motivo || '';
+  if (m.subtipo === 'Nóminas') motivo = 'Nóminas' + (motivo ? ' · ' + motivo : ''); // la info es opcional
+  return [motivo, m.responsable || '', m.importe || 0];
 }
 function filaEmpanada_(m) {
   return [m.proveedor || m.motivo || '', '', m.importe || 0];
@@ -1675,7 +1677,7 @@ var SUBTIPO_LABEL_MAP_ = {
   efectivo: 'Efectivo', no_efectivo: 'No efectivo', efectivo_antiguo: 'Efectivo antiguo',
   tarjeta: 'Tarjeta', no_pagado: 'No pagado', transferencia: 'Transferencia',
   cambio: 'Cambio', ingreso_arroba: 'Ingreso @', empanadas_ing: 'Empanadas', empleados: 'Empleados',
-  varios: 'Varios', cajita: 'Sobrecito', retiro: 'Retiro de dinero', empanadas: 'Empanadas'
+  varios: 'Varios', cajita: 'Sobrecito', retiro: 'Retiro de dinero', nominas: 'Nóminas', empanadas: 'Empanadas'
 };
 function turnoParaHojaExacta_(turno) {
   if (!turno) return null;
@@ -3066,7 +3068,7 @@ function guardarAvisoTpv1_(mes, estado) {
 var ESQUEMA_DICTADO_MOVIMIENTO = {
   type: 'object',
   properties: {
-    subtipo: { type: 'string', enum: ['cambio', 'varios', 'empanadas_ing', 'empleados', 'cajita', ''] },
+    subtipo: { type: 'string', enum: ['cambio', 'varios', 'empanadas_ing', 'empleados', 'cajita', 'nominas', ''] },
     pagado: { type: 'string', enum: ['si', 'no', ''] },
     cliente: { type: 'string' },
     importe: { type: 'string' },
@@ -3094,7 +3096,7 @@ function dictarMovimiento_(data) {
     'Un empleado de un restaurante dictó por voz ' + tipoTexto + '.\n' +
     'Empleados: ' + (data.responsables || []).join(', ') + '.\n' +
     'Extrae:\n' +
-    '- subtipo: solo si es un ingreso: cambio (entra cambio/sencillo para la caja), empanadas_ing (pago de empanadas), empleados (dinero que pone un empleado), cajita (dinero que entra del sobrecito, también llamado cajita) o varios (cualquier otro). Si es un retiro: cajita si el dinero va al sobrecito (o cajita, la caja de seguridad), si no varios. Si es otra cosa, vacío.\n' +
+    '- subtipo: solo si es un ingreso: cambio (entra cambio/sencillo para la caja), empanadas_ing (pago de empanadas), empleados (dinero que pone un empleado), cajita (dinero que entra del sobrecito, también llamado cajita) o varios (cualquier otro). Si es un retiro: cajita si el dinero va al sobrecito (o cajita, la caja de seguridad), nominas si es para pagar nóminas o sueldos, si no varios. Si es otra cosa, vacío.\n' +
     '- pagado: solo si son empanadas: si (pagaron) o no (no pagaron, quedan debiendo). Si no se dijo o no son empanadas, vacío.\n' +
     '- cliente: solo si son empanadas: uno de ' + (data.clientesEmpanadas || []).join(', ') + ' si coincide (escríbelo igual), si no el nombre tal como se dijo.\n' +
     '- importe: importe en euros (con punto decimal, sin símbolo, ej. 45.50).\n' +
