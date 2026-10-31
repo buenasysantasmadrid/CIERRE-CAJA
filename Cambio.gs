@@ -12,8 +12,8 @@
 //           planilla cambia lo que hay.
 //
 // Se escribe desde dos sitios:
-//  - La pantalla Cambio del menú (Varios → Cambio, con la contraseña del
-//    sobrecito): lo que se agrega a la caja de seguridad.
+//  - La pantalla Cambio del menú (Varios → Cambio): lo que se agrega a la caja
+//    de seguridad.
 //  - El cierre de caja (en cada guardado del día, ver doPost): un Ingreso
 //    "Cambio" sale de la caja de seguridad. Esas filas llevan el ID del
 //    movimiento en la columna Z (oculta), para actualizarlas o borrarlas sin
@@ -124,12 +124,7 @@ function escribirFilaCambio_(hoja, r, mov, id) {
   hoja.getRange(r, CAMBIO_COL_ID_).setValue(id || '');
 }
 
-function leerCambio_(clave) {
-  comprobarClaveCajita_(clave);
-  return leerCambioCompleto_();
-}
-
-function leerCambioCompleto_() {
+function leerCambio_() {
   var hoja = conCandadoCajita_(hojaCambio_);
   SpreadsheetApp.flush();
   var n = CAMBIO_DENOMINACIONES_.length;
@@ -153,7 +148,7 @@ function leerCambioCompleto_() {
     });
   }
   return {
-    ok: true, url: hoja.getParent().getUrl(), stock: stock, total: Number(arriba[1][n]) || 0, movimientos: movimientos,
+    ok: true, stock: stock, total: Number(arriba[1][n]) || 0, movimientos: movimientos,
     ultimoError: PropertiesService.getScriptProperties().getProperty('cambio_ultimo_error') || ''
   };
 }
@@ -167,8 +162,7 @@ function textoCantidadesCambio_(celdas) {
 }
 
 // Cambio agregado a la caja de seguridad desde la pantalla.
-function guardarCambio_(m, clave) {
-  comprobarClaveCajita_(clave);
+function guardarCambio_(m) {
   var fecha = String(m.fecha || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new Error('Fecha inválida');
   if (!String(m.responsable || '').trim()) throw new Error('Falta el responsable');
@@ -295,13 +289,13 @@ function escribirCambio_(data) {
 function probarCambio_() {
   var fecha = '2099-01-01';
   var foto = function () {
-    var d = leerCambioCompleto_();
+    var d = leerCambio_();
     return { total: d.total, hay: d.stock.map(function (s) { return s.hay; }), filas: d.movimientos.length, primera: d.movimientos[0] };
   };
   var salida = { antes: foto() };
   var cantidades = {};
   CAMBIO_DENOMINACIONES_.forEach(function (d) { cantidades[d.clave] = 2; });
-  var agregado = guardarCambio_({ fecha: fecha, responsable: 'Prueba', detalle: 'prueba', cantidades: cantidades }, CAJITA_CLAVE_);
+  var agregado = guardarCambio_({ fecha: fecha, responsable: 'Prueba', detalle: 'prueba', cantidades: cantidades });
   salida.conAgregado = foto();
   var movs = movimientosCambioDelDia_({ mediodia: { movimientosRaw: [
     { id: 'prueba-1', tipo: 'ingreso', subtipo: 'cambio', importe: 25, motivo: '1 blister de 1€', responsable: 'Prueba' },

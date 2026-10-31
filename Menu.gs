@@ -38,8 +38,8 @@ function accionDelMenu_(data) {
   else if (data.accionArreglosGuardar) fn = function () { return guardarArreglo_(data.arreglo || {}); };
   else if (data.accionCajitaLeer) fn = function () { return leerCajita_(data.clave); };
   else if (data.accionCajitaGuardar) fn = function () { return guardarCajita_(data.movimiento || {}, data.clave); };
-  else if (data.accionCambioLeer) fn = function () { return leerCambio_(data.clave); };
-  else if (data.accionCambioGuardar) fn = function () { return guardarCambio_(data.movimiento || {}, data.clave); };
+  else if (data.accionCambioLeer) fn = function () { return leerCambio_(); };
+  else if (data.accionCambioGuardar) fn = function () { return guardarCambio_(data.movimiento || {}); };
   else if (data.accionDictarMenu) fn = function () { return dictarMenu_(data); };
   if (!fn) return null;
   try {

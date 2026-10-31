@@ -834,11 +834,7 @@
   </div>
   <div class="screen-body">
     <div class="screen-inner">
-      <div id="cambioCajaCandado" style="margin-top:14px;">
-        <div class="field"><label for="cambioCajaClave">Contraseña</label><input type="password" id="cambioCajaClave" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
-        <div class="scan-actions" style="margin-top:10px;"><button type="button" class="btn-primary" id="cambioCajaClaveOk">Entrar</button></div>
-        <div id="cambioCajaCandadoEstado" class="menu-estado"></div>
-      </div>
+      <div id="cambioCajaCargando" class="menu-estado" style="margin-top:14px;"></div>
       <div id="cambioCajaContenido" style="display:none;">
         <div class="calc-total"><span>Total de cambio</span><span id="cambioCajaTotal"></span></div>
         <div id="cambioCajaFilas" style="margin-top:14px;"></div>
@@ -852,7 +848,8 @@
         <div id="cambioCajaEstado" class="menu-estado"></div>
         <div class="menu-grupo">Últimos movimientos</div>
         <div id="cambioCajaLista"></div>
-        <div style="margin-top:14px;"><a id="cambioCajaPlanilla" target="_blank" rel="noopener">Abrir la planilla de Google</a></div>
+        <div class="menu-grupo">Resumen de lo que queda</div>
+        <div id="cambioCajaResumen"></div>
       </div>
     </div>
   </div>
@@ -5754,52 +5751,29 @@
     }).finally(function(){ btn.disabled = false; });
   });
 
-  // Cambio (lo que hay en la caja de seguridad, ver Cambio.gs): con la misma
-  // contraseña que el Sobrecito. Aquí se ve lo que hay y se agrega; lo que
-  // sale se anota en la caja del día (Ingreso "Cambio") y el Sheet lo descuenta.
+  // Cambio (lo que hay en la caja de seguridad, ver Cambio.gs). Aquí se ve lo
+  // que hay y se agrega; lo que sale se anota en la caja del día (Ingreso
+  // "Cambio") y el Sheet lo descuenta.
   var CAMBIO_CAJA_TIPOS = [
     {k:'blister-0.1', l:'Blister 0,10 €', v:4}, {k:'blister-0.2', l:'Blister 0,20 €', v:8},
     {k:'blister-0.5', l:'Blister 0,50 €', v:20}, {k:'blister-1', l:'Blister 1 €', v:25},
     {k:'blister-2', l:'Blister 2 €', v:50}, {k:'billete-5', l:'Billetes 5 €', v:5},
     {k:'billete-10', l:'Billetes 10 €', v:10}, {k:'billete-20', l:'Billetes 20 €', v:20}
   ];
-  var cambioCajaClave = '';
   function abrirCambioCaja(){
-    cambioCajaClave = '';
     document.getElementById('cambioCajaContenido').style.display = 'none';
-    document.getElementById('cambioCajaCandado').style.display = '';
-    estadoMenu('cambioCajaCandadoEstado', '');
-    var claveEl = document.getElementById('cambioCajaClave');
-    claveEl.value = '';
+    estadoMenu('cambioCajaEstado', '');
+    estadoMenu('cambioCajaCargando', 'Cargando…', true);
     abrirPantallaMenu('cambioCajaScreen');
-    setTimeout(function(){ try{ claveEl.focus(); }catch(e){} }, 50);
-  }
-  function entrarCambioCaja(){
-    var claveEl = document.getElementById('cambioCajaClave');
-    var clave = claveEl.value;
-    if(!clave){ toast('Escribe la contraseña'); return; }
-    var btn = document.getElementById('cambioCajaClaveOk');
-    btn.disabled = true;
-    estadoMenu('cambioCajaCandadoEstado', 'Comprobando…', true);
-    pedirAlSheet({ accionCambioLeer: true, clave: clave }).then(function(d){
-      claveEl.value = '';
-      claveEl.blur();
-      cambioCajaClave = clave;
-      estadoMenu('cambioCajaCandadoEstado', '');
-      document.getElementById('cambioCajaCandado').style.display = 'none';
+    pedirAlSheet({ accionCambioLeer: true }).then(function(d){
+      estadoMenu('cambioCajaCargando', '');
       document.getElementById('cambioCajaContenido').style.display = '';
       limpiarFormCambioCaja();
       mostrarCambioCaja(d);
     }).catch(function(err){
-      claveEl.value = '';
-      if(/contrase/i.test(err.message)){ estadoMenu('cambioCajaCandadoEstado', ''); toast('Contraseña incorrecta'); claveEl.focus(); }
-      else estadoMenu('cambioCajaCandadoEstado', 'No se pudo abrir la planilla de cambio. (' + err.message + ')', false, true);
-    }).finally(function(){ btn.disabled = false; });
+      estadoMenu('cambioCajaCargando', 'No se pudo abrir la planilla de cambio. (' + err.message + ')', false, true);
+    });
   }
-  document.getElementById('cambioCajaClaveOk').addEventListener('click', entrarCambioCaja);
-  document.getElementById('cambioCajaClave').addEventListener('keydown', function(e){
-    if(e.key === 'Enter'){ e.preventDefault(); entrarCambioCaja(); }
-  });
   function limpiarFormCambioCaja(){
     document.getElementById('cambioCajaFecha').value = todayISO();
     document.getElementById('cambioCajaDetalle').value = '';
@@ -5812,9 +5786,19 @@
   }
   function mostrarCambioCaja(d){
     document.getElementById('cambioCajaTotal').textContent = fmt(d.total);
-    document.getElementById('cambioCajaPlanilla').href = d.url;
     var stock = {};
     (d.stock || []).forEach(function(s){ stock[s.clave] = s; });
+    // Abajo del todo: lo que queda, separado en billetes y monedas.
+    var resumenDe = function(titulo, prefijo){
+      var tipos = CAMBIO_CAJA_TIPOS.filter(function(t){ return t.k.indexOf(prefijo) === 0; });
+      var euros = tipos.reduce(function(s, t){ return s + (stock[t.k] ? stock[t.k].euros : 0); }, 0);
+      return '<div class="calc-total" style="margin-top:10px;"><span>' + titulo + '</span><span>' + fmt(euros) + '</span></div>' +
+        tipos.map(function(t){
+          var s = stock[t.k] || {hay:0, euros:0};
+          return '<div class="arreglo-top" style="padding:6px 0;border-bottom:1px solid var(--line);"><span>' + escapeHtml(t.l) + ': <b' + (s.hay < 0 ? ' class="cajita-menos"' : '') + '>' + cantidadCambioCaja(s.hay) + '</b></span><span>' + fmt(s.euros) + '</span></div>';
+        }).join('');
+    };
+    document.getElementById('cambioCajaResumen').innerHTML = resumenDe('Billetes', 'billete') + resumenDe('Monedas', 'blister');
     document.getElementById('cambioCajaFilas').innerHTML =
       '<div class="cambio-fila head"><span></span><span style="text-align:right;">Hay</span><span style="text-align:center;">Agregar</span></div>' +
       CAMBIO_CAJA_TIPOS.map(function(t){
@@ -5861,8 +5845,8 @@
     var btn = this;
     btn.disabled = true;
     estadoMenu('cambioCajaEstado', 'Guardando…', true);
-    pedirAlSheet({ accionCambioGuardar: true, movimiento: mov, clave: cambioCajaClave }).then(function(){
-      return pedirAlSheet({ accionCambioLeer: true, clave: cambioCajaClave });
+    pedirAlSheet({ accionCambioGuardar: true, movimiento: mov }).then(function(){
+      return pedirAlSheet({ accionCambioLeer: true });
     }).then(function(d){
       estadoMenu('cambioCajaEstado', '');
       limpiarFormCambioCaja();
