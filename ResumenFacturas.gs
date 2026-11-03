@@ -10,7 +10,8 @@
 //   · Y cómo está todo hoy (RevisionAlbaranes.gs): errores de la semana,
 //     facturas repetidas en ALBARANES, lo que falta pagar y los albaranes
 //     que todavía no tienen su factura.
-//   · La semana en números (ver extrasDeLaSemana_): ventas, diferencias de
+//   · Arriba de todo, el análisis de las ventas de la semana (Analisis.gs).
+//   · La semana en números (ver extrasDeLaSemana_): diferencias de
 //     caja, proveedores que gastaron más que de costumbre, subidas de
 //     precio y facturas del mes sin PDF.
 // De cada uno, solo lo necesario (nombre, importe y qué pasa). Los fallos,
@@ -22,7 +23,6 @@ var MOV_FACTURAS_PESTANA_ = 'Movimientos facturas';
 var MOV_FACTURAS_ENCABEZADOS_ = ['Fecha', 'Tipo', 'Proveedor', 'Total', 'Qué pasa', 'Enlace'];
 // Secciones del email: tipo, título, explicación, color.
 var MOV_FACTURAS_SECCIONES_ = [
-  ['ventas', 'Ventas de la semana', 'Lo vendido (local, delivery y web), comparado.', '#1e8449'],
   ['fallo', 'Fallos', 'No se pudieron hacer solas: hay que mirarlas.', '#c0392b'],
   ['error', 'Errores al guardar', 'Lo que falló esta semana (también llegó en los avisos de las 9 y las 18).', '#c0392b'],
   ['repetido', 'Repetidas en ALBARANES', 'La misma factura está dos veces: una sobra.', '#8e44ad'],
@@ -61,6 +61,7 @@ function asegurarActivadorResumenFacturas_() {
   if (cache.get('activador_resumen_facturas')) return;
   var hay = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'mandarResumenFacturas'; });
   if (!hay) ScriptApp.newTrigger('mandarResumenFacturas').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(8).nearMinute(0).inTimezone('Europe/Madrid').create();
+  asegurarActivadorAnalisisMes_(); // el email del día 1 (Analisis.gs)
   cache.put('activador_resumen_facturas', '1', 21600);
 }
 
@@ -98,6 +99,13 @@ function resumenFacturas_(desde, hasta) {
     });
   } catch (err) { Logger.log('Resumen de facturas, errores: ' + err); }
 
+  // Análisis de la semana (Analisis.gs): va arriba de todo.
+  var analisis = null;
+  try {
+    var compras = filas.filter(function (f) { return f.tipo === 'compras'; })[0] || null;
+    analisis = analisisSemana_(Utilities.formatDate(new Date(hasta.getTime() - 86400000), 'Europe/Madrid', 'yyyy-MM-dd'), compras);
+  } catch (err) { Logger.log('Resumen, análisis de la semana: ' + err); }
+
   var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
   var dia = function (d) { return Utilities.formatDate(d, 'Europe/Madrid', 'dd/MM'); };
   var periodo = 'del ' + dia(desde) + ' al ' + dia(hasta);
@@ -105,7 +113,7 @@ function resumenFacturas_(desde, hasta) {
   MOV_FACTURAS_SECCIONES_.forEach(function (s) {
     var deEsta = filas.filter(function (f) { return f.tipo === s[0]; });
     if (!deEsta.length) return;
-    if (s[0] !== 'ventas' && s[0] !== 'gasto' && s[0] !== 'precio') deEsta.sort(function (a, b) { return a.fecha - b.fecha; });
+    if (s[0] !== 'gasto' && s[0] !== 'precio') deEsta.sort(function (a, b) { return a.fecha - b.fecha; });
     var suma = deEsta.reduce(function (t, f) { return t + (Number(f.total) || 0); }, 0);
     var cuenta = deEsta.length + (s[0] === 'sinpagar' && suma ? ' · ' + euros_(suma) : '');
     html.push('<h2 style="margin:28px 0 4px;font-size:17px;color:' + s[3] + '">' + s[1] + ' <span style="font-weight:normal;color:#888">(' + cuenta + ')</span></h2>' +
@@ -123,15 +131,19 @@ function resumenFacturas_(desde, hasta) {
       return '• ' + f.proveedor + (f.total ? ' — ' + euros_(f.total) : '') + ': ' + f.que;
     }).join('\n'));
   });
+  var revisar = html.length ? html.join('') : '<p style="margin-top:12px">No hay nada que revisar esta semana. 👍</p>';
   return {
-    cuantos: filas.filter(function (f) { return f.tipo !== 'ventas'; }).length,
-    asunto: 'Resumen de la semana ' + periodo,
+    cuantos: filas.filter(function (f) { return f.tipo !== 'compras'; }).length,
+    asunto: 'Resumen de la semana ' + periodo + (analisis ? ' · facturado ' + anEur_(analisis.facturado) + (analisis.cambio != null ? ' (' + anPctTxt_(analisis.cambio) + ')' : '') : ''),
     html: '<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;color:#222">' +
       '<h1 style="font-size:20px;margin:0 0 4px">Resumen de la semana</h1>' +
-      '<p style="margin:0;color:#888;font-size:13px">Semana ' + periodo + '. Solo lo que necesita que lo mires (lo pendiente, como está hoy).</p>' +
-      (html.length ? html.join('') : '<p style="margin-top:24px">No hay nada que revisar esta semana. 👍</p>') +
+      '<p style="margin:0;color:#888;font-size:13px">Semana ' + periodo + '.</p>' +
+      (analisis ? analisis.html : '') +
+      '<h1 style="font-size:19px;margin:36px 0 4px;padding-top:16px;border-top:2px solid #ddd">Para revisar</h1>' +
+      '<p style="margin:0;color:#888;font-size:13px">Solo lo que necesita que lo mires (lo pendiente, como está hoy).</p>' +
+      revisar +
       '<p style="margin-top:32px;color:#aaa;font-size:11px">Llega los lunes a las 8:00.</p></div>',
-    texto: texto.join('\n\n') || 'No hay nada que revisar esta semana.'
+    texto: (analisis ? analisis.texto + '\n\n' : '') + (texto.join('\n\n') || 'No hay nada que revisar esta semana.')
   };
 }
 
@@ -195,11 +207,7 @@ function extrasDeLaSemana_(hoy) {
       Object.keys(dias).forEach(function (f) { if (f >= ini && f <= fin) t += (dias[f].sistema || 0) + (dias[f].delivery || 0); });
       return Math.round(t * 100) / 100;
     };
-    var menos = function (f, n) { return iso(new Date(fechaComoDate_(f).getTime() - n * 86400000)); };
-    var esta = ventas(desde, hasta), anterior = ventas(menos(desde, 7), menos(hasta, 7)), anioPasado = ventas(menos(desde, 364), menos(hasta, 364));
-    filas.push({ tipo: 'ventas', fecha: ayer, proveedor: 'Esta semana', total: esta, que: fechaCorta_(desde).slice(0, 5) + ' al ' + fechaCorta_(hasta).slice(0, 5) });
-    if (anterior) filas.push({ tipo: 'ventas', fecha: ayer, proveedor: 'Semana anterior', total: anterior, que: 'Esta semana ' + pct(esta, anterior) });
-    if (anioPasado) filas.push({ tipo: 'ventas', fecha: ayer, proveedor: 'Hace un año', total: anioPasado, que: 'Esta semana ' + pct(esta, anioPasado) + ' (los mismos días de la semana)' });
+    // Las ventas y sus comparaciones van en el análisis de la semana (Analisis.gs).
     var nombresDia = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
     Object.keys(dias).sort().forEach(function (f) {
       var dif = dias[f].diferencia || 0;
@@ -212,6 +220,8 @@ function extrasDeLaSemana_(hoy) {
   // (InformeSemanalPedidos.gs).
   try {
     var inf = armarInformeSemanal_(hasta).datos;
+    // Para el análisis de la semana (no se muestra como sección).
+    filas.push({ tipo: 'compras', total: inf.proveedores.totalEstaSemana, media: inf.proveedores.totalMedia });
     inf.proveedores.proveedores.filter(function (p) { return p.cambio !== null && p.cambio >= 30 && p.diferencia >= 50; }).slice(0, 10).forEach(function (p) {
       filas.push({ tipo: 'gasto', fecha: ayer, proveedor: p.proveedor, total: p.estaSemana, que: 'Lo normal: ' + euros_(p.media) + ' (+' + p.cambio + ' %)' });
     });

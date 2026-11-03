@@ -893,6 +893,19 @@ function doGet(e) {
   if (esClaude && parametros.verResumenFacturas) {
     return ContentService.createTextOutput(resumenFacturas_(new Date(Date.now() - 7 * 86400000), new Date()).texto);
   }
+  // ?verResumenFacturasHtml=1: el resumen de los lunes en HTML, sin mandarlo.
+  if (esClaude && parametros.verResumenFacturasHtml) {
+    return ContentService.createTextOutput(resumenFacturas_(new Date(Date.now() - 7 * 86400000), new Date()).html);
+  }
+  // ?verAnalisisMes=AAAA-MM: el email del mes en HTML, sin mandarlo (Analisis.gs).
+  if (esClaude && parametros.verAnalisisMes) {
+    var am = String(parametros.verAnalisisMes);
+    return ContentService.createTextOutput(analisisMes_(Number(am.slice(0, 4)), Number(am.slice(5, 7))).html);
+  }
+  // ?muestraAnalisisMes=AAAA-MM: manda ya una muestra del email del mes.
+  if (esClaude && parametros.muestraAnalisisMes) {
+    return ContentService.createTextOutput(JSON.stringify(mandarMuestraAnalisisMes_(String(parametros.muestraAnalisisMes)))).setMimeType(ContentService.MimeType.JSON);
+  }
   // ?muestraResumenFacturas=1: manda ya una muestra del resumen de los lunes (ResumenFacturas.gs).
   if (esClaude && parametros.muestraResumenFacturas) {
     return ContentService.createTextOutput(JSON.stringify(mandarMuestraResumenFacturas_())).setMimeType(ContentService.MimeType.JSON);
