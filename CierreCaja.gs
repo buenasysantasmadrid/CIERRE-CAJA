@@ -915,6 +915,27 @@ function doGet(e) {
     }
     return ContentService.createTextOutput(JSON.stringify({ ok: true, archivos: filasIndice, activadores: conexiones, contenido: contenido })).setMimeType(ContentService.MimeType.JSON);
   }
+  // ?nuevoProveedorAlbaranes=NOMBRE&anio=AAAA&legal=Nombre legal|Otro: crea la
+  // pestaña del proveedor en ALBARANES (copiando la de ATLANTA, vacía), la
+  // suma a TOTALES y la agrega a la lista que usa la IA al leer facturas de
+  // las bandejas de Drive, con los nombres con que sale en la factura.
+  if (esClaude && parametros.nuevoProveedorAlbaranes) {
+    var nombreProv = String(parametros.nuevoProveedorAlbaranes).trim().toUpperCase();
+    var idAlbN = buscarEnIndice_('ALBARANES', String(parametros.anio || hoyISO_().slice(0, 4)));
+    var ssAlbN = SpreadsheetApp.openById(idAlbN);
+    var modeloN = pestanaAlbaranesParaProveedor_(ssAlbN, 'ATLANTA');
+    var resN = { ok: true, creada: crearPestanaProveedorAlbaranes_(ssAlbN, nombreProv, modeloN) };
+    resN.totales = arreglarTotalesAlbaranes_(ssAlbN, resN.creada ? [nombreProv] : []);
+    var legalesN = String(parametros.legal || '').split('|').map(function (x) { return x.trim(); }).filter(String);
+    var enLista = nombreProv.charAt(0) + nombreProv.slice(1).toLowerCase();
+    var lista = proveedoresParaLeer_();
+    if (!lista.some(function (x) { return normalizarClave_(String(x).split(' (en la factura:')[0]) === normalizarClave_(nombreProv); })) {
+      lista.push(enLista + (legalesN.length ? ' (en la factura: ' + legalesN.join(', ') + ')' : ''));
+      PropertiesService.getScriptProperties().setProperty('proveedores_ia', JSON.stringify(lista));
+      resN.agregadoALaLista = true;
+    }
+    return ContentService.createTextOutput(JSON.stringify(resN)).setMimeType(ContentService.MimeType.JSON);
+  }
   // ?salud=1: ¿la app puede guardar? (Salud.gs). Lo llama publicar.ps1 después
   // de publicar; de paso deja puesto el activador de cada hora.
   if (esClaude && parametros.salud) {

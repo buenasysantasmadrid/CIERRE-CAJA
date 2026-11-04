@@ -417,6 +417,8 @@ function moverArchivoFacturas_(data) {
   var it = origen.getFilesByName(String(data.nombre || ''));
   if (!it.hasNext()) return { ok: false, error: 'No está "' + data.nombre + '" en ' + data.desde };
   var archivo = it.next();
+  // papelera: true → a la papelera de Drive (se puede recuperar 30 días).
+  if (data.papelera) { archivo.setTrashed(true); return { ok: true, papelera: true, nombre: archivo.getName(), carpeta: data.desde }; }
   var destino = data.hasta ? ir(data.hasta, true) : origen;
   var nombre = String(data.nuevoNombre || archivo.getName());
   if (destino.getFilesByName(nombre).hasNext() && !(destino.getId() === origen.getId() && nombre === archivo.getName())) {
