@@ -149,6 +149,22 @@ function anOtroAnio_(datos, fechas) {
 }
 function anMoverAnios_(fechas, anios) { return fechas.map(function (f) { return semanalSumarDias_(f, -364 * anios); }); } // mismo día de la semana
 
+// Los albaranes de cada año sin lo que no es compra a proveedores: EXTRAS
+// (entra en nóminas) y lo mismo que deja fuera el informe semanal
+// (INFORME_SEMANAL_SIN_ALBARANES_). Así compras y "Proveedores del mes" no lo cuentan.
+function anSoloProveedores_(datos) {
+  var fuera = INFORME_SEMANAL_SIN_ALBARANES_;
+  var limpio = {};
+  Object.keys(datos.albaranes || {}).forEach(function (a) {
+    limpio[a] = {};
+    Object.keys(datos.albaranes[a]).forEach(function (p) {
+      if (fuera.indexOf(normalizarClave_(p)) === -1) limpio[a][p] = datos.albaranes[a][p];
+    });
+  });
+  datos.albaranes = limpio;
+  return datos;
+}
+
 // Compras de un mes (mes 1-12) según los albaranes; si no, PROVEEDORES de "años".
 function anCompras_(datos, anio, mes) {
   var alb = datos.albaranes[String(anio)];
@@ -167,7 +183,7 @@ function anCompras_(datos, anio, mes) {
 // Devuelve { html, texto, facturado, cambio } o null si no hubo ventas.
 // ============================================================================
 function analisisSemana_(hasta, compras) {
-  var datos = datosInformes_(false);
+  var datos = anSoloProveedores_(datosInformes_(false));
   var desde = semanalSumarDias_(hasta, -6);
   var dias = anDias_(semanalSumarDias_(desde, -56), hasta);
   var semana = function (k) { return anFechas_(semanalSumarDias_(desde, -7 * k), semanalSumarDias_(hasta, -7 * k)); };
@@ -329,7 +345,7 @@ function analisisSemana_(hasta, compras) {
 // EL MES — email el día 1 con el mes anterior. mes 1-12.
 // ============================================================================
 function analisisMes_(anio, mes) {
-  var datos = datosInformes_(true);
+  var datos = anSoloProveedores_(datosInformes_(true));
   var ini = anio + '-' + anDosDig_(mes) + '-01', fin = anio + '-' + anDosDig_(mes) + '-' + anDosDig_(anUltimoDia_(anio, mes));
   var dias = anDias_(ini, fin), fechas = anFechas_(ini, fin);
   var nombreMes = AN_MESES_[mes - 1], Mes = anCap_(nombreMes);
