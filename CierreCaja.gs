@@ -878,6 +878,62 @@ function doGet(e) {
       .createTextOutput(JSON.stringify(leerRegistroErrores_(parametros.desde)))
       .setMimeType(ContentService.MimeType.JSON);
   }
+  // ?verIndice=1: la pestaña "Archivos" del Índice y a qué planillas está
+  // conectado el onEdit (solo lectura), para revisar filas mal cargadas.
+  if (esClaude && parametros.verIndice) {
+    var filasIndice = valoresArchivos_().map(function (fila) {
+      return fila.map(function (v) { return v instanceof Date ? 'FECHA:' + Utilities.formatDate(v, 'Europe/Madrid', 'yyyy-MM-dd HH:mm') : String(v); });
+    });
+    var conexiones = ScriptApp.getProjectTriggers().map(function (t) {
+      return { funcion: t.getHandlerFunction(), planilla: t.getTriggerSourceId() || '', tipo: String(t.getEventType()) };
+    });
+    // ?verIndice=1&planilla=ID: además, qué tiene esa planilla (pestañas y días del Registro).
+    var contenido = null;
+    if (parametros.planilla) {
+      var ssVer = SpreadsheetApp.openById(String(parametros.planilla));
+      var regVer = ssVer.getSheetByName('Registro');
+      var diasVer = [];
+      if (regVer && regVer.getLastRow() > 1) {
+        var valsVer = regVer.getDataRange().getValues();
+        var iF = valsVer[0].indexOf('Fecha');
+        for (var r = 1; r < valsVer.length; r++) {
+          var fv = valsVer[r][iF];
+          diasVer.push(fv instanceof Date ? Utilities.formatDate(fv, 'Europe/Madrid', 'yyyy-MM-dd') : String(fv));
+        }
+      }
+      var archVer = DriveApp.getFileById(String(parametros.planilla));
+      contenido = {
+        nombre: ssVer.getName(), duenio: (ssVer.getOwner() && ssVer.getOwner().getEmail()) || '',
+        modificado: Utilities.formatDate(archVer.getLastUpdated(), 'Europe/Madrid', 'yyyy-MM-dd HH:mm'),
+        enPapelera: archVer.isTrashed(),
+        pestanas: ssVer.getSheets().map(function (h) { return h.getName() + ' (' + h.getLastRow() + ' filas)'; }),
+        diasRegistro: diasVer
+      };
+    }
+    return ContentService.createTextOutput(JSON.stringify({ ok: true, archivos: filasIndice, activadores: conexiones, contenido: contenido })).setMimeType(ContentService.MimeType.JSON);
+  }
+  // ?quitarDelIndice=ID: saca de "Archivos" la fila de esa planilla (si está
+  // vacía: sin días en Registro) y desconecta su onEdit. El archivo no se toca.
+  if (esClaude && parametros.quitarDelIndice) {
+    var idQuitar = String(parametros.quitarDelIndice);
+    var regQuitar = SpreadsheetApp.openById(idQuitar).getSheetByName('Registro');
+    if (regQuitar && regQuitar.getLastRow() > 1) {
+      return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'Esa planilla tiene días guardados: no se quita.' })).setMimeType(ContentService.MimeType.JSON);
+    }
+    var hojaArch = hojaIndice_('Archivos');
+    var valsArch = hojaArch.getDataRange().getValues();
+    var quitadas = [];
+    for (var q = valsArch.length - 1; q >= 1; q--) {
+      if (normalizarTexto_(valsArch[q][2]) === idQuitar) { quitadas.push(normalizarTexto_(valsArch[q][3])); hojaArch.deleteRow(q + 1); }
+    }
+    var desconectados = 0;
+    ScriptApp.getProjectTriggers().forEach(function (t) {
+      if (t.getTriggerSourceId() === idQuitar) { ScriptApp.deleteTrigger(t); desconectados++; }
+    });
+    archivosValoresCache_ = null;
+    try { limpiarCacheIndice(); } catch (errCache) {}
+    return ContentService.createTextOutput(JSON.stringify({ ok: true, filasQuitadas: quitadas, activadoresQuitados: desconectados })).setMimeType(ContentService.MimeType.JSON);
+  }
   // ?carpetaFacturas=AAAA/MM/Proveedor (o vacío para la raíz): lo que hay en
   // esa carpeta de "Facturas proveedores" y sus subcarpetas (solo lectura).
   // ?paqueteContables=AAAA-MM[&email=1]: prepara ya el paquete de ese mes (Contables.gs).
