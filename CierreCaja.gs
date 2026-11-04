@@ -162,6 +162,9 @@ function doPost(e) {
     // Indice.gs) — se crea sola la primera vez que hace falta.
     var ss = planillaCierreCaja_(data.fecha);
 
+    // Si la caja llegó sin cálculos (efectivo contado en blanco), se hacen acá.
+    completarCalculosDelEnvio_(data);
+
     var TURNOS = [
       { key: 'mediodia', label: 'Mediodía' },
       { key: 'noche', label: 'Noche' }
@@ -912,6 +915,16 @@ function doGet(e) {
     }
     return ContentService.createTextOutput(JSON.stringify({ ok: true, archivos: filasIndice, activadores: conexiones, contenido: contenido })).setMimeType(ContentService.MimeType.JSON);
   }
+  // ?repararFondos=AAAA-MM-DD&hasta=AAAA-MM-DD[&probar=1]: vuelve a encadenar
+  // el fondo fijo de esos días y rehace sus cálculos (ver repararFondosFijos_).
+  if (esClaude && parametros.repararFondos) {
+    var lockRep = LockService.getScriptLock();
+    lockRep.waitLock(30000);
+    try {
+      return ContentService.createTextOutput(JSON.stringify(repararFondosFijos_(String(parametros.repararFondos),
+        String(parametros.hasta || hoyISO_()), !!parametros.probar))).setMimeType(ContentService.MimeType.JSON);
+    } finally { lockRep.releaseLock(); }
+  }
   // ?quitarDelIndice=ID: saca de "Archivos" la fila de esa planilla (si está
   // vacía: sin días en Registro) y desconecta su onEdit. El archivo no se toca.
   if (esClaude && parametros.quitarDelIndice) {
@@ -1618,6 +1631,127 @@ function aplicarEdicionTurnoDesdeHoja_(hoja, turno, celdaFacturado, celdaTpv1, c
     denom.monedasSueltas[v] = Number(hoja.getRange('J' + filaCelda).getValue()) || 0;
   });
   turno.denom = denom;
+}
+
+// Cálculos de un día a partir de sus datos (billetes, movimientos, TPV...),
+// igual que la app: el fondo de Noche es lo contado en Mediodía (o, si
+// Mediodía no contó nada, el fondo de Mediodía), y un turno sin nada cargado
+// (una noche que no se abrió) queda con diferencia 0 y no con el fondo
+// entero en negativo. `dia` = {mediodia, noche} con movimientos sin
+// transformar (tipo 'gasto', subtipo 'tarjeta'...). Cambia `dia`.
+function calcularDiaComoLaApp_(dia) {
+  var md = dia.mediodia, nc = dia.noche;
+  if (md) recalcularDia_({ mediodia: md, noche: null });
+  if (nc) {
+    var contadoMd = md ? ((md.calc || {}).totalContado || 0) : 0;
+    nc.fondoFijo = Math.round((contadoMd > 0 ? contadoMd : (md ? Number(md.fondoFijo) || 0 : 0)) * 100) / 100;
+    recalcularDia_({ mediodia: md, noche: nc });
+  }
+  [md, nc].forEach(function (t) {
+    if (t && t.calc && !turnoTieneActividad_(t)) t.calc.diferencia = 0;
+  });
+  return dia;
+}
+
+// Lo que se guarda desde la app tiene que traer los cálculos. Un aparato que
+// manda una caja que tenía guardada sin subir (por ejemplo después de estar
+// sin conexión) la mandaba a veces sin ellos: el efectivo contado quedaba en
+// blanco y la caja siguiente arrancaba con fondo fijo 0 (pasó el 17/10 y el
+// 3/11). Si falta, se calcula acá. También deja en 0 la diferencia de un turno
+// sin nada cargado.
+function completarCalculosDelEnvio_(data) {
+  var falta = ['mediodia', 'noche'].some(function (k) {
+    var t = data[k];
+    return t && (!t.calc || typeof t.calc.totalContado !== 'number' || !isFinite(t.calc.totalContado));
+  });
+  var copia = function (t) {
+    if (!t) return null;
+    var c = {};
+    for (var k in t) c[k] = t[k];
+    c.movimientos = t.movimientosRaw || t.movimientos || [];
+    return c;
+  };
+  if (falta) {
+    var dia = calcularDiaComoLaApp_({ mediodia: copia(data.mediodia), noche: copia(data.noche) });
+    ['mediodia', 'noche'].forEach(function (k) {
+      if (!data[k] || !dia[k]) return;
+      data[k].calc = dia[k].calc;
+      data[k].fondoFijo = dia[k].fondoFijo;
+    });
+  }
+  ['mediodia', 'noche'].forEach(function (k) {
+    var t = data[k];
+    if (t && t.calc && !turnoTieneActividad_(t)) t.calc.diferencia = 0;
+  });
+  return falta;
+}
+
+// Vuelve a encadenar el fondo fijo desde `desde` hasta `hasta` (AAAA-MM-DD):
+// el Mediodía de cada día arranca con lo que quedó en la última caja
+// trabajada (lo contado en Noche; si Noche no abrió, lo contado en
+// Mediodía), Noche con lo contado en Mediodía, y se rehacen los cálculos, el
+// Registro, la pestaña del día y Contabilidad. Con probar = true solo dice
+// qué cambiaría. Para arreglar días que quedaron con fondo 0 o sin cálculos.
+function repararFondosFijos_(desde, hasta, probar) {
+  var res = [];
+  var unDia = 86400000;
+  var aFecha = function (iso) { var p = iso.split('-'); return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]), 12); };
+  var aIso = function (d) { return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd'); };
+  var planillas = {};
+  var planillaDe = function (iso) {
+    var periodo = iso.slice(0, 7);
+    if (!(periodo in planillas)) {
+      var id = buscarEnIndice_('CIERRE_CAJA', periodo);
+      planillas[periodo] = id ? SpreadsheetApp.openById(id) : null;
+    }
+    return planillas[periodo];
+  };
+  var contado = function (t) { return t && t.calc ? (t.calc.totalContado || 0) : 0; };
+  var activo = function (t) { return !!(t && turnoTieneActividad_(t)); };
+
+  // Lo que quedó en la última caja trabajada antes de `desde` (hasta 15 días atrás).
+  var ultimo = null;
+  for (var atras = 1; atras <= 15 && ultimo === null; atras++) {
+    var fa = aIso(new Date(aFecha(desde).getTime() - atras * unDia));
+    var ssA = planillaDe(fa);
+    var dA = ssA ? obtenerDiaJSON_(ssA, fa) : null;
+    if (!dA || !dA.encontrado || !(activo(dA.mediodia) || activo(dA.noche))) continue;
+    calcularDiaComoLaApp_(dA);
+    ultimo = contado(dA.noche) > 0 ? contado(dA.noche) : contado(dA.mediodia);
+    res.push('Antes (' + fa + '): quedaron ' + ultimo.toFixed(2) + ' €');
+  }
+  if (ultimo === null) return { ok: false, error: 'No encontré ninguna caja trabajada en los 15 días antes de ' + desde + '.' };
+
+  for (var d = aFecha(desde); aIso(d) <= hasta; d = new Date(d.getTime() + unDia)) {
+    var f = aIso(d);
+    var ss = planillaDe(f);
+    var dia = ss ? obtenerDiaJSON_(ss, f) : null;
+    if (!dia || !dia.encontrado || !(activo(dia.mediodia) || activo(dia.noche))) continue;
+    var antes = {
+      fondo: dia.mediodia ? Number(dia.mediodia.fondoFijo) || 0 : 0,
+      difMd: dia.mediodia && dia.mediodia.calc ? dia.mediodia.calc.diferencia : null,
+      difNc: dia.noche && dia.noche.calc ? dia.noche.calc.diferencia : null
+    };
+    if (dia.mediodia) dia.mediodia.fondoFijo = Math.round(ultimo * 100) / 100;
+    calcularDiaComoLaApp_(dia);
+    var r2 = function (v) { return v == null ? '—' : (Math.round(v * 100) / 100).toFixed(2); };
+    var cambio = Math.abs(antes.fondo - (dia.mediodia ? dia.mediodia.fondoFijo : 0)) > 0.004 ||
+      r2(antes.difMd) !== r2(dia.mediodia && dia.mediodia.calc ? dia.mediodia.calc.diferencia : null) ||
+      r2(antes.difNc) !== r2(dia.noche && dia.noche.calc ? dia.noche.calc.diferencia : null);
+    res.push(f + ': fondo ' + r2(antes.fondo) + ' → ' + r2(dia.mediodia ? dia.mediodia.fondoFijo : null) +
+      ' · dif. mediodía ' + r2(antes.difMd) + ' → ' + r2(dia.mediodia && dia.mediodia.calc ? dia.mediodia.calc.diferencia : null) +
+      ' · dif. noche ' + r2(antes.difNc) + ' → ' + r2(dia.noche && dia.noche.calc ? dia.noche.calc.diferencia : null) +
+      (cambio ? (probar ? '  (cambiaría)' : '  ARREGLADO') : '  (igual)'));
+    if (cambio && !probar) {
+      guardarDiaCompleto_(ss, f, dia.negocio, dia);
+      try { escribirContabilidad_({ fecha: f, negocio: dia.negocio, mediodia: dia.mediodia, noche: dia.noche }); }
+      catch (errC) { res.push('   Contabilidad del ' + f + ': ERROR ' + errC); }
+      marcarCajaCambiada_(f, new Date());
+    }
+    ultimo = contado(dia.noche) > 0 ? contado(dia.noche) : contado(dia.mediodia);
+  }
+  if (!probar) { try { invalidarCacheListados_(); } catch (errI) {} }
+  return { ok: true, probar: !!probar, resumen: res };
 }
 
 function recalcularDia_(dia) {
