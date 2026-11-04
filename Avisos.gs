@@ -8,6 +8,12 @@ var AVISOS_SILENCIO_SEG_ = 6 * 60 * 60;
 var AVISOS_HORAS_RESUMEN_ = [9, 18];
 
 function avisarPorEmail_(asunto, detalle) {
+  // Una caja que no se guardó no espera al resumen: email en el momento
+  // (como mucho uno cada 3 horas, ver avisoUrgente_ en Salud.gs).
+  if (/NO se guard|SIGUE sin poder guardar/.test(String(asunto))) {
+    avisoUrgente_('URGENTE: ' + asunto, String(detalle || '') +
+      '\n\nSi sigue pasando, puede que la app se haya publicado con otra cuenta o que haya perdido el permiso de las planillas.');
+  }
   if (registrarError_(asunto, detalle)) {
     asegurarActivadorResumenAvisos_();
     return;

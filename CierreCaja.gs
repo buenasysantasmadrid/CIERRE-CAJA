@@ -915,6 +915,13 @@ function doGet(e) {
     }
     return ContentService.createTextOutput(JSON.stringify({ ok: true, archivos: filasIndice, activadores: conexiones, contenido: contenido })).setMimeType(ContentService.MimeType.JSON);
   }
+  // ?salud=1: ¿la app puede guardar? (Salud.gs). Lo llama publicar.ps1 después
+  // de publicar; de paso deja puesto el activador de cada hora.
+  if (esClaude && parametros.salud) {
+    var salud = comprobarSalud_();
+    try { salud.activadorNuevo = asegurarActivadorSalud_(); } catch (errAct) { salud.problemas.push('No se pudo poner la comprobación de cada hora: ' + errAct); salud.ok = false; }
+    return ContentService.createTextOutput(JSON.stringify(salud)).setMimeType(ContentService.MimeType.JSON);
+  }
   // ?repararFondos=AAAA-MM-DD&hasta=AAAA-MM-DD[&probar=1]: vuelve a encadenar
   // el fondo fijo de esos días y rehace sus cálculos (ver repararFondosFijos_).
   if (esClaude && parametros.repararFondos) {

@@ -33,3 +33,25 @@ if ($LASTEXITCODE -ne 0) { Write-Host 'Falló la subida. No se publica.' -Foregr
 clasp deploy -i $IMPLEMENTACION -d $Descripcion
 if ($LASTEXITCODE -ne 0) { Write-Host 'Falló la publicación.' -ForegroundColor Red; exit 1 }
 Write-Host 'Listo: subido y publicado.' -ForegroundColor Green
+
+# Comprobar que la app publicada puede guardar (Salud.gs). Google tarda un
+# poco en servir la versión nueva: se reintenta unas veces.
+$archClave = 'ClaveClaude.gs'
+if (Test-Path $archClave) {
+  $clave = [regex]::Match((Get-Content $archClave -Raw), "CLAVE_CLAUDE_ = '([^']+)'").Groups[1].Value
+  $url = 'https://script.google.com/macros/s/' + $IMPLEMENTACION + '/exec?salud=1&claveClaude=' + [uri]::EscapeDataString($clave)
+  $salud = $null
+  for ($i = 0; $i -lt 6 -and -not ($salud -and $salud.PSObject.Properties.Name -contains 'problemas'); $i++) {
+    if ($i -gt 0) { Start-Sleep -Seconds 15 }
+    try { $salud = Invoke-RestMethod -Uri $url -TimeoutSec 120 } catch { $salud = $null }
+  }
+  if (-not $salud -or -not ($salud.PSObject.Properties.Name -contains 'problemas')) {
+    Write-Host 'No se pudo comprobar si la app guarda (no respondió). Mirarlo.' -ForegroundColor Yellow
+  } elseif ($salud.ok) {
+    Write-Host ('Comprobado: la app guarda bien (cuenta ' + $salud.cuenta + ').') -ForegroundColor Green
+  } else {
+    Write-Host 'ATENCIÓN: la app publicada NO puede guardar bien:' -ForegroundColor Red
+    $salud.problemas | ForEach-Object { Write-Host ('  - ' + $_) -ForegroundColor Red }
+    exit 2
+  }
+}

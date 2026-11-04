@@ -95,6 +95,16 @@
     border-radius:999px;white-space:nowrap;flex-shrink:0;
   }
 
+  /* ---------- cartel "no se está guardando" ---------- */
+  .aviso-sin-guardar{
+    position:sticky;top:var(--aviso-h);z-index:150;
+    background:var(--red);color:#fff;padding:12px 16px;
+    padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right));
+    box-shadow:0 2px 10px rgba(179,65,58,.35);
+  }
+  .aviso-sin-guardar .titulo{font-weight:800;font-size:1rem;letter-spacing:.01em;display:flex;align-items:center;gap:8px;}
+  .aviso-sin-guardar .texto{font-size:.85rem;margin-top:4px;line-height:1.3;}
+
   /* ---------- cabecera ---------- */
   .app-header{max-width:720px;margin:0 auto;padding:18px 16px 4px;position:relative;}
   .header-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
@@ -580,6 +590,11 @@
 <div class="aviso-caja-antigua" id="avisoCajaAntigua" style="display:none;">
   <span><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636-2.87l-8.106-13.536a1.914 1.914 0 0 0-3.274 0z"/><path d="M12 16h.01"/></svg>OJO, NO ES LA CAJA DEL DÍA DE HOY</span>
   <button type="button" id="btnVolverHoy">VOLVER A HOY</button>
+</div>
+
+<div class="aviso-sin-guardar" id="avisoSinGuardar" style="display:none;" role="alert">
+  <div class="titulo"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636-2.87l-8.106-13.536a1.914 1.914 0 0 0-3.274 0z"/><path d="M12 16h.01"/></svg><span id="avisoSinGuardarTitulo">LA CAJA NO SE ESTÁ GUARDANDO EN GOOGLE</span></div>
+  <div class="texto" id="avisoSinGuardarTexto"></div>
 </div>
 
 <header class="app-header">
@@ -6458,10 +6473,64 @@
     try {
       if(!localStorage.getItem(SYNC_FALLA_DESDE_KEY)) localStorage.setItem(SYNC_FALLA_DESDE_KEY, JSON.stringify({ desde: Date.now(), msg: msg }));
     } catch(e){}
+    actualizarAvisoSinGuardar();
   }
+
+  // Cartel rojo arriba de todo mientras este aparato no consigue guardar en
+  // Google (más de 10 minutos seguidos, para no asustar con un corte de un
+  // momento). Solo sale en el aparato que no guarda (va en su localStorage). Dice desde cuándo y que lo cargado está a salvo acá. Si pasan
+  // más de 2 horas, se intenta mandar un aviso urgente por email (llega si
+  // lo que falla es el Sheet y no internet).
+  var AVISO_SIN_GUARDAR_MIN_MS = 10 * 60 * 1000;
+  var AVISO_URGENTE_KEY = 'cierreCaja_avisoUrgenteEnviado';
+  function leerFallaSync(){
+    try { return JSON.parse(localStorage.getItem(SYNC_FALLA_DESDE_KEY) || 'null'); } catch(e){ return null; }
+  }
+  function textoDuracion(ms){
+    var min = Math.round(ms / 60000);
+    if(min < 60) return min + ' min';
+    var h = Math.floor(min / 60), m = min % 60;
+    return h + ' h' + (m ? ' ' + m + ' min' : '');
+  }
+  function actualizarAvisoSinGuardar(){
+    var el = document.getElementById('avisoSinGuardar');
+    if(!el) return;
+    var f = leerFallaSync();
+    var hace = f ? Date.now() - f.desde : 0;
+    if(!f || hace < AVISO_SIN_GUARDAR_MIN_MS){ el.style.display = 'none'; return; }
+    var desde = new Date(f.desde);
+    var cuando = desde.toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit' }) + ' a las ' + desde.toLocaleTimeString('es-ES', { hour:'2-digit', minute:'2-digit' });
+    document.getElementById('avisoSinGuardarTitulo').textContent = 'LA CAJA NO SE ESTÁ GUARDANDO EN GOOGLE (hace ' + textoDuracion(hace) + ')';
+    document.getElementById('avisoSinGuardarTexto').textContent =
+      'Desde el ' + cuando + '. Lo que cargas queda a salvo en este aparato y se manda solo cuando se pueda: sigue usando la app normal.';
+    el.style.display = 'block';
+    if(hace > 2 * 60 * 60 * 1000) avisoUrgenteSinGuardar(f, hace);
+  }
+  function avisoUrgenteSinGuardar(f, hace){
+    var ultimo = 0;
+    try { ultimo = Number(localStorage.getItem(AVISO_URGENTE_KEY)) || 0; } catch(e){}
+    if(Date.now() - ultimo < 3 * 60 * 60 * 1000) return;
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)) return;
+    try { localStorage.setItem(AVISO_URGENTE_KEY, String(Date.now())); } catch(e){}
+    fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ accionAviso: true,
+        asunto: 'un dispositivo SIGUE sin poder guardar (hace ' + textoDuracion(hace) + ')',
+        detalle: 'Desde el ' + new Date(f.desde).toLocaleString('es-ES') + ' un dispositivo no consigue guardar la caja en el Sheet (' + f.msg + '). Lo cargado está en ese aparato. Dispositivo: ' + navigator.userAgent })
+    }).catch(function(){});
+  }
+  setInterval(actualizarAvisoSinGuardar, 30000);
+  document.addEventListener('DOMContentLoaded', function(){
+    actualizarAvisoSinGuardar();
+  });
+
   function syncVolvioAAndar(){
     var f = null;
-    try { f = JSON.parse(localStorage.getItem(SYNC_FALLA_DESDE_KEY) || 'null'); localStorage.removeItem(SYNC_FALLA_DESDE_KEY); } catch(e){}
+    try { f = JSON.parse(localStorage.getItem(SYNC_FALLA_DESDE_KEY) || 'null'); localStorage.removeItem(SYNC_FALLA_DESDE_KEY); localStorage.removeItem(AVISO_URGENTE_KEY); } catch(e){}
+    var elAviso = document.getElementById('avisoSinGuardar');
+    if(elAviso) elAviso.style.display = 'none';
     if(!f || Date.now() - f.desde < 60 * 60 * 1000) return;
     var url = loadSheetUrl();
     if(!hasValidSheetUrl(url)) return;
