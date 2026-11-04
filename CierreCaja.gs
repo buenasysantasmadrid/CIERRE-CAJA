@@ -955,6 +955,7 @@ function doGet(e) {
   }
   // ?verAnalisisMes=AAAA-MM: el email del mes en HTML, sin mandarlo (Analisis.gs).
   if (esClaude && parametros.verAnalisisMes) {
+    asegurarActivadorAnalisisMes_(); // de paso, que el email del día 1 quede programado
     var am = String(parametros.verAnalisisMes);
     return ContentService.createTextOutput(analisisMes_(Number(am.slice(0, 4)), Number(am.slice(5, 7))).html);
   }
