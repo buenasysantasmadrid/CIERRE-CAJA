@@ -137,6 +137,13 @@
   .fecha-row{display:flex;align-items:center;gap:12px;position:relative;margin:4px 0 6px;}
   .fecha-row .fecha-grande{margin:0;flex:0 1 auto;}
   .fecha-row .pill-btn{flex-shrink:0;width:46px;min-height:46px;}
+  .fecha-row .pill-btn.btn-traer{width:30px;min-height:30px;border-color:transparent;background:transparent;opacity:.55;}
+  .fecha-row .pill-btn.btn-traer .ico{width:16px;height:16px;}
+  .fecha-row .pill-btn.btn-traer.girando{opacity:1;}
+  .fecha-row .pill-btn.btn-traer.girando .ico{animation:girarTraer 1s linear infinite;}
+  @keyframes girarTraer{to{transform:rotate(360deg);}}
+  .buscando-caja{display:none;font-size:.85rem;opacity:.65;margin:-2px 0 4px;}
+  .buscando-caja.visible{display:block;}
   .dia-total-num{font-family:var(--serif);font-size:2.4rem;line-height:1.1;font-variant-numeric:tabular-nums;margin:2px 0 4px;}
   .dia-total-num.none{color:var(--ink-soft);}
   .dia-diff{font-size:.88rem;color:var(--ink-soft);}
@@ -622,8 +629,10 @@
   <div class="fecha-row">
     <h1 class="fecha-grande" id="fechaGrande"></h1>
     <button type="button" class="pill-btn icon-only" id="fechaCierreBtn" aria-label="Calendario"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none;"><path d="M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-12a2 2 0 0 1-2-2v-12z"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M4 11h16"/></svg></button>
+    <button type="button" class="pill-btn icon-only btn-traer" id="btnTraerDelSheet" aria-label="Traer la caja del Sheet" title="Traer la caja del Sheet"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none;"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg></button>
     <div class="calendario-popup" id="calendarioPopup"></div>
   </div>
+  <div class="buscando-caja" id="buscandoCaja">Buscando la caja en el Sheet…</div>
   <div class="tc-lbl tc-lbl-total">Total</div>
   <div class="dia-total-num none" id="diaTotal">—</div>
   <div class="dia-diff" id="diaResultBox">Diferencia · <b id="diaResultDiff" class="none">—</b> <span id="diaResultLbl"></span></div>
@@ -4987,7 +4996,10 @@
     // Antes se mandaba siempre al abrir un día, y una copia vieja de este
     // dispositivo podía pisar en el Sheet lo que se guardó desde otro.
     if(state._sinSubir) scheduleAutoSync();
+    mostrarBuscandoCaja(nuevaFecha, !!buscandoFechas[nuevaFecha]);
     if(esNuevo) intentarCargarDesdeSheet(nuevaFecha);
+    else revisarActualizacionesDesdeSheet();
+    traerMesDelSheet(mesDe(nuevaFecha));
     actualizarCierresYFondo();
   }
 
@@ -6458,7 +6470,7 @@
       })
       .catch(function(err){
         logSheetStatus('Sin conexión: los cambios quedan guardados en este dispositivo y se sincronizan solos cuando vuelva internet. (' + (err && err.message ? err.message : err) + ')', true);
-        avisarFalloSyncUnaVez('Sin conexión con Google Sheets — se guarda en este dispositivo y se sincroniza solo cuando vuelva internet.');
+        avisarFalloSyncUnaVez('Sin conexión con Google Sheets — se guarda en este dispositivo y se sincroniza solo cuando vuelva internet. Motivo: ' + (err && err.message ? err.message : err) + (navigator.onLine === false ? ' (el aparato dice que no tiene internet)' : ' (el aparato dice que sí tiene internet: puede ser un error de Google)'));
         // Se vuelve a intentar solo dentro de un minuto.
         setTimeout(function(){ if(state._sinSubir) scheduleAutoSync(); }, 60000);
       });
@@ -6607,7 +6619,12 @@
   // celular nuevo, o un día que se cargó desde otra compu), intenta
   // traerlo del Google Sheet. Si lo encuentra y en este dispositivo no se
   // cargó nada mientras tanto, lo aplica a la pantalla.
-  function intentarCargarDesdeSheet(fecha){
+  // Si falla (mala señal, "Load failed" en el iPhone, Google ocupado) se
+  // vuelve a intentar a los 3, 10 y 30 segundos, y mientras tanto se ve
+  // "Buscando la caja en el Sheet…" en vez de una caja vacía.
+  var REINTENTOS_TRAER_MS = [3000, 10000, 30000];
+  function intentarCargarDesdeSheet(fecha, intento){
+    intento = intento || 0;
     var url = loadSheetUrl();
     if(!hasValidSheetUrl(url)){
       logSheetStatus('No se intenta traer el día ' + fecha + ' porque no hay URL de Apps Script válida.', true);
@@ -6615,6 +6632,15 @@
     }
     var getUrl = url + (url.indexOf('?') > -1 ? '&' : '?') + 'fecha=' + encodeURIComponent(fecha);
     logSheetStatus('Consultando el Sheet por el día ' + fecha + '...');
+    mostrarBuscandoCaja(fecha, true);
+    function reintentar(motivo){
+      logSheetStatus('No se pudo traer el día ' + fecha + ' (intento ' + (intento + 1) + '): ' + motivo, true);
+      if(state.fecha !== fecha || intento >= REINTENTOS_TRAER_MS.length){ mostrarBuscandoCaja(fecha, false); return; }
+      esperarALaVista(REINTENTOS_TRAER_MS[intento]).then(function(){
+        if(state.fecha !== fecha){ mostrarBuscandoCaja(fecha, false); return; }
+        intentarCargarDesdeSheet(fecha, intento + 1);
+      });
+    }
     try{
       fetch(getUrl)
         .then(function(resp){
@@ -6625,9 +6651,11 @@
           logSheetStatus('Contenido de la respuesta para ' + fecha + ': ' + JSON.stringify(data));
 
           if(!data || !data.ok){
-            logSheetStatus('La respuesta no fue válida (¿el Apps Script está actualizado y con una implementación nueva?).', true);
+            if(data && data.sinSesion){ mostrarBuscandoCaja(fecha, false); return; }
+            reintentar((data && data.error) || 'respuesta no válida');
             return;
           }
+          mostrarBuscandoCaja(fecha, false);
           if(data.error){
             logSheetStatus('El Sheet avisó un problema: ' + data.error, true);
             return;
@@ -6674,15 +6702,153 @@
           logSheetStatus('Día ' + fecha + ' aplicado a la pantalla correctamente.');
         })
         .catch(function(err){
-          logSheetStatus('No se pudo consultar el Sheet para traer el día ' + fecha + ': ' + err.message, true);
+          reintentar(err && err.message ? err.message : String(err));
         });
     }catch(err){
       // Si fetch ni siquiera se pudo invocar (entorno raro, etc.), que no
       // rompa el resto de la app — esto es una mejora opcional, no algo de
       // lo que dependa el funcionamiento básico.
+      mostrarBuscandoCaja(fecha, false);
       logSheetStatus('No se pudo consultar el Sheet para traer el día ' + fecha + ': ' + err.message, true);
     }
   }
+
+  // "Buscando la caja en el Sheet…" debajo de la fecha (y el botón ↻
+  // girando) mientras se trae la caja del día que está en pantalla.
+  var buscandoFechas = {};
+  function mostrarBuscandoCaja(fecha, si){
+    if(si) buscandoFechas[fecha] = true; else delete buscandoFechas[fecha];
+    var activo = !!buscandoFechas[state.fecha];
+    var el = document.getElementById('buscandoCaja');
+    if(el) el.classList.toggle('visible', activo);
+    var btn = document.getElementById('btnTraerDelSheet');
+    if(btn) btn.classList.toggle('girando', activo);
+  }
+
+  // ---------- todas las cajas del mes, guardadas en el móvil ----------
+  // Al abrir la app, al volver a ella y cada 5 minutos se traen de una vez
+  // todas las cajas de este mes y del anterior (?mes=AAAA-MM) y se guardan
+  // en este aparato. Así, al cambiar de día la caja ya está, aunque en ese
+  // momento no haya conexión. Lo que este aparato tiene sin subir no se
+  // toca (eso lo resuelve la sincronización normal).
+  var MES_REFRESCO_MS = 5 * 60 * 1000;
+  var mesTraidoEn = {};
+  function mesDe(fecha){ return String(fecha || '').slice(0, 7); }
+  function mesAnteriorDe(mes){
+    var p = mes.split('-'), d = new Date(parseInt(p[0],10), parseInt(p[1],10) - 2, 1, 12);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2,'0');
+  }
+  function traerMesesRecientes(forzar){
+    var mes = mesDe(todayISO());
+    traerMesDelSheet(mes, forzar);
+    traerMesDelSheet(mesAnteriorDe(mes), forzar);
+    // Si en pantalla hay un día de otro mes, ese también.
+    var mesPantalla = mesDe(state.fecha);
+    if(mesPantalla && mesPantalla !== mes && mesPantalla !== mesAnteriorDe(mes)) traerMesDelSheet(mesPantalla, forzar);
+  }
+  function traerMesDelSheet(mes, forzar){
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url) || !/^\d{4}-\d{2}$/.test(mes)) return Promise.resolve();
+    var ultimo = mesTraidoEn[mes] || 0;
+    if(ultimo === -1) return Promise.resolve(); // ya se está trayendo
+    if(!forzar && Date.now() - ultimo < MES_REFRESCO_MS) return Promise.resolve();
+    mesTraidoEn[mes] = -1;
+    return fetch(url + (url.indexOf('?') > -1 ? '&' : '?') + 'mes=' + encodeURIComponent(mes))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if(!data || !data.ok || !data.dias){ mesTraidoEn[mes] = ultimo; return; }
+        mesTraidoEn[mes] = Date.now();
+        aplicarMesDelSheet(data.dias);
+      })
+      .catch(function(err){
+        mesTraidoEn[mes] = ultimo;
+        logSheetStatus('No se pudo traer el mes ' + mes + ' del Sheet: ' + (err && err.message ? err.message : err), true);
+      });
+  }
+
+  // Pone en un día lo que trae el Sheet, turno por turno, si es más nuevo
+  // que lo de acá (o si acá está vacío). Devuelve true si cambió algo.
+  function ponerTurnosDelSheet(dia, remoto){
+    var cambio = false;
+    TURNOS.forEach(function(t){
+      var r = remoto[t];
+      if(!r) return;
+      var remotoMs = r.actualizadoEn ? new Date(r.actualizadoEn).getTime() : 0;
+      var localMs = dia[t] && dia[t].actualizadoEn ? new Date(dia[t].actualizadoEn).getTime() : 0;
+      var distinto = !dia[t] || resumenTurno(r) !== resumenTurno(dia[t]);
+      if(distinto && (remotoMs > localMs || (remotoMs === localMs) || !localMs)){
+        var idPrevio = dia[t] && dia[t].id;
+        dia[t] = Object.assign(crearTurnoVacio(), r);
+        if(!dia[t].id) dia[t].id = idPrevio || uid();
+        dia[t]._base = fotoTurno(r);
+        cambio = true;
+      } else if(dia[t] && !dia[t]._base && !distinto){
+        dia[t]._base = fotoTurno(r);
+      }
+    });
+    return cambio;
+  }
+
+  function aplicarMesDelSheet(dias){
+    var store = getDiasStore(), cambioStore = false;
+    Object.keys(dias).forEach(function(f){
+      var remoto = dias[f];
+      if(!remoto || !remoto.encontrado) return;
+      if(f === state.fecha && store[f]){
+        // El día en pantalla: solo si no hay nada de acá sin subir ni se
+        // está escribiendo justo ahora. (Si todavía no está en el móvil, la
+        // app está arrancando: va al guardado y al abrirse ya lo encuentra.)
+        if(state._sinSubir || Date.now() - ultimaEdicionLocalEn < MARGEN_EDICION_LOCAL_MS) return;
+        if(ponerTurnosDelSheet(state, remoto)){
+          aplicarEstadoATurnos(true);
+          guardarDiaActual();
+          refrescarFondoFijoMediodia();
+          store = getDiasStore();
+          logSheetStatus('Día ' + f + ' actualizado con lo del Sheet (mes entero).');
+        }
+        mostrarBuscandoCaja(f, false);
+        return;
+      }
+      var local = store[f];
+      if(local && local._sinSubir) return;
+      if(!local){
+        local = { negocio: remoto.negocio || state.negocio, fecha: f, mediodia: crearTurnoVacio(), noche: crearTurnoVacio() };
+        local.mediodia.id = uid(); local.noche.id = uid();
+      }
+      if(ponerTurnosDelSheet(local, remoto) || !store[f]){ store[f] = local; cambioStore = true; }
+    });
+    if(cambioStore) saveDiasStore(store);
+  }
+
+  // Botón pequeño ↻ al lado de la fecha: trae ya la caja del día en
+  // pantalla. Si este aparato tiene cambios sin subir, se juntan con los
+  // del Sheet (no se pierde nada) y se vuelven a mandar.
+  function traerDiaDelSheetAMano(){
+    var url = loadSheetUrl();
+    if(!hasValidSheetUrl(url)) return;
+    var fecha = state.fecha;
+    mostrarBuscandoCaja(fecha, true);
+    fetch(url + (url.indexOf('?') > -1 ? '&' : '?') + 'fecha=' + encodeURIComponent(fecha))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        mostrarBuscandoCaja(fecha, false);
+        if(!data || !data.ok || !data.encontrado || state.fecha !== fecha) return;
+        if(state._sinSubir){
+          clearTimeout(autoSyncTimer); autoSyncTimer = null;
+          var hayQueMandar = juntarDiaConSheet(state, data);
+          aplicarEstadoATurnos(true); guardarDiaActual(); refrescarFondoFijoMediodia();
+          if(hayQueMandar) syncDraftToSheet();
+        } else if(ponerTurnosDelSheet(state, data)){
+          aplicarEstadoATurnos(true); guardarDiaActual(); refrescarFondoFijoMediodia();
+        }
+      })
+      .catch(function(){ mostrarBuscandoCaja(fecha, false); });
+    traerMesesRecientes(true);
+  }
+  (function(){
+    var b = document.getElementById('btnTraerDelSheet');
+    if(b) b.addEventListener('click', traerDiaDelSheetAMano);
+  })();
 
   // ---------- ida y vuelta con el Sheet (sondeo periódico) ----------
   // Cada POLL_INTERVAL_MS, si la pestaña está visible, consulta el Sheet
@@ -6700,7 +6866,7 @@
   // unos 5 segundos sin refrescar. La consulta entera sigue cada
   // POLL_INTERVAL_MS por las ediciones hechas a mano en el Sheet.
   var POLL_INTERVAL_MS = 30000;
-  var SONDEO_RAPIDO_MS = 5000;
+  var SONDEO_RAPIDO_MS = 15000;
   var MARGEN_EDICION_LOCAL_MS = 6000;
   var pollTimer = null;
   var sondeoRapidoTimer = null;
@@ -6713,7 +6879,7 @@
         revisarSiCambioElDia_();
         revisarActualizacionesDesdeSheet();
         // Cada 10 vueltas (5 minutos): la lista de cierres, para el fondo fijo.
-        if(++vueltasSondeo % 10 === 0) actualizarCierresYFondo();
+        if(++vueltasSondeo % 10 === 0){ actualizarCierresYFondo(); traerMesesRecientes(); }
       }
     }, POLL_INTERVAL_MS);
     sondeoRapidoTimer = setInterval(function(){
@@ -6889,6 +7055,7 @@
       mostrarPantallaInicial();
       iniciarSondeoSheet();
       revisarActualizacionesDesdeSheet();
+      traerMesesRecientes(true);
       cargarFechasConDatosDesdeSheet().then(refrescarFondoFijoMediodia).then(revisarAvisoTpv1);
       return;
     }
@@ -6897,6 +7064,7 @@
     // trabajó desde OTRO dispositivo (esa info vive en el Sheet, no en este
     // navegador). Si no se espera esto, un celular/computadora nueva nunca
     // ve lo que ya se cerró desde otro lado y pregunta de nuevo.
+    traerMesesRecientes(true);
     cargarFechasConDatosDesdeSheet().then(function(){
       // Si la lista de días no llegó a tiempo (el Sheet a veces tarda), se
       // pregunta directamente por hoy antes de tratarlo como un día nuevo:
@@ -6994,6 +7162,7 @@
     ultimaVueltaALaApp = Date.now();
     revisarSiCambioElDia_();
     revisarActualizacionesDesdeSheet();
+    traerMesesRecientes();
     actualizarCierresYFondo();
     mandarAvisosPendientes();
     refrescarAlbaranesAbiertos();

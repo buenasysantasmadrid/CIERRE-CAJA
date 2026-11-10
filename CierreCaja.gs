@@ -560,7 +560,6 @@ function escribirHojaDelDiaExacta_(ss, data) {
   var movsMd = md.movimientos || [];
   var movsNc = nc.movimientos || [];
 
-  permitirValoresFueraDeLista_(hoja);
   hoja.getRange('B2').setValue(textoFechaLarga_(data.fecha));
   var celdas = celdasHojaDia_(hoja);
 
@@ -581,9 +580,9 @@ function escribirHojaDelDiaExacta_(ss, data) {
   }
   hoja.getRange('C43').setValue(md.fondoFijo || 0);
 
-  escribirFilasFijas_(hoja, 6, 16, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtipo_(movsMd, 'Efectivo').map(filaGasto_));
-  escribirFilasFijas_(hoja, 5, 6, celdas.colsEfectivoAntiguo, filtrarPorSubtipo_(movsMd, 'Efectivo antiguo').map(filaGasto_));
-  escribirFilasFijas_(hoja, 26, 15, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtiposNoEfectivo_(movsMd).map(filaGasto_));
+  escribirGastos_(hoja, 6, 16, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtipo_(movsMd, 'Efectivo').map(filaGasto_));
+  escribirGastos_(hoja, 5, 6, celdas.colsEfectivoAntiguo, filtrarPorSubtipo_(movsMd, 'Efectivo antiguo').map(filaGasto_));
+  escribirGastos_(hoja, 26, 15, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtiposNoEfectivo_(movsMd).map(filaGasto_));
   escribirFilasFijas_(hoja, 29, 5, ['H', 'I', 'J'], filtrarPorTipo_(movsMd, 'Egreso').map(filaMotivoImporte_));
   escribirFilasFijas_(hoja, 37, 4, ['H', 'I', 'J'], filtrarPorTipo_(movsMd, 'Ingreso').map(filaMotivoImporte_));
   escribirFilasFijas_(hoja, 50, 3, ['H', 'I', 'J'], filtrarPorTipo_(movsMd, 'Empanadas').map(filaEmpanada_));
@@ -619,9 +618,9 @@ function escribirHojaDelDiaExacta_(ss, data) {
 
   // Gastos en efectivo de Noche: filas 63 a 70 (en F71 y F72 están las
   // sumas; antes se escribían 10 filas y se borraban esas fórmulas).
-  escribirFilasFijas_(hoja, 63, 8, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtipo_(movsNc, 'Efectivo').map(filaGasto_));
-  escribirFilasFijas_(hoja, 63, 6, celdas.colsEfectivoAntiguo, filtrarPorSubtipo_(movsNc, 'Efectivo antiguo').map(filaGasto_));
-  escribirFilasFijas_(hoja, 75, 8, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtiposNoEfectivo_(movsNc).map(filaGasto_));
+  escribirGastos_(hoja, 63, 8, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtipo_(movsNc, 'Efectivo').map(filaGasto_));
+  escribirGastos_(hoja, 63, 6, celdas.colsEfectivoAntiguo, filtrarPorSubtipo_(movsNc, 'Efectivo antiguo').map(filaGasto_));
+  escribirGastos_(hoja, 75, 8, ['A', 'B', 'C', 'D', 'E', 'F'], filtrarPorSubtiposNoEfectivo_(movsNc).map(filaGasto_));
   escribirFilasFijas_(hoja, 88, 5, ['H', 'I', 'J'], filtrarPorTipo_(movsNc, 'Egreso').map(filaMotivoImporte_));
   escribirFilasFijas_(hoja, 97, 5, ['H', 'I', 'J'], filtrarPorTipo_(movsNc, 'Ingreso').map(filaMotivoImporte_));
   escribirFilasFijas_(hoja, 106, 5, ['H', 'I', 'J'], filtrarPorTipo_(movsNc, 'Empanadas').map(filaEmpanada_));
@@ -630,25 +629,42 @@ function escribirHojaDelDiaExacta_(ss, data) {
   escribirFormulasDiferencia_(hoja, celdas);
 }
 
-// La plantilla "1" trae desplegables con una lista fija de proveedores (en
-// la columna A de los gastos): un proveedor nuevo de la app (Glovo,
-// Wineup...) se rechazaba y la pestaña del día no se escribía. Se dejan
-// que avisen (triangulito) en vez de rechazar. Se mira como mucho cada 6
-// horas por pestaña.
-function permitirValoresFueraDeLista_(hoja) {
-  var cache = CacheService.getScriptCache();
-  var clave = 'validacion_libre_' + hoja.getParent().getId() + '_' + hoja.getSheetId();
-  if (cache.get(clave)) return;
-  var rango = hoja.getRange(1, 1, Math.min(hoja.getMaxRows(), 130), Math.min(hoja.getMaxColumns(), 26));
-  var reglas = rango.getDataValidations(), cambio = false;
-  for (var i = 0; i < reglas.length; i++) {
-    for (var j = 0; j < reglas[i].length; j++) {
-      var r = reglas[i][j];
-      if (r && !r.getAllowInvalid()) { reglas[i][j] = r.copy().setAllowInvalid(true).build(); cambio = true; }
+// La plantilla "1" trae desplegables con una lista fija de proveedores en
+// la primera columna de los gastos. Los desplegables no se tocan: un
+// proveedor que no está en la lista (uno nuevo de la app) se escribe como
+// "Varios" y su nombre va en la columna de al lado (el detalle de Varios).
+// Antes un proveedor fuera de la lista hacía fallar la pestaña del día.
+function escribirGastos_(hoja, startRow, maxFilas, colLetras, filas) {
+  var listas = listasDelDesplegable_(hoja.getRange(colLetras[0] + startRow + ':' + colLetras[0] + (startRow + maxFilas - 1)));
+  filas = filas.map(function (fila, i) {
+    var lista = listas[i];
+    if (!lista || !fila[0]) return fila;
+    var claves = lista.map(function (v) { return normalizarClave_(v); });
+    if (claves.indexOf(normalizarClave_(fila[0])) > -1) return fila;
+    var iVarios = claves.indexOf(normalizarClave_('Varios'));
+    if (iVarios === -1) return fila;
+    var copia = fila.slice();
+    copia[1] = String(fila[0]) + (fila[1] ? ' — ' + fila[1] : '');
+    copia[0] = lista[iVarios];
+    return copia;
+  });
+  escribirFilasFijas_(hoja, startRow, maxFilas, colLetras, filas);
+}
+
+// Para cada celda del rango (una columna): la lista de valores de su
+// desplegable, o null si no tiene.
+function listasDelDesplegable_(rango) {
+  var tipos = SpreadsheetApp.DataValidationCriteria;
+  return rango.getDataValidations().map(function (filaReglas) {
+    var r = filaReglas[0];
+    if (!r) return null;
+    var tipo = r.getCriteriaType(), valores = r.getCriteriaValues();
+    if (tipo === tipos.VALUE_IN_LIST) return (valores[0] || []).map(String);
+    if (tipo === tipos.VALUE_IN_RANGE && valores[0]) {
+      return valores[0].getValues().reduce(function (a, f) { return a.concat(f); }, []).filter(String).map(String);
     }
-  }
-  if (cambio) rango.setDataValidations(reglas);
-  cache.put(clave, '1', 21600);
+    return null;
+  });
 }
 
 // Las fórmulas de la DIFERENCIA, para que den lo mismo que la app (y para
@@ -771,7 +787,18 @@ function escribirFilasFijas_(hoja, startRow, maxFilas, colLetras, filas) {
       matriz.push(new Array(numCols).fill(''));
     }
   }
-  hoja.getRange(primeraCol + startRow + ':' + ultimaCol + (startRow + maxFilas - 1)).setValues(matriz);
+  var rango = hoja.getRange(primeraCol + startRow + ':' + ultimaCol + (startRow + maxFilas - 1));
+  try {
+    rango.setValues(matriz);
+  } catch (err) {
+    // Algún otro desplegable (no de proveedores) rechazó un valor: antes que
+    // perder la pestaña del día, ese bloque pasa a solo avisar (triangulito).
+    if (!/validaci/i.test(String(err))) throw err;
+    rango.setDataValidations(rango.getDataValidations().map(function (f) {
+      return f.map(function (r) { return r ? r.copy().setAllowInvalid(true).build() : null; });
+    }));
+    rango.setValues(matriz);
+  }
 }
 
 function filaGasto_(m) {
@@ -1152,6 +1179,13 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
+  if (parametros.mes) {
+    var resultadoMes;
+    try { resultadoMes = obtenerMesJSON_(String(parametros.mes)); }
+    catch (errMes) { resultadoMes = { ok: false, error: String(errMes) }; }
+    return ContentService.createTextOutput(JSON.stringify(resultadoMes)).setMimeType(ContentService.MimeType.JSON);
+  }
+
   var avisoTpv1Mes = e && e.parameter && e.parameter.avisoTpv1;
   if (avisoTpv1Mes) {
     return ContentService
@@ -1459,6 +1493,46 @@ function obtenerDiaJSON_(ss, fecha) {
   } catch (err) {
     return { ok: false, error: String(err) };
   }
+}
+
+// Todas las cajas de un mes de una vez (GET ?mes=AAAA-MM): la app las trae
+// al abrirse y las guarda en el móvil, así al cambiar de día la caja ya está
+// aunque en ese momento no haya conexión. Si el mes no tiene planilla, vacío
+// (no se crea ninguna).
+function obtenerMesJSON_(mes) {
+  if (!/^\d{4}-\d{2}$/.test(String(mes || ''))) return { ok: false, error: 'Mes no válido (AAAA-MM).' };
+  var id = buscarEnIndice_('CIERRE_CAJA', periodoMensual_(mes + '-01'));
+  if (!id) return { ok: true, mes: mes, dias: {} };
+  var registro = SpreadsheetApp.openById(id).getSheetByName('Registro');
+  if (!registro || registro.getLastRow() < 2) return { ok: true, mes: mes, dias: {} };
+  var valores = registro.getDataRange().getValues();
+  var header = valores[0];
+  var idxFecha = header.indexOf('Fecha'), idxTurno = header.indexOf('Turno');
+  var idxNegocio = header.indexOf('Negocio'), idxUltima = header.indexOf('Última actualización');
+  var idxJSON = -1;
+  for (var h = 0; h < header.length; h++) {
+    if (String(header[h] || '').indexOf('Datos JSON') === 0) { idxJSON = h; break; }
+  }
+  if (idxJSON === -1) return { ok: true, mes: mes, dias: {} };
+  var tz = Session.getScriptTimeZone();
+  var dias = {}, mejor = {};
+  for (var i = 1; i < valores.length; i++) {
+    var fila = valores[i];
+    var f = fila[idxFecha] instanceof Date ? Utilities.formatDate(fila[idxFecha], tz, 'yyyy-MM-dd') : String(fila[idxFecha] || '');
+    if (f.slice(0, 7) !== mes || !fila[idxJSON]) continue;
+    var datos;
+    try { datos = JSON.parse(fila[idxJSON]); } catch (errParse) { continue; }
+    var turno = String(fila[idxTurno]).toLowerCase() === 'noche' ? 'noche' : 'mediodia';
+    var puntaje = puntajeTurno_(datos), clave = f + '|' + turno;
+    if (mejor[clave] && puntaje < mejor[clave]) continue;
+    mejor[clave] = puntaje;
+    var ult = idxUltima > -1 ? fila[idxUltima] : null;
+    datos.actualizadoEn = ult instanceof Date ? ult.toISOString() : null;
+    if (!dias[f]) dias[f] = { ok: true, encontrado: true, fecha: f, negocio: '', mediodia: null, noche: null };
+    dias[f][turno] = datos;
+    dias[f].negocio = fila[idxNegocio] || dias[f].negocio;
+  }
+  return { ok: true, mes: mes, dias: dias };
 }
 
 // ============================================================================
