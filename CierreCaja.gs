@@ -899,6 +899,8 @@ function doGet(e) {
       .createTextOutput(JSON.stringify({ ok: true, login: true }))
       .setMimeType(ContentService.MimeType.JSON);
   }
+  // La rutina de Claude en la nube (Rutina.gs), con su propia clave.
+  if (esRutina_(parametros)) return respuestaRutina_(parametros);
   // Claude (desde el ordenador, con CLAVE_CLAUDE_ de ClaveClaude.gs, que no
   // va al repositorio) puede leer el registro de errores (?errores=1) y hacer
   // las mismas consultas que la app, para encontrar y arreglar fallos solo.

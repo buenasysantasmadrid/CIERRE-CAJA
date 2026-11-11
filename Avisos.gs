@@ -1,23 +1,21 @@
-// AVISOS POR EMAIL — la app ya no muestra en pantalla los fallos al
-// guardar la caja: cada aviso se apunta en la pestaña "Errores" del Índice
-// y le llega a la cuenta que publica la app (la dueña del script) en un
-// solo email de resumen, dos veces al día (ver mandarResumenAvisos), en vez
-// de un email por aviso. Solo si no se pudo apuntar se manda en el momento
-// (el mismo, como mucho una vez cada 6 horas).
+// AVISOS — desde el 11/11 los fallos NO llegan por email: se apuntan en la
+// pestaña "Errores" del Índice y los revisa Claude solo (rutina en la nube
+// cada 3 horas, ver Rutina.gs), que arregla lo que puede y solo le escribe a
+// la dueña cuando hace falta que ella haga algo. Excepciones, por email en el
+// momento: un aparato que lleva más de 6 horas sin guardar (lo tiene que
+// arreglar alguien con ese móvil en la mano), la app entera sin poder
+// guardar (Salud.gs) y si no se pudo apuntar en el registro.
 var AVISOS_SILENCIO_SEG_ = 6 * 60 * 60;
 var AVISOS_HORAS_RESUMEN_ = [9, 18];
 
 function avisarPorEmail_(asunto, detalle) {
-  // Una caja que no se guardó no espera al resumen: email en el momento
-  // (como mucho uno cada 3 horas, ver avisoUrgente_ en Salud.gs).
-  if (/NO se guard|SIGUE sin poder guardar/.test(String(asunto))) {
-    avisoUrgente_('URGENTE: ' + asunto, String(detalle || '') +
-      '\n\nSi sigue pasando, puede que la app se haya publicado con otra cuenta o que haya perdido el permiso de las planillas.');
+  // Un aparato que lleva más de 6 horas sin guardar (la app lo manda solo
+  // pasado ese tiempo): hace falta alguien con ese móvil.
+  if (/SIGUE sin poder guardar/.test(String(asunto))) {
+    avisoUrgente_('hay un móvil que no guarda la caja', String(detalle || '') +
+      '\n\nQué hacer: abrir la app en ese móvil con internet (wifi o datos) y dejarla abierta un minuto. Lo cargado está en ese aparato y se manda solo.');
   }
-  if (registrarError_(asunto, detalle)) {
-    asegurarActivadorResumenAvisos_();
-    return;
-  }
+  if (registrarError_(asunto, detalle)) return;
   try {
     var huella = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, asunto + '|' + detalle);
     var clave = 'aviso_' + Utilities.base64EncodeWebSafe(huella);
@@ -90,6 +88,13 @@ function asegurarActivadorResumenAvisos_() {
 }
 
 function mandarResumenAvisos() {
+  // Ya no se manda: los avisos los revisa Claude (Rutina.gs). Se quitan
+  // los activadores de las 9 y las 18 la primera vez que saltan.
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'mandarResumenAvisos') ScriptApp.deleteTrigger(t);
+  });
+}
+function mandarResumenAvisosAntiguo_() {
   var props = PropertiesService.getScriptProperties();
   var desde = props.getProperty('avisos_resumen_desde') || new Date(Date.now() - 24 * 3600 * 1000).toISOString();
   var ahora = new Date();

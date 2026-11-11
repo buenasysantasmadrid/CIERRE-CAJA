@@ -6508,21 +6508,20 @@
   function actualizarAvisoSinGuardar(){
     var el = document.getElementById('avisoSinGuardar');
     if(!el) return;
+    // Desde el 11/11 el cartel rojo ya no sale (lo pidió la dueña): los
+    // fallos los revisa Claude desde el registro. Solo si este aparato
+    // lleva más de 6 horas sin guardar se le manda un email a la dueña
+    // (como mucho uno cada 12 horas), porque eso lo tiene que arreglar
+    // alguien con este móvil en la mano.
+    el.style.display = 'none';
     var f = leerFallaSync();
     var hace = f ? Date.now() - f.desde : 0;
-    if(!f || hace < AVISO_SIN_GUARDAR_MIN_MS){ el.style.display = 'none'; return; }
-    var desde = new Date(f.desde);
-    var cuando = desde.toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit' }) + ' a las ' + desde.toLocaleTimeString('es-ES', { hour:'2-digit', minute:'2-digit' });
-    document.getElementById('avisoSinGuardarTitulo').textContent = 'LA CAJA NO SE ESTÁ GUARDANDO EN GOOGLE (hace ' + textoDuracion(hace) + ')';
-    document.getElementById('avisoSinGuardarTexto').textContent =
-      'Desde el ' + cuando + '. Lo que cargas queda a salvo en este aparato y se manda solo cuando se pueda: sigue usando la app normal.';
-    el.style.display = 'block';
-    if(hace > 2 * 60 * 60 * 1000) avisoUrgenteSinGuardar(f, hace);
+    if(f && hace > 6 * 60 * 60 * 1000) avisoUrgenteSinGuardar(f, hace);
   }
   function avisoUrgenteSinGuardar(f, hace){
     var ultimo = 0;
     try { ultimo = Number(localStorage.getItem(AVISO_URGENTE_KEY)) || 0; } catch(e){}
-    if(Date.now() - ultimo < 3 * 60 * 60 * 1000) return;
+    if(Date.now() - ultimo < 12 * 60 * 60 * 1000) return;
     var url = loadSheetUrl();
     if(!hasValidSheetUrl(url)) return;
     try { localStorage.setItem(AVISO_URGENTE_KEY, String(Date.now())); } catch(e){}
