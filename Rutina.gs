@@ -139,7 +139,7 @@ function ultimasVersiones_() {
   return {
     ok: true,
     enUso: imp.deploymentConfig && imp.deploymentConfig.versionNumber,
-    ultimas: todas.slice(-8).map(function (v) { return { version: v.versionNumber, descripcion: v.description || '', creada: v.createTime }; })
+    ultimas: todas.sort(function (a, b) { return b.versionNumber - a.versionNumber; }).slice(0, 8).map(function (v) { return { version: v.versionNumber, descripcion: v.description || '', creada: v.createTime }; })
   };
 }
 
