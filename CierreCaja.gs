@@ -714,6 +714,19 @@ function comprobarHojaDelDia_(ss, data) {
 // app. Si no, la vuelve a armar desde la plantilla (por si quedó a medio
 // escribir) y comprueba otra vez; si sigue sin dar, lo dice (la app avisa).
 function escribirHojaDelDiaComprobada_(ss, data) {
+  // De a un guardado por vez: si llegaban varios casi a la vez, uno borraba
+  // y rehacía la pestaña mientras otro escribía en ella ("No existe ninguna
+  // hoja con el ID …", 12/11).
+  var lockHoja = LockService.getScriptLock();
+  lockHoja.waitLock(30000);
+  try {
+    return escribirHojaDelDiaComprobadaSinCandado_(ss, data);
+  } finally {
+    lockHoja.releaseLock();
+  }
+}
+
+function escribirHojaDelDiaComprobadaSinCandado_(ss, data) {
   escribirHojaDelDiaExacta_(ss, data);
   var problemas = comprobarHojaDelDia_(ss, data);
   if (!problemas.length) return { ok: true };
