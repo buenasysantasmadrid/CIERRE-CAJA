@@ -1399,7 +1399,7 @@ function generarInformeMes_(ss, hoja) {
   if (mes === -1) { hoja.getRange('A3').setValue('Elige un mes en B2.'); return; }
 
   // Facturas del mes de cada pestaña de proveedor.
-  var grupos = [], revisadas = [], saltadas = [];
+  var grupos = [], revisadas = [], saltadas = [], sinFactura = [];
   ss.getSheets().forEach(function (h) {
     var nombre = h.getName();
     if (ALBARANES_PESTANAS_EXCLUIDAS_.indexOf(nombre) > -1 || INFORME_MES_FUERA_.indexOf(normalizarClave_(nombre)) > -1) return;
@@ -1416,7 +1416,11 @@ function generarInformeMes_(ss, hoja) {
       var iva = mapa.iva != null ? (Number(v[mapa.iva]) || 0) : 0;
       var detalle = mapa.detalle != null ? String(v[mapa.detalle] || '').trim() : '';
       var factura = mapa.factura != null ? String(v[mapa.factura] || '').trim() : '';
-      filas.push([fecha, detalle ? nombre + ' — ' + detalle : nombre, factura || '(sin nº)', Math.round((total - iva) * 100) / 100, iva, total]);
+      var filaInforme = [fecha, detalle ? nombre + ' — ' + detalle : nombre, factura, Math.round((total - iva) * 100) / 100, iva, total];
+      // Sin nº de factura: no entra en el listado ni en los totales; va
+      // aparte al final, para ver si falta la factura o no la va a tener.
+      if (!factura) { filaInforme[2] = 'sin factura'; sinFactura.push(filaInforme); return; }
+      filas.push(filaInforme);
     });
     if (!filas.length) return;
     filas.sort(function (a, b) { return (a[0] instanceof Date ? a[0].getTime() : 0) - (b[0] instanceof Date ? b[0].getTime() : 0); });
@@ -1443,6 +1447,15 @@ function generarInformeMes_(ss, hoja) {
   poner(['', '', '', '', '', ''], 'vacia');
   poner(['RESUMEN', 'Proveedor', 'Facturas', 'Base imponible', 'IVA', 'Total'], 'cabecera');
   resumen.forEach(function (r) { poner(['', r[0], r[1], r[2], r[3], r[4]], 'dato'); });
+  if (sinFactura.length) {
+    sinFactura.sort(function (a, b) {
+      return a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : (a[0] instanceof Date ? a[0].getTime() : 0) - (b[0] instanceof Date ? b[0].getTime() : 0);
+    });
+    poner(['', '', '', '', '', ''], 'vacia');
+    poner(['ALBARANES SIN Nº DE FACTURA (' + sinFactura.length + ') — no entran en el listado ni en los totales: ¿falta la factura o no la va a tener?', '', '', '', '', ''], 'aparte');
+    poner(['Fecha', 'Proveedor', '', 'Base imponible', 'IVA', 'Total'], 'cabecera');
+    sinFactura.forEach(function (f) { poner(f, 'dato'); });
+  }
 
   var f0 = INFORME_MES_PRIMERA_FILA_;
   hoja.getRange(f0, 1, salida.length, 6).setValues(salida);
@@ -1454,10 +1467,13 @@ function generarInformeMes_(ss, hoja) {
     else if (t === 'grupo') r.setFontWeight('bold').setBackground('#f3f3f3');
     else if (t === 'subtotal') r.setFontWeight('bold');
     else if (t === 'total') r.setFontWeight('bold').setBackground('#fff2cc');
+    else if (t === 'aparte') r.setFontWeight('bold').setBackground('#fce5cd');
   });
   var nMes = MESES_MAYUS_[mes].charAt(0) + MESES_MAYUS_[mes].slice(1).toLowerCase();
   hoja.getRange('A3').setValue(grupos.length
-    ? nMes + ' ' + anio + ': ' + resumen.reduce(function (s, r) { return s + r[1]; }, 0) + ' facturas de ' + grupos.length + ' proveedores · actualizado ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM HH:mm')
+    ? nMes + ' ' + anio + ': ' + resumen.reduce(function (s, r) { return s + r[1]; }, 0) + ' facturas de ' + grupos.length + ' proveedores' +
+      (sinFactura.length ? ' · ' + sinFactura.length + ' albaranes sin nº de factura (al final)' : '') +
+      ' · actualizado ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM HH:mm')
     : 'No hay facturas en ' + nMes.toLowerCase() + ' ' + anio + ' (revisé ' + revisadas.length + ' pestañas de proveedor' +
       (saltadas.length ? '; no pude leer: ' + saltadas.join(', ') : '') + ').');
 }
