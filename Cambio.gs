@@ -184,6 +184,31 @@ function guardarCambio_(m) {
   });
 }
 
+// Recuento (solo Claude, ver doPost): m.hay = { clave: cuántos hay de verdad }.
+// Agrega una fila "Ajuste por recuento" con la diferencia (en más o en menos)
+// para que la fila 1 dé exactamente lo contado.
+function ajustarCambioARecuento_(m) {
+  var fecha = String(m.fecha || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new Error('Fecha inválida');
+  var contado = m.hay || {};
+  return conCandadoCajita_(function () {
+    var hoja = hojaCambio_();
+    SpreadsheetApp.flush();
+    var actual = hoja.getRange(1, CAMBIO_PRIMERA_COL_, 1, CAMBIO_DENOMINACIONES_.length).getValues()[0];
+    var diferencia = CAMBIO_DENOMINACIONES_.map(function (d, i) {
+      if (contado[d.clave] == null) throw new Error('Falta cuántos hay de ' + d.nombre);
+      return Math.round((Number(contado[d.clave]) - (Number(actual[i]) || 0)) * 10000) / 10000;
+    });
+    if (!diferencia.some(Boolean)) return { ok: true, nada: true };
+    var r = filaNuevaCambio_(hoja);
+    escribirFilaCambio_(hoja, r, {
+      fecha: fecha, movimiento: 'Ajuste por recuento', cantidades: diferencia,
+      responsable: String(m.responsable || 'Recuento'), detalle: String(m.detalle || '')
+    }, '');
+    return { ok: true, fila: r, diferencia: diferencia };
+  });
+}
+
 // Del texto de la calculadora a la lista de cantidades que salen, o null si
 // no se entiende o si no da el importe del movimiento.
 function cantidadesDeTextoCambio_(texto, importe) {

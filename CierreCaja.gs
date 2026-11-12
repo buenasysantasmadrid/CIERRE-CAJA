@@ -34,6 +34,10 @@ function doPost(e) {
       (data.filas || []).forEach(function (f) { apuntarMovFactura_(f[0], f[1], f[2], f[3], f[4]); }); // tipo, proveedor, total, qué pasa, enlace
       return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
     }
+    // Claude deja el Cambio igual que un recuento (Cambio.gs).
+    if (data.accionCambioRecuento && esClaudePost) {
+      return ContentService.createTextOutput(JSON.stringify(ajustarCambioARecuento_(data))).setMimeType(ContentService.MimeType.JSON);
+    }
     // Claude borra filas repetidas de ALBARANES (RevisionAlbaranes.gs).
     if (data.accionQuitarGastoRepetido && esClaudePost) {
       return ContentService.createTextOutput(JSON.stringify(quitarGastoRepetido_(data))).setMimeType(ContentService.MimeType.JSON);
