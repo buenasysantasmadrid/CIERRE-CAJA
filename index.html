@@ -6518,7 +6518,30 @@
     var hace = f ? Date.now() - f.desde : 0;
     if(f && hace > 6 * 60 * 60 * 1000) avisoUrgenteSinGuardar(f, hace);
   }
+  // Días de este aparato con cambios que el Sheet todavía no tiene.
+  function diasSinSubirAca(){
+    var st = {};
+    try { st = getDiasStore() || {}; } catch(e){}
+    var fechas = Object.keys(st).filter(function(k){ return st[k] && st[k]._sinSubir; });
+    if(state && state._sinSubir && fechas.indexOf(state.fecha) === -1) fechas.push(state.fecha);
+    return fechas.sort();
+  }
   function avisoUrgenteSinGuardar(f, hace){
+    // Si este aparato ya no tiene nada sin subir, la marca de "no guarda"
+    // era vieja (solo se borraba al guardar algo nuevo): se borra y no se
+    // avisa. Si tiene días pendientes, se intenta mandarlos ya.
+    var pendientes = diasSinSubirAca();
+    if(!pendientes.length){
+      try { localStorage.removeItem(SYNC_FALLA_DESDE_KEY); localStorage.removeItem(AVISO_URGENTE_KEY); } catch(e){}
+      return;
+    }
+    try {
+      var stP = getDiasStore() || {};
+      pendientes.forEach(function(fe){
+        if(state && state.fecha === fe){ scheduleAutoSync(); }
+        else if(stP[fe] && !avisoUrgenteSinGuardar._enviados[fe]){ avisoUrgenteSinGuardar._enviados[fe] = 1; enviarDiaASheet(stP[fe]); }
+      });
+    } catch(e){}
     var ultimo = 0;
     try { ultimo = Number(localStorage.getItem(AVISO_URGENTE_KEY)) || 0; } catch(e){}
     if(Date.now() - ultimo < 12 * 60 * 60 * 1000) return;
@@ -6530,9 +6553,10 @@
       headers: {'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify({ accionAviso: true,
         asunto: 'un dispositivo SIGUE sin poder guardar (hace ' + textoDuracion(hace) + ')',
-        detalle: 'Desde el ' + new Date(f.desde).toLocaleString('es-ES') + ' un dispositivo no consigue guardar la caja en el Sheet (' + f.msg + '). Lo cargado está en ese aparato. Dispositivo: ' + navigator.userAgent })
+        detalle: 'Desde el ' + new Date(f.desde).toLocaleString('es-ES') + ' un dispositivo no consigue guardar la caja en el Sheet (' + f.msg + '). Lo cargado está en ese aparato. Días sin subir en ese aparato: ' + pendientes.join(', ') + '. Dispositivo: ' + navigator.userAgent })
     }).catch(function(){});
   }
+  avisoUrgenteSinGuardar._enviados = {};
   setInterval(actualizarAvisoSinGuardar, 30000);
   document.addEventListener('DOMContentLoaded', function(){
     actualizarAvisoSinGuardar();
