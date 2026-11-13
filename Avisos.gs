@@ -11,7 +11,12 @@ var AVISOS_HORAS_RESUMEN_ = [9, 18];
 function avisarPorEmail_(asunto, detalle) {
   // Un aparato que lleva más de 6 horas sin guardar (la app lo manda solo
   // pasado ese tiempo): hace falta alguien con ese móvil.
-  if (/SIGUE sin poder guardar/.test(String(asunto))) {
+  // Solo por email si el aparato dice qué días tiene sin subir (la versión
+  // de la app del 12/11 en adelante, que además borra sola la marca vieja
+  // cuando no tiene nada pendiente). Las pestañas con la versión vieja,
+  // abiertas sin recargar, mandaban el aviso aunque no les faltara nada:
+  // eso solo se apunta en el registro (lo revisa la rutina de Claude).
+  if (/SIGUE sin poder guardar/.test(String(asunto)) && /Días sin subir en ese aparato: \d/.test(String(detalle))) {
     avisoUrgente_('hay un móvil que no guarda la caja', String(detalle || '') +
       '\n\nQué hacer: abrir la app en ese móvil con internet (wifi o datos) y dejarla abierta un minuto. Lo cargado está en ese aparato y se manda solo.');
   }
