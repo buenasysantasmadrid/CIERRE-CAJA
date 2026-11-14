@@ -2131,6 +2131,13 @@
         html += '<div class="form-grid"><div class="field"><label>Fecha de pago</label><input type="date" data-field="fechaPago" value="'+escapeHtml(f.fechaPago||pagoEdicion.fecha)+'"'+(pagoEdicion.editable?'':' readonly')+'></div></div>';
       }
       var infoVisible = separarPagoInfo(f.info).resto;
+      // Factura / Albarán / Sin factura nunca (solo Varios y Super): va como
+      // etiqueta al final de Info (" · ALBARÁN", " · SIN FACTURA") y el
+      // INFORME MES de Albaranes la usa para separar lo que no es factura.
+      var docGasto = documentoDeInfo(infoVisible);
+      infoVisible = quitarDocumentoDeInfo(infoVisible);
+      html += '<div class="form-grid" id="campoDocumento"><div class="field span-2"><label>¿Qué es?</label>' +
+        chipSelectHTML('documento', '', DOCUMENTOS_GASTO, docGasto) + '</div></div>';
       html += '<div class="form-grid"><div class="field span-2"><label>Info</label><input type="text" data-field="info" value="'+(infoVisible?escapeHtml(quitarTagInfoGasto(infoVisible, f.subtipo)):'')+'" placeholder="Detalle, observación, lo que haga falta anotar"></div>' + responsableField(f.responsable||'') + '</div>';
       html += importeBlock(f.importe, field('IVA (€)','iva','number', (f.iva!=null?f.iva:''), '0,00', 'iva'));
     } else if(tipo === 'ingreso' || tipo === 'egreso'){
@@ -3801,7 +3808,24 @@
   function esProveedorSinFactura(valor){
     return PROVEEDORES_SIN_FACTURA.indexOf(valor) > -1;
   }
+  var DOCUMENTOS_GASTO = ['Factura', 'Albarán (espera factura)', 'Sin factura nunca'];
+  var DOCUMENTO_TAG = { 'Albarán (espera factura)': 'ALBARÁN', 'Sin factura nunca': 'SIN FACTURA' };
+  var PROVEEDORES_CON_DOCUMENTO = ['Varios', 'Super'];
+  function documentoDeInfo(info){
+    var partes = String(info || '').split(' · ');
+    var ultima = partes[partes.length - 1];
+    for(var k in DOCUMENTO_TAG){ if(ultima === DOCUMENTO_TAG[k]) return k; }
+    return 'Factura';
+  }
+  function quitarDocumentoDeInfo(info){
+    var partes = String(info || '').split(' · ');
+    var ultima = partes[partes.length - 1];
+    for(var k in DOCUMENTO_TAG){ if(ultima === DOCUMENTO_TAG[k]){ partes.pop(); break; } }
+    return partes.join(' · ');
+  }
   function mostrarFacturaEIva(proveedor){
+    var campoDoc = document.getElementById('campoDocumento');
+    if(campoDoc) campoDoc.style.display = PROVEEDORES_CON_DOCUMENTO.indexOf(proveedor) > -1 ? '' : 'none';
     var ocultar = esProveedorSinFactura(proveedor);
     ['factura', 'iva'].forEach(function(k){
       var inp = document.querySelector('#formFields [data-field="'+k+'"]');
@@ -3933,6 +3957,8 @@
         // albarán nuevo), y ninguno de los dos lleva la etiqueta delante.
         infoFinal = [pe.pagoFactura, pagadoSeg, infoFinal].filter(String).join(' · ');
       } else if(tagGasto && !/^PAGADO\b/.test(infoFinal)) infoFinal = tagGasto + (infoFinal ? ' · ' + infoFinal : '');
+      var tagDoc = PROVEEDORES_CON_DOCUMENTO.indexOf(proveedorFinal) > -1 ? DOCUMENTO_TAG[data.documento] : '';
+      if(tagDoc) infoFinal = infoFinal ? infoFinal + ' · ' + tagDoc : tagDoc;
     }
 
     var mov = {

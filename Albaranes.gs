@@ -1266,6 +1266,40 @@ function actualizarPromediosTotalesAlbaranesDesdeMenu() {
 var INFORME_MES_PESTANA_ = 'INFORME MES';
 var INFORME_MES_FUERA_ = ['EXTRAS', 'NOO', 'GLOVO'];
 var INFORME_MES_PRIMERA_FILA_ = 5;
+// Dan una factura a fin de mes con todos sus albaranes (como se llaman sus
+// pestañas, en mayúsculas y sin tildes).
+var INFORME_MES_FACTURA_MENSUAL_ = ['POLLERIA', 'MERCANDALUCIA', 'LAS 3B'];
+
+// PDF escaneados como factura (descripción "factura", ver Precios.gs) en
+// Facturas proveedores/AAAA/MM/<proveedor> de los proveedores con factura
+// mensual: { 'POLLERIA': [{ numero, fecha }] }.
+function facturasMensualesEnDrive_(anio, mesIndex) {
+  var r = {};
+  try {
+    var itAnio = carpetaFacturas_().getFoldersByName(String(anio));
+    if (!itAnio.hasNext()) return r;
+    var itMes = itAnio.next().getFoldersByName(('0' + (mesIndex + 1)).slice(-2));
+    if (!itMes.hasNext()) return r;
+    var provs = itMes.next().getFolders();
+    while (provs.hasNext()) {
+      var prov = provs.next();
+      var clave = normalizarClave_(prov.getName());
+      if (INFORME_MES_FACTURA_MENSUAL_.indexOf(clave) === -1) continue;
+      var archivos = prov.getFiles();
+      while (archivos.hasNext()) {
+        var a = archivos.next();
+        if (a.getDescription() !== 'factura') continue;
+        // "2026-10-31 Polleria F-123.pdf" → fecha y nº
+        var nombre = a.getName().replace(/\.[a-z0-9]{2,4}$/i, '');
+        var m = /^(\d{4})-(\d{2})-(\d{2})\s+(.*)$/.exec(nombre);
+        var resto = m ? m[4] : nombre;
+        if (resto.toLowerCase().indexOf(prov.getName().toLowerCase()) === 0) resto = resto.slice(prov.getName().length).trim();
+        (r[clave] = r[clave] || []).push({ numero: resto || '(sin nº)', fecha: m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : '' });
+      }
+    }
+  } catch (err) { Logger.log('Facturas mensuales en Drive: ' + err); }
+  return r;
+}
 ALBARANES_PESTANAS_EXCLUIDAS_.push(INFORME_MES_PESTANA_);
 
 function asegurarPestanaInformeMes_(ss) {
@@ -1398,8 +1432,17 @@ function generarInformeMes_(ss, hoja) {
   hoja.getRange(INFORME_MES_PRIMERA_FILA_, 1, ultima - INFORME_MES_PRIMERA_FILA_ + 1, 8).clear();
   if (mes === -1) { hoja.getRange('A3').setValue('Elige un mes en B2.'); return; }
 
-  // Facturas del mes de cada pestaña de proveedor.
-  var grupos = [], revisadas = [], saltadas = [], sinFactura = [];
+  // Facturas del mes de cada pestaña de proveedor. Lo que no es factura va
+  // aparte al final y no suma en los totales:
+  //  · Proveedores con factura mensual (INFORME_MES_FACTURA_MENSUAL_): sus
+  //    filas son albaranes. Si en Drive (Facturas proveedores/AAAA/MM/
+  //    <proveedor>) hay un PDF escaneado como factura, el mes entra en el
+  //    listado como una línea (el total = la suma de sus albaranes); si no,
+  //    sale en "esperan factura".
+  //  · En las demás: "SIN FACTURA" en observaciones/info → sin factura
+  //    nunca; "ALBARÁN" o sin nº de factura → espera factura.
+  var grupos = [], revisadas = [], saltadas = [], esperan = [], nunca = [], mensuales = [];
+  var facturasMensualesDrive = facturasMensualesEnDrive_(anio, mes);
   ss.getSheets().forEach(function (h) {
     var nombre = h.getName();
     if (ALBARANES_PESTANAS_EXCLUIDAS_.indexOf(nombre) > -1 || INFORME_MES_FUERA_.indexOf(normalizarClave_(nombre)) > -1) return;
@@ -1408,7 +1451,8 @@ function generarInformeMes_(ss, hoja) {
     var mapa = mapaColumnasAlbaranes_(h.getRange(enc[mes], 1, 1, ALBARANES_ANCHO_).getValues()[0]);
     if (mapa.importe == null) { saltadas.push(nombre + ' (sin IMPORTE)'); return; }
     revisadas.push(nombre);
-    var filas = [];
+    var esMensual = INFORME_MES_FACTURA_MENSUAL_.indexOf(normalizarClave_(nombre)) > -1;
+    var filas = [], albaranesMes = [];
     h.getRange(enc[mes] + 1, 1, ALBARANES_FILAS_DATOS_, ALBARANES_ANCHO_).getValues().forEach(function (v) {
       var total = Number(v[mapa.importe]) || 0;
       var fecha = mapa.fecha != null ? v[mapa.fecha] : '';
@@ -1416,12 +1460,24 @@ function generarInformeMes_(ss, hoja) {
       var iva = mapa.iva != null ? (Number(v[mapa.iva]) || 0) : 0;
       var detalle = mapa.detalle != null ? String(v[mapa.detalle] || '').trim() : '';
       var factura = mapa.factura != null ? String(v[mapa.factura] || '').trim() : '';
+      var notas = normalizarClave_((mapa.obs != null ? v[mapa.obs] : '') + ' ' + (mapa.info != null ? v[mapa.info] : ''));
       var filaInforme = [fecha, detalle ? nombre + ' — ' + detalle : nombre, factura, Math.round((total - iva) * 100) / 100, iva, total];
-      // Sin nº de factura: no entra en el listado ni en los totales; va
-      // aparte al final, para ver si falta la factura o no la va a tener.
-      if (!factura) { filaInforme[2] = 'sin factura'; sinFactura.push(filaInforme); return; }
+      if (esMensual) { filaInforme[2] = factura ? 'albarán ' + factura : 'albarán'; albaranesMes.push(filaInforme); return; }
+      if (/SIN FACTURA/.test(notas)) { filaInforme[2] = 'sin factura nunca'; nunca.push(filaInforme); return; }
+      if (!factura || /ALBARAN/.test(notas)) { filaInforme[2] = factura ? 'albarán ' + factura : 'sin nº'; esperan.push(filaInforme); return; }
       filas.push(filaInforme);
     });
+    if (esMensual && albaranesMes.length) {
+      var suma = [0, 0, 0];
+      albaranesMes.forEach(function (f) { suma[0] += f[3]; suma[1] += f[4]; suma[2] += f[5]; });
+      suma = suma.map(function (x) { return Math.round(x * 100) / 100; });
+      var pdfs = facturasMensualesDrive[normalizarClave_(nombre)] || [];
+      if (pdfs.length) {
+        filas.push([pdfs[0].fecha, nombre + ' — factura del mes (' + albaranesMes.length + ' albaranes)', pdfs.map(function (p) { return p.numero; }).join(', '), suma[0], suma[1], suma[2]]);
+      } else {
+        mensuales.push(['', nombre + ' — ' + albaranesMes.length + ' albaranes del mes', 'FALTA LA FACTURA DEL MES', suma[0], suma[1], suma[2]]);
+      }
+    }
     if (!filas.length) return;
     filas.sort(function (a, b) { return (a[0] instanceof Date ? a[0].getTime() : 0) - (b[0] instanceof Date ? b[0].getTime() : 0); });
     grupos.push({ nombre: nombre, filas: filas });
@@ -1447,14 +1503,22 @@ function generarInformeMes_(ss, hoja) {
   poner(['', '', '', '', '', ''], 'vacia');
   poner(['RESUMEN', 'Proveedor', 'Facturas', 'Base imponible', 'IVA', 'Total'], 'cabecera');
   resumen.forEach(function (r) { poner(['', r[0], r[1], r[2], r[3], r[4]], 'dato'); });
-  if (sinFactura.length) {
-    sinFactura.sort(function (a, b) {
-      return a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : (a[0] instanceof Date ? a[0].getTime() : 0) - (b[0] instanceof Date ? b[0].getTime() : 0);
-    });
+  var porProveedorYFecha = function (a, b) {
+    return a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : (a[0] instanceof Date ? a[0].getTime() : 0) - (b[0] instanceof Date ? b[0].getTime() : 0);
+  };
+  var nEsperan = mensuales.length + esperan.length;
+  if (nEsperan) {
     poner(['', '', '', '', '', ''], 'vacia');
-    poner(['ALBARANES SIN Nº DE FACTURA (' + sinFactura.length + ') — no entran en el listado ni en los totales: ¿falta la factura o no la va a tener?', '', '', '', '', ''], 'aparte');
+    poner(['ALBARANES QUE ESPERAN FACTURA — no entran en el listado ni en los totales', '', '', '', '', ''], 'aparte');
     poner(['Fecha', 'Proveedor', '', 'Base imponible', 'IVA', 'Total'], 'cabecera');
-    sinFactura.forEach(function (f) { poner(f, 'dato'); });
+    mensuales.sort(porProveedorYFecha).forEach(function (f) { poner(f, 'dato'); });
+    esperan.sort(porProveedorYFecha).forEach(function (f) { poner(f, 'dato'); });
+  }
+  if (nunca.length) {
+    poner(['', '', '', '', '', ''], 'vacia');
+    poner(['SIN FACTURA NUNCA (' + nunca.length + ') — solo para controlar, no va a los contables', '', '', '', '', ''], 'nunca');
+    poner(['Fecha', 'Proveedor', '', 'Base imponible', 'IVA', 'Total'], 'cabecera');
+    nunca.sort(porProveedorYFecha).forEach(function (f) { poner(f, 'dato'); });
   }
 
   var f0 = INFORME_MES_PRIMERA_FILA_;
@@ -1468,11 +1532,12 @@ function generarInformeMes_(ss, hoja) {
     else if (t === 'subtotal') r.setFontWeight('bold');
     else if (t === 'total') r.setFontWeight('bold').setBackground('#fff2cc');
     else if (t === 'aparte') r.setFontWeight('bold').setBackground('#fce5cd');
+    else if (t === 'nunca') r.setFontWeight('bold').setBackground('#e7e6e6');
   });
   var nMes = MESES_MAYUS_[mes].charAt(0) + MESES_MAYUS_[mes].slice(1).toLowerCase();
   hoja.getRange('A3').setValue(grupos.length
     ? nMes + ' ' + anio + ': ' + resumen.reduce(function (s, r) { return s + r[1]; }, 0) + ' facturas de ' + grupos.length + ' proveedores' +
-      (sinFactura.length ? ' · ' + sinFactura.length + ' albaranes sin nº de factura (al final)' : '') +
+      (nEsperan ? ' · ' + nEsperan + ' esperan factura (al final)' : '') +
       ' · actualizado ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM HH:mm')
     : 'No hay facturas en ' + nMes.toLowerCase() + ' ' + anio + ' (revisé ' + revisadas.length + ' pestañas de proveedor' +
       (saltadas.length ? '; no pude leer: ' + saltadas.join(', ') : '') + ').');
