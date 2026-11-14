@@ -6,9 +6,10 @@
 //     "Albaranes" (albaranes y tickets que ya tienen su factura: estarían
 //     repetidos). Si pesa demasiado para un solo archivo, va en varias partes.
 //   · Un Excel con cada factura del mes según ALBARANES (proveedor, fecha,
-//     nº, base, IVA, total, forma de pago) y si tiene su PDF; y en otras
-//     dos pestañas, lo pendiente a hoy: albaranes sin su factura y lo que
-//     falta pagar (ver RevisionAlbaranes.gs).
+//     nº, base, IVA, total, forma de pago) y si tiene su PDF (solo
+//     facturas: los albaranes que esperan factura y los "sin factura
+//     nunca" van solo en el email, ver clasificarMesAlbaranes_); y en otra
+//     pestaña, lo que falta pagar (ver RevisionAlbaranes.gs).
 // Llega un email a la cuenta que publica la app con el ZIP y el Excel
 // adjuntos (si pesan demasiado, solo los enlaces), para revisarlo y
 // reenviarlo; arriba, lo que hay que mirar (facturas sin PDF, albaranes sin
@@ -49,12 +50,15 @@ function paqueteContables_(periodo, conEmail) {
   var archivos = pdfsDelMes_(raiz, anio, mm);
   var facturas = facturasConPdf_(anio, mm, archivos);
   var pend = pendientesContables_();
+  // Lo que no es factura (albaranes que esperan factura y sin factura
+  // nunca) no va en el Excel de los contables: solo en el email, para la dueña.
+  var noFacturas = clasificarMesAlbaranes_(anio, Number(mm) - 1);
+  pend.esperanMes = noFacturas.esperan;
+  pend.nuncaMes = noFacturas.nunca;
 
   var nombreMes = MESES_MAYUS_[Number(mm) - 1].charAt(0) + MESES_MAYUS_[Number(mm) - 1].slice(1).toLowerCase();
   var titulo = 'Facturas ' + nombreMes + ' ' + anio;
   var excel = excelFacturas_(salida, titulo, facturas, [
-    { nombre: 'Albaranes sin factura', columnas: ['Proveedor', 'Fecha', 'Archivo', 'Enlace'], fechas: [2], euros: [],
-      filas: pend.albaranes.map(function (a) { return [a.proveedor, /^\d{4}-\d{2}-\d{2}$/.test(a.fecha) ? fechaComoDate_(a.fecha) : '', a.nombre, a.enlace]; }) },
     { nombre: 'Falta pagar', columnas: ['Proveedor', 'Fecha', 'Nº factura', 'Importe', 'Días'], fechas: [2], euros: [4],
       filas: pend.sinPagar.map(function (x) { return [x.proveedor, x.fecha ? fechaComoDate_(x.fecha) : '', x.numero, x.importe, x.dias]; }) }
   ]);
@@ -80,6 +84,8 @@ function paqueteContables_(periodo, conEmail) {
     zips: zips.map(function (z) { return z.getName(); })
   };
   res.albaranesSinFactura = pend.albaranes.length;
+  res.esperanFactura = pend.esperanMes.map(function (x) { return x.proveedor + ' ' + euros_(x.total) + (x.numero ? ' (' + x.numero + ')' : ''); });
+  res.sinFacturaNunca = pend.nuncaMes.length;
   res.sinPagar = pend.sinPagar.length;
   if (conEmail) mandarEmailContables_(titulo, res, sinPdf, facturas, zips, excel.archivo, pend);
   return res;
@@ -135,26 +141,54 @@ function pendientesContables_() {
 // Cada factura del mes en ALBARANES: una fila por gasto de cada pestaña de
 // proveedor (en VARIOS, SUPER y SERVICIOS, el nombre real).
 function facturasDelMesAlbaranes_(anio, mesIndex) {
+  return clasificarMesAlbaranes_(anio, mesIndex).facturas;
+}
+
+// Lo del mes en ALBARANES separado como en el INFORME MES (Albaranes.gs):
+//  · facturas: lo que va a los contables. Los proveedores con factura
+//    mensual (INFORME_MES_FACTURA_MENSUAL_) entran como una línea (la suma
+//    de sus albaranes) si su factura del mes está escaneada en Drive.
+//  · esperan: albaranes que esperan factura (los de esos proveedores si
+//    falta la factura del mes, "ALBARÁN" en observaciones o sin nº).
+//  · nunca: "SIN FACTURA" en observaciones.
+function clasificarMesAlbaranes_(anio, mesIndex) {
+  var r = { facturas: [], esperan: [], nunca: [] };
   var id = buscarEnIndice_('ALBARANES', anio);
-  if (!id) return [];
+  if (!id) return r;
   var dia = function (d) { return d ? Utilities.formatDate(d, 'Europe/Madrid', 'yyyy-MM-dd') : ''; };
-  var lista = [];
+  var pdfsMensuales = facturasMensualesEnDrive_(Number(anio), mesIndex);
   SpreadsheetApp.openById(id).getSheets().forEach(function (h) {
     var nombre = h.getName();
     if (ALBARANES_PESTANAS_EXCLUIDAS_.indexOf(nombre) > -1 || nombre === INFORME_MES_PESTANA_ || CONTABLES_PESTANAS_FUERA_.indexOf(normalizarClave_(nombre)) > -1) return;
     var b = filasDelMesAlbaranes_(h, mesIndex);
     if (!b) return;
+    var esMensual = INFORME_MES_FACTURA_MENSUAL_.indexOf(normalizarClave_(nombre)) > -1;
+    var mensual = { n: 0, iva: 0, total: 0, fecha: '' };
     b.filas.forEach(function (f) {
       if (!f.importe) return;
       var iva = Math.round(f.iva * 100) / 100;
-      lista.push({
+      var x = {
         proveedor: f.detalle ? nombre + ' — ' + f.detalle : nombre, fecha: dia(f.fecha), numero: f.numero,
         base: Math.round((f.importe - iva) * 100) / 100, iva: iva, total: f.importe, forma: f.forma
-      });
+      };
+      var notas = normalizarClave_(f.obs);
+      if (esMensual) { mensual.n++; mensual.iva += iva; mensual.total += f.importe; return; }
+      if (/SIN FACTURA/.test(notas)) { r.nunca.push(x); return; }
+      if (!String(f.numero).trim() || /ALBARAN/.test(notas)) { r.esperan.push(x); return; }
+      r.facturas.push(x);
     });
+    if (esMensual && mensual.n) {
+      var tot = Math.round(mensual.total * 100) / 100, ivaM = Math.round(mensual.iva * 100) / 100;
+      var pdfs = pdfsMensuales[normalizarClave_(nombre)] || [];
+      var linea = { proveedor: nombre + ' — ' + mensual.n + ' albaranes del mes', fecha: pdfs.length && pdfs[0].fecha ? dia(pdfs[0].fecha) : '',
+        numero: pdfs.map(function (p) { return p.numero; }).join(', '), base: Math.round((tot - ivaM) * 100) / 100, iva: ivaM, total: tot, forma: '' };
+      if (pdfs.length) { linea.proveedor = nombre + ' — factura del mes (' + mensual.n + ' albaranes)'; r.facturas.push(linea); }
+      else { linea.numero = 'FALTA LA FACTURA DEL MES'; r.esperan.push(linea); }
+    }
   });
-  lista.sort(function (a, b) { return a.proveedor.localeCompare(b.proveedor) || (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0); });
-  return lista;
+  var orden = function (a, b) { return a.proveedor.localeCompare(b.proveedor) || (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0); };
+  r.facturas.sort(orden); r.esperan.sort(orden); r.nunca.sort(orden);
+  return r;
 }
 
 // Se arma como hoja de Google y se guarda en .xlsx (la hoja se borra).
@@ -216,10 +250,15 @@ function mandarEmailContables_(titulo, res, sinPdf, facturas, zips, excel, pend)
           '<td style="padding:8px 10px;color:#999;font-size:12px">' + f[2] + '</td></tr>';
       }).join('') + '</table>';
   };
-  if (pend && pend.albaranes.length) {
-    revisar += tabla('#16a085', 'Albaranes sin factura <span style="font-weight:normal;color:#888">(' + pend.albaranes.length + ')</span>',
-      'Escaneados como albarán; su factura todavía no llegó (también en el Excel).',
-      pend.albaranes.map(function (a) { return [a.proveedor, '<a href="' + a.enlace + '" style="color:#2471a3">PDF</a>', /^\d{4}-\d{2}-\d{2}$/.test(a.fecha) ? fechaCorta_(a.fecha) : '']; }));
+  if (pend && pend.esperanMes && pend.esperanMes.length) {
+    revisar += tabla('#e67e22', 'Albaranes que esperan factura <span style="font-weight:normal;color:#888">(' + pend.esperanMes.length + ')</span>',
+      'No están en el Excel de los contables. Cuando llegue la factura, escanéala y vuelve a preparar el paquete.',
+      pend.esperanMes.map(function (x) { return [x.proveedor + (x.numero ? ' · ' + x.numero : ''), euros_(x.total), x.fecha ? fechaCorta_(x.fecha) : '']; }));
+  }
+  if (pend && pend.nuncaMes && pend.nuncaMes.length) {
+    revisar += tabla('#7f8c8d', 'Sin factura nunca <span style="font-weight:normal;color:#888">(' + pend.nuncaMes.length + ')</span>',
+      'Marcados como "Sin factura nunca": solo para que lo tengas controlado, no van a los contables.',
+      pend.nuncaMes.map(function (x) { return [x.proveedor, euros_(x.total), x.fecha ? fechaCorta_(x.fecha) : '']; }));
   }
   if (pend && pend.sinPagar.length) {
     var debe = pend.sinPagar.reduce(function (t, x) { return t + x.importe; }, 0);
