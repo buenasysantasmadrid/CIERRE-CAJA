@@ -104,8 +104,10 @@ function pdfsDelMes_(raiz, anio, mm) {
       var fs = prov.getFiles();
       while (fs.hasNext()) {
         var f = fs.next();
-        // Los escaneados como albarán no van a los contables (solo facturas).
-        if (f.getDescription() === DOC_ALBARAN_) continue;
+        // Los albaranes de los proveedores con factura mensual no van a los
+        // contables (va la factura del mes). En los demás se dejan: a veces
+        // el escáner toma una factura por albarán (Iberolactal, Atlanta).
+        if (f.getDescription() === DOC_ALBARAN_ && INFORME_MES_FACTURA_MENSUAL_.indexOf(normalizarClave_(prov.getName())) > -1) continue;
         archivos.push({ carpeta: prov.getName(), archivo: f });
       }
     }
