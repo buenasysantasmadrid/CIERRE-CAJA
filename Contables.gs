@@ -102,7 +102,12 @@ function pdfsDelMes_(raiz, anio, mm) {
     while (provs.hasNext()) {
       var prov = provs.next();
       var fs = prov.getFiles();
-      while (fs.hasNext()) archivos.push({ carpeta: prov.getName(), archivo: fs.next() });
+      while (fs.hasNext()) {
+        var f = fs.next();
+        // Los escaneados como albarán no van a los contables (solo facturas).
+        if (f.getDescription() === DOC_ALBARAN_) continue;
+        archivos.push({ carpeta: prov.getName(), archivo: f });
+      }
     }
   }
   archivos.sort(function (a, b) { return (a.carpeta + a.archivo.getName()).localeCompare(b.carpeta + b.archivo.getName()); });
