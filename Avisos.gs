@@ -16,7 +16,11 @@ function avisarPorEmail_(asunto, detalle) {
   // cuando no tiene nada pendiente). Las pestañas con la versión vieja,
   // abiertas sin recargar, mandaban el aviso aunque no les faltara nada:
   // eso solo se apunta en el registro (lo revisa la rutina de Claude).
-  if (/SIGUE sin poder guardar/.test(String(asunto)) && /Días sin subir en ese aparato: \d/.test(String(detalle))) {
+  // Desde el 15/11 tampoco esos: siempre se arreglaban solos al rato (el
+  // aparato volvía a guardar) y la dueña no quiere esos emails. Quedan en el
+  // registro y la rutina de Claude avisa solo si un aparato lleva más de un
+  // día con días sin subir que no están en el Sheet.
+  if (false && /SIGUE sin poder guardar/.test(String(asunto)) && /Días sin subir en ese aparato: \d/.test(String(detalle))) {
     avisoUrgente_('hay un móvil que no guarda la caja', String(detalle || '') +
       '\n\nQué hacer: abrir la app en ese móvil con internet (wifi o datos) y dejarla abierta un minuto. Lo cargado está en ese aparato y se manda solo.');
   }
