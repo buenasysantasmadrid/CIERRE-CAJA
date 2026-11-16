@@ -1,7 +1,13 @@
 // ============================================================================
 // BANDEJAS DE FACTURAS — las facturas que llegan en PDF (por email) entran
-// sin imprimirlas ni escanearlas. Dentro de "Facturas proveedores" hay dos
-// carpetas de entrada; desde el móvil, "Guardar en Drive" y elegir una:
+// sin imprimirlas ni escanearlas. Dentro de "Facturas proveedores" está la
+// carpeta de entrada "📥 Facturas nuevas" (desde el móvil, "Guardar en
+// Drive"): ahí van todas y se decide sola de cuál de las dos clases es
+// (ver decidirTipoFactura_ más abajo). Lo que no está claro (mercadería sin
+// su albarán en la caja y sin decir que se paga por transferencia) no se
+// carga: queda en su subcarpeta "⚠️ Revisar" y se avisa.
+// Antes eran dos carpetas, una por clase; si todavía existen, lo que se
+// guarde en ellas se sigue procesando como antes:
 //   · "📥 Facturas de albarán": compras a un proveedor cuyo albarán ya se
 //     cargó en la caja cuando llegó la mercadería. No se carga otra vez: se
 //     busca en ALBARANES (mismo número, un albarán que la factura menciona,
@@ -23,9 +29,24 @@
 // leer queda en la subcarpeta "⚠️ No se pudo leer" de su bandeja.
 // ============================================================================
 
-var BANDEJA_ALBARAN_ = '📥 Facturas de albarán';
-var BANDEJA_TRANSFERENCIA_ = '📥 Facturas pagadas por transferencia';
+var BANDEJA_UNICA_ = '📥 Facturas nuevas';
+var BANDEJA_ALBARAN_ = '📥 Facturas de albarán'; // vieja: solo se procesa si existe
+var BANDEJA_TRANSFERENCIA_ = '📥 Facturas pagadas por transferencia'; // vieja: ídem
 var BANDEJA_NO_LEIDAS_ = '⚠️ No se pudo leer';
+var BANDEJA_REVISAR_ = '⚠️ Revisar';
+
+// Lo mismo que se lee al escanear, y además cómo dice la factura que se paga
+// (para saber, en "Facturas nuevas", si es de transferencia).
+function esquemaFacturaBandeja_() {
+  var e = JSON.parse(JSON.stringify(ESQUEMA_FACTURA));
+  e.properties.forma_pago = { type: 'string', enum: ['transferencia', 'domiciliacion', 'efectivo', 'tarjeta', 'contado', ''] };
+  e.required = e.required.concat(['forma_pago']);
+  return e;
+}
+var INSTRUCCIONES_FORMA_PAGO_ =
+  '\n- forma_pago: cómo dice la factura que se paga: "transferencia" (transferencia bancaria, o un IBAN/cuenta del proveedor para ingresar), ' +
+  '"domiciliacion" (domiciliación, recibo domiciliado, adeudo, cargo en cuenta), "efectivo", "tarjeta", o "contado" (al contado, sin decir cómo). ' +
+  'Vacío si la factura no lo dice.';
 var BANDEJA_TIEMPO_MAX_MS_ = 4.5 * 60 * 1000; // el activador corta a los 6 minutos
 var BANDEJA_INTENTOS_ = 3; // fallos (ej. Claude saturado) antes de dejarla en "No se pudo leer"
 var BANDEJA_PROVEEDORES_GENERICOS_ = ['VARIOS', 'SUPER', 'EXTRAS', 'SERVICIOS', 'GLOVO'];
@@ -38,8 +59,7 @@ function asegurarBandejasFacturas_() {
     var cache = CacheService.getScriptCache();
     if (cache.get('bandejas_facturas')) return;
     var raiz = DriveApp.getFolderById(CARPETA_FACTURAS_ID_);
-    carpetaHija_(raiz, BANDEJA_ALBARAN_);
-    carpetaHija_(raiz, BANDEJA_TRANSFERENCIA_);
+    carpetaHija_(raiz, BANDEJA_UNICA_);
     var hay = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'procesarBandejasFacturas'; });
     if (!hay) ScriptApp.newTrigger('procesarBandejasFacturas').timeBased().everyHours(1).create();
     cache.put('bandejas_facturas', '1', 21600);
@@ -96,14 +116,17 @@ function procesarBandejasFacturas() {
     var raiz = DriveApp.getFolderById(CARPETA_FACTURAS_ID_);
     var lista = proveedoresParaLeer_();
     var hechas = [], salida ={ ok: true, hechas: hechas, problemas: [], seReintentan: [] };
-    [[BANDEJA_ALBARAN_, 'albaran'], [BANDEJA_TRANSFERENCIA_, 'transferencia']].forEach(function (b) {
-      var bandeja = carpetaHija_(raiz, b[0]);
+    [[BANDEJA_UNICA_, 'auto'], [BANDEJA_ALBARAN_, 'albaran'], [BANDEJA_TRANSFERENCIA_, 'transferencia']].forEach(function (b) {
+      // Las dos viejas no se vuelven a crear: solo si todavía están.
+      var it = raiz.getFoldersByName(b[0]);
+      var bandeja = it.hasNext() ? it.next() : (b[1] === 'auto' ? carpetaHija_(raiz, b[0]) : null);
+      if (!bandeja) return;
       var archivos = bandeja.getFiles();
       while (archivos.hasNext() && Date.now() - inicio < BANDEJA_TIEMPO_MAX_MS_) {
         var archivo = archivos.next();
         var r;
         try {
-          r = procesarFacturaDeBandeja_(archivo, b[1], raiz, lista);
+          r = procesarFacturaDeBandeja_(archivo, b[1], raiz, lista, bandeja);
         } catch (err) {
           salida.seReintentan.push(archivo.getName() + ': ' + (err.message || err));
           r = reintentarDespues_(archivo, bandeja, String(err.message || err));
@@ -151,8 +174,18 @@ function noSePudoLeer_(archivo, bandeja, motivo) {
   };
 }
 
-function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista) {
-  var bandeja = carpetaHija_(raiz, tipo === 'albaran' ? BANDEJA_ALBARAN_ : BANDEJA_TRANSFERENCIA_);
+// "Facturas nuevas" con dudas: no se carga nada; queda en "⚠️ Revisar".
+function aRevisar_(archivo, bandeja, cual, motivo) {
+  archivo.setDescription('');
+  archivo.moveTo(carpetaHija_(bandeja, BANDEJA_REVISAR_));
+  return {
+    problema: cual + ': ' + motivo + '. Quedó en "' + BANDEJA_REVISAR_ + '", sin cargar.',
+    proveedor: cual, avisos: [{ tipo: 'fallo', que: 'No sé si es de albarán o de transferencia: está en "' + BANDEJA_REVISAR_ + '", sin cargar' }],
+    enlace: archivo.getUrl()
+  };
+}
+
+function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista, bandeja) {
   var mime = archivo.getMimeType();
   var esPdf = mime === MimeType.PDF;
   if (!esPdf && !/^image\/(jpeg|png|webp|gif)$/.test(mime)) return noSePudoLeer_(archivo, bandeja, 'no es un PDF ni una foto');
@@ -163,8 +196,9 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista) {
     ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
     : { type: 'image', source: { type: 'base64', media_type: mime, data: b64 } };
   var r = pedirJsonAClaude_([hoja, {
-    type: 'text', text: INSTRUCCIONES_FACTURA.replace('Esta es la foto de', 'Este es el documento de') + '\n\nProveedores habituales:\n' + (lista.join('\n') || '(no hay lista)')
-  }], ESQUEMA_FACTURA);
+    type: 'text', text: INSTRUCCIONES_FACTURA.replace('Esta es la foto de', 'Este es el documento de').replace(/\nLos importes con punto/, INSTRUCCIONES_FORMA_PAGO_ + '\nLos importes con punto') +
+      '\n\nProveedores habituales:\n' + (lista.join('\n') || '(no hay lista)')
+  }], esquemaFacturaBandeja_());
   if (!r || r.ok === false) throw new Error('Claude no pudo leerla: ' + ((r && r.error) || 'sin respuesta'));
   corregirTotalFactura_(r);
 
@@ -182,16 +216,43 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista) {
   if (!idPlanilla) throw new Error('No hay planilla de ALBARANES ' + anio + ' en el Índice');
   var ss = SpreadsheetApp.openById(idPlanilla);
 
-  // Proveedor (carpeta y pestaña) y detalle (el nombre real, en SERVICIOS).
   var proveedor = deLista || leido || 'Sin proveedor', detalle = '';
+  var cual0 = proveedor + (numero ? ' nº ' + numero : '') + ' del ' + fechaCorta_(fecha) + ', ' + euros_(importe);
+
+  // "Facturas nuevas": primero se busca su albarán en la caja; si está, es
+  // factura de albarán. Si no, transferencia solo si es un servicio (sin
+  // pestaña propia en ALBARANES) o si la factura dice transferencia o
+  // domiciliación. Si no está claro, a "⚠️ Revisar" sin cargar nada.
+  var resultado;
+  var forma = String(r.forma_pago || '');
+  var porBanco = forma === 'transferencia' || forma === 'domiciliacion';
+  if (tipo === 'auto') {
+    var servicio = !deLista || BANDEJA_PROVEEDORES_GENERICOS_.indexOf(normalizarClave_(deLista)) > -1 || !pestanaAlbaranesParaProveedor_(ss, deLista);
+    var esDia = / DIA /.test(' ' + normalizarClave_(proveedor).replace(/[^A-Z]+/g, ' ') + ' ');
+    if (!servicio || esDia) {
+      resultado = pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, isNaN(iva) ? null : iva, r.referencias || []);
+      if (!resultado.noEncontrado && !resultado.sinPestana) tipo = 'albaran';
+      else if (porBanco) { tipo = 'transferencia'; resultado = null; }
+      else return aRevisar_(archivo, bandeja, cual0, 'no encontré su albarán en la caja y la factura no dice que se pague por transferencia. ' +
+        'Si es de un albarán: cargar el albarán en la caja y volver a poner la factura en "' + BANDEJA_UNICA_ + '". Si se pagó por transferencia: cargarla a mano');
+    } else if (forma === 'efectivo' || forma === 'tarjeta') {
+      return aRevisar_(archivo, bandeja, cual0, 'no es de un proveedor con albaranes y la factura dice que se pagó con ' + forma + '. Cargarla a mano');
+    } else {
+      tipo = 'transferencia';
+    }
+  }
+
+  // Proveedor (carpeta y pestaña) y detalle (el nombre real, en SERVICIOS).
   if (tipo === 'transferencia' && (!deLista || BANDEJA_PROVEEDORES_GENERICOS_.indexOf(normalizarClave_(deLista)) > -1 || !pestanaAlbaranesParaProveedor_(ss, deLista))) {
     proveedor = 'Servicios';
     detalle = leido || deLista;
   }
   var cual = (detalle ? 'Servicios — ' + detalle : proveedor) + (numero ? ' nº ' + numero : '') + ' del ' + fechaCorta_(fecha) + ', ' + euros_(importe);
 
-  var resultado;
-  if (tipo === 'albaran') {
+  if (resultado) {
+    // ya pasada a factura arriba ("Facturas nuevas")
+    if (resultado.proveedor) { proveedor = resultado.proveedor; detalle = resultado.detalle || ''; }
+  } else if (tipo === 'albaran') {
     resultado = pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, isNaN(iva) ? null : iva, r.referencias || []);
     if (resultado.proveedor) { proveedor = resultado.proveedor; detalle = resultado.detalle || ''; } // Dia: donde estaba el ticket
   } else {
@@ -274,7 +335,7 @@ function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, ref
   // hay a quién).
   var esDia = / DIA /.test(' ' + normalizarClave_(proveedor).replace(/[^A-Z]+/g, ' ') + ' ');
   var hojas = (esDia ? ['Dia Carne', 'Super'] : [proveedor]).map(function (p) { return pestanaAlbaranesParaProveedor_(ss, p); }).filter(Boolean);
-  if (!hojas.length) return { avisos: [{ tipo: 'fallo', que: 'No tiene pestaña en ALBARANES: no se pudo buscar su albarán' }], texto: 'guardada en Drive', problema: 'no hay pestaña de "' + proveedor + '" en ALBARANES, así que no se pudo buscar el albarán para ponerle los datos de la factura.' };
+  if (!hojas.length) return { sinPestana: true, avisos: [{ tipo: 'fallo', que: 'No tiene pestaña en ALBARANES: no se pudo buscar su albarán' }], texto: 'guardada en Drive', problema: 'no hay pestaña de "' + proveedor + '" en ALBARANES, así que no se pudo buscar el albarán para ponerle los datos de la factura.' };
   var hoja = hojas[0];
 
   var numeros = [numero].concat(referencias.map(function (x) { return x.numero; })).map(claveNumeroFactura_).filter(String);
@@ -315,7 +376,7 @@ function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, ref
     }).slice(0, 1);
   }
   if (!encontradas.length) {
-    return { avisos: [{ tipo: 'fallo', que: 'No encontré su albarán en la caja: ¿se cargó?' }], texto: 'guardada en Drive', problema: 'no encontré en ALBARANES (' + (esDia ? 'pestañas DIA CARNE y SUPER' : 'pestaña ' + hoja.getName()) + ') el albarán cargado en la caja. Si no se cargó, hay que cargarlo.' };
+    return { noEncontrado: true, avisos: [{ tipo: 'fallo', que: 'No encontré su albarán en la caja: ¿se cargó?' }], texto: 'guardada en Drive', problema: 'no encontré en ALBARANES (' + (esDia ? 'pestañas DIA CARNE y SUPER' : 'pestaña ' + hoja.getName()) + ') el albarán cargado en la caja. Si no se cargó, hay que cargarlo.' };
   }
   // La carpeta de Drive: la del proveedor donde está cargado el ticket.
   var enSuper = esDia && normalizarClave_(encontradas[0].pestana) === 'SUPER';
