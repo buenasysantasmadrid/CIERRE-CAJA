@@ -293,9 +293,13 @@ var ESQUEMA_LINEAS_FACTURA = {
           cantidad: { type: 'string' },
           unidad: { type: 'string' },
           precio_unitario: { type: 'string' },
-          id_producto: { type: 'string' }
+          id_producto: { type: 'string' },
+          formato_factura: { type: 'string' },
+          formato_pedidos: { type: 'string' },
+          precio_formato_pedidos: { type: 'string' }
         },
-        required: ['texto', 'cantidad', 'unidad', 'precio_unitario', 'id_producto'],
+        required: ['texto', 'cantidad', 'unidad', 'precio_unitario', 'id_producto',
+          'formato_factura', 'formato_pedidos', 'precio_formato_pedidos'],
         additionalProperties: false
       }
     }
@@ -334,6 +338,28 @@ function proveedorDePedidos_(data, proveedor, nombres) {
   return nombres.indexOf(r.proveedor_pedidos) >= 0 ? r.proveedor_pedidos : '';
 }
 
+// Una línea leída → la que se manda a Pedidos, con el precio en el formato
+// en que se pide el producto (16/11: la Coca-Cola venía unas veces en caja
+// de 24 y otras en pack de 12 y salían cambios de precio falsos). Si la IA no
+// sabe convertirlo, la línea va sin emparejar: no cambia el precio del
+// producto ni da aviso (mejor no avisar que avisar mal).
+function lineaEnFormatoPedidos_(l) {
+  var id = String(l.id_producto || '').trim();
+  var precio = l.precio_unitario, unidad = l.unidad;
+  if (id) {
+    var convertido = Number(String(l.precio_formato_pedidos || '').replace(',', '.'));
+    var fFac = String(l.formato_factura || '').trim(), fPed = String(l.formato_pedidos || '').trim();
+    if (convertido > 0) {
+      precio = String(Math.round(convertido * 10000) / 10000);
+      if (fFac && fPed && sinAcentos_(fFac) !== sinAcentos_(fPed)) unidad = fFac + ' → ' + fPed;
+    } else {
+      id = '';
+      unidad = (fFac || unidad || '') + ' (formato dudoso, sin comparar)';
+    }
+  }
+  return { texto: l.texto, id: id, cantidad: l.cantidad, unidad: unidad, precio: precio };
+}
+
 function mandarPreciosAPedidos_(data, proveedor, fecha, foto) {
   var cat = catalogoPedidos_();
   var nombres = Object.keys(cat.proveedores);
@@ -352,6 +378,15 @@ function mandarPreciosAPedidos_(data, proveedor, fecha, foto) {
     'Si la factura solo trae el importe de la línea, divídelo entre la cantidad.\n' +
     '  · id_producto: el ID del producto de la lista que sea el mismo artículo, aunque esté escrito distinto ' +
     '(abreviaturas, marca, formato). Si no corresponde a ninguno o no estás seguro, vacío.\n' +
+    'IMPORTANTE, para comparar precios entre facturas: el mismo producto puede venir cobrado en formatos distintos ' +
+    '(ej. Coca-Cola en caja de 24 latas una vez y en pack de 12 otra; agua por pack de 6 o por botella). ' +
+    'El precio se compara siempre en el formato en que el restaurante lo pide en la app (el que dice el nombre o la unidad de la lista, ' +
+    'ej. "COCA-COLA 24 lata" = caja de 24 latas).\n' +
+    '  · formato_factura: lo que es UNA unidad cobrada en esa línea, con cuántas piezas trae (ej. "pack 12 latas", "caja 24 latas", "1 botella", "kg"); ' +
+    'mira la descripción, la columna de unidades por bulto y el importe para saberlo.\n' +
+    '  · formato_pedidos: el formato del producto de la lista (ej. "caja 24 latas"); vacío si no hay id_producto.\n' +
+    '  · precio_formato_pedidos: precio_unitario convertido a formato_pedidos (ej. pack 12 latas a 9 → caja 24 latas = 18). ' +
+    'Si los dos formatos son el mismo, igual a precio_unitario. Si no puedes saber con seguridad cuántas piezas trae alguno de los dos, VACÍO (nunca lo adivines).\n' +
     'Números con punto decimal y sin símbolo de euro (ej. 12.5). Si un dato no se lee con seguridad, déjalo vacío en vez de inventarlo.\n\n' +
     'PRODUCTOS DE ' + deCual + ':\n' + cat.proveedores[deCual].join('\n');
   var r = pedirJsonAClaude_(imagenesFactura_(data).concat([
@@ -365,9 +400,7 @@ function mandarPreciosAPedidos_(data, proveedor, fecha, foto) {
     return pedirAPedidos_({
       accion: 'precios', proveedor: deCual, factura: String(data.numero_factura || '').trim(),
       fecha: fecha, foto: foto, reemplazar: !!data.reemplazar,
-      lineas: r.lineas.map(function (l) {
-        return { texto: l.texto, id: l.id_producto, cantidad: l.cantidad, unidad: l.unidad, precio: l.precio_unitario };
-      })
+      lineas: r.lineas.map(lineaEnFormatoPedidos_)
     });
   } catch (err) {
     return { ok: false, error: err.message };
@@ -448,10 +481,12 @@ function guardarPreciosPropios_(data, proveedor, fecha, foto) {
     'recargos, descuentos generales, subtotales ni totales.\n' +
     '  · texto: la descripción tal como sale en la factura (igual cada vez, para poder comparar precios entre facturas).\n' +
     '  · producto: el nombre del producto claro y corto, en minúsculas con la primera en mayúscula (ej. "Tomate pera").\n' +
-    '  · cantidad: la cantidad facturada en esa línea.\n' +
-    '  · unidad: la unidad en la que se cobra (kg, unidad, caja, manojo...), como lo indique la factura; vacío si no lo dice.\n' +
-    '  · precio_unitario: precio de UNA unidad de esa línea, SIN IVA y con los descuentos de la propia línea ya aplicados. ' +
-    'Si la factura solo trae el importe de la línea, divídelo entre la cantidad.\n' +
+    '  · unidad: "kg" si se vende al peso; si no, la pieza suelta ("unidad", "manojo", "bandeja"...). NUNCA "caja" ni "pack": ' +
+    'para poder comparar precios entre facturas, una caja o pack se pasa a kg o a pieza suelta.\n' +
+    '  · cantidad: la cantidad en esa unidad (ej. 2 cajas de 5 kg → 10).\n' +
+    '  · precio_unitario: precio de UN kg o UNA pieza suelta, SIN IVA y con los descuentos de la propia línea ya aplicados ' +
+    '(ej. caja de 5 kg a 10 → 2; pack de 6 a 3 → 0.5). Si la factura solo trae el importe de la línea, divídelo entre la cantidad. ' +
+    'Si cobra por caja y no puedes saber con seguridad cuántos kg o piezas trae, unidad "caja" y el precio de la caja.\n' +
     'Números con punto decimal y sin símbolo de euro (ej. 12.5). Si un dato no se lee con seguridad, déjalo vacío en vez de inventarlo.';
   var r = pedirJsonAClaude_(imagenesFactura_(data).concat([{ type: 'text', text: instrucciones }]),
     ESQUEMA_LINEAS_SIN_CATALOGO_, 'medium', MODELO_BARATO_);
@@ -477,13 +512,13 @@ function guardarPreciosPropios_(data, proveedor, fecha, foto) {
       if (f[1] !== proveedor) return;
       var fe = f[0] instanceof Date ? Utilities.formatDate(f[0], 'Europe/Madrid', 'yyyy-MM-dd') : String(f[0]);
       if (fe > fecha) return;
-      var k = clavePrecioPropio_(f[3]);
+      var k = clavePrecioPropio_(f[3]) + '|' + sinAcentos_(f[7]);
       if (!anterior[k] || anterior[k].fecha <= fe) anterior[k] = { fecha: fe, precio: Number(f[8]) || 0 };
     });
     var ahora = new Date();
     var nuevas = lineas.map(function (l) {
       var precio = Math.round(Number(l.precio_unitario) * 10000) / 10000;
-      var antes = (anterior[clavePrecioPropio_(l.texto)] || {}).precio || '';
+      var antes = (anterior[clavePrecioPropio_(l.texto) + '|' + sinAcentos_(l.unidad)] || {}).precio || '';
       return [fechaComoDate_(fecha), proveedor, factura, String(l.texto).trim(), '', String(l.producto || l.texto).trim(),
         Number(l.cantidad) || l.cantidad, l.unidad, precio, antes,
         antes ? Math.round((precio - antes) / antes * 1000) / 10 : '', foto, ahora];
