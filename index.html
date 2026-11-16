@@ -1657,7 +1657,7 @@
       // Lo que ponía solo el escaneo de facturas ("Base imponible: … · IVA …%")
       // no se muestra: si no hay otro comentario, no aparece nada.
       var otroDia = m.fecha && /^\d{4}-\d{2}-\d{2}$/.test(m.fecha) && m.fecha !== state.fecha;
-      var mPago = /(?:^|·\s*)PAGADO(?:\s+[A-Z]+)?\s+(\d{4}-\d{2}-\d{2})/.exec(info);
+      var mPago = /(?:^|·\s*)PAGADO(?:\s+[A-Z\/]+)?\s+(\d{4}-\d{2}-\d{2})/.exec(info);
       info = info.split(' · ').filter(function(p){
         if(otroDia && (p.indexOf('Pago de factura ') === 0 || /^PAGADO\b/.test(p))) return false;
         return !/^Base imponible:/.test(p) && !/^IVA [\d.,]+\s*%$/.test(p);
@@ -1669,7 +1669,9 @@
         partes.push('Factura del ' + fechaCorta(m.fecha) + (sinPagar ? '' : ' · pagada el ' + fechaCorta(mPago ? mPago[1] : state.fecha)));
       }
       if(info) partes.push(info);
-    } else if(m.tipo !== 'empanadas'){
+    } else if(m.tipo === 'empanadas'){
+      if(m.info) partes.push(m.info);
+    } else {
       if(m.motivo) partes.push(m.motivo);
     }
     // El responsable no se muestra en las listas: solo al abrir el movimiento.
@@ -2136,7 +2138,7 @@
       // Factura / Albarán / Sin factura nunca (solo Varios y Super): va como
       // etiqueta al final de Info (" · ALBARÁN", " · SIN FACTURA") y el
       // INFORME MES de Albaranes la usa para separar lo que no es factura.
-      var docGasto = documentoDeInfo(infoVisible);
+      var docGasto = editingId ? documentoDeInfo(infoVisible) : ''; // nuevo: nada elegido
       infoVisible = quitarDocumentoDeInfo(infoVisible);
       html += '<div class="form-grid" id="campoDocumento"><div class="field span-2"><label>¿Qué es?</label>' +
         chipSelectHTML('documento', '', DOCUMENTOS_GASTO, docGasto) + '</div></div>';
@@ -2159,11 +2161,22 @@
           empanadasClienteField('proveedor', f.proveedor||'') +
           responsableField(f.responsable||'') +
         '</div>';
+        // Cliente "OTRO": se puede escribir quién o qué fue (va en Info).
+        html += '<div class="form-grid" id="campoObsEmpanadas" style="'+(f.proveedor === 'OTRO' ? '' : 'display:none;')+'"><div class="field span-2"><label>Observaciones</label>' +
+          '<input type="text" data-field="info" value="'+escapeHtml(f.info||'')+'" placeholder="Quién es, qué se llevó, lo que haga falta anotar"></div></div>';
         html += importeBlock(f.importe);
       }
     }
     container.innerHTML = html;
     wireChipSelects(container);
+    var campoObsEmp = document.getElementById('campoObsEmpanadas');
+    if(campoObsEmp){
+      var hiddenCli = container.querySelector('input[type="hidden"][data-field="proveedor"]');
+      if(hiddenCli) hiddenCli.addEventListener('change', function(){
+        campoObsEmp.style.display = hiddenCli.value === 'OTRO' ? '' : 'none';
+        if(hiddenCli.value === 'OTRO') campoObsEmp.querySelector('input').focus();
+      });
+    }
 
     var selResp = document.getElementById('responsableSelect');
     if(selResp){
@@ -3810,13 +3823,16 @@
   function esProveedorSinFactura(valor){
     return PROVEEDORES_SIN_FACTURA.indexOf(valor) > -1;
   }
-  var DOCUMENTOS_GASTO = ['Factura', 'Albarán (espera factura)', 'Sin factura nunca'];
-  var DOCUMENTO_TAG = { 'Albarán (espera factura)': 'ALBARÁN', 'Sin factura nunca': 'SIN FACTURA' };
+  // Desde el 16/11/2026: solo Albarán o Factura, sin nada elegido al empezar
+  // (hay que elegir uno para guardar). "Sin factura nunca" ya no se elige,
+  // pero su etiqueta se sigue reconociendo en los gastos viejos.
+  var DOCUMENTOS_GASTO = ['Albarán', 'Factura'];
+  var DOCUMENTO_TAG = { 'Albarán': 'ALBARÁN', 'Sin factura nunca': 'SIN FACTURA' };
   var PROVEEDORES_CON_DOCUMENTO = ['Varios', 'Super'];
   function documentoDeInfo(info){
     var partes = String(info || '').split(' · ');
     var ultima = partes[partes.length - 1];
-    for(var k in DOCUMENTO_TAG){ if(ultima === DOCUMENTO_TAG[k]) return k; }
+    for(var k in DOCUMENTO_TAG){ if(ultima === DOCUMENTO_TAG[k]) return DOCUMENTOS_GASTO.indexOf(k) > -1 ? k : ''; }
     return 'Factura';
   }
   function quitarDocumentoDeInfo(info){
@@ -3908,6 +3924,7 @@
     var importe = num(data.importe);
     if(!importe){ toast('Ingresá un importe válido'); return; }
     if(currentTipo === 'empanadas' && !(data.proveedor||'').trim()){ toast('Elige el cliente'); return; }
+    if(currentTipo === 'empanadas' && data.proveedor !== 'OTRO') data.info = ''; // las observaciones son solo para "OTRO"
 
     var tipoFinal = currentTipo;
     var subtipoFinal = currentSubtipo;
@@ -3920,6 +3937,7 @@
       proveedorDetalle = (data.proveedorDetalle || '').trim();
     }
     if(currentTipo === 'gasto' && !proveedorFinal){ toast('Elegí un proveedor'); return; }
+    if(currentTipo === 'gasto' && PROVEEDORES_CON_DOCUMENTO.indexOf(proveedorFinal) > -1 && !data.documento){ toast('Elige qué es: Albarán o Factura'); return; }
     if(currentTipo === 'gasto' && PROVEEDORES_CON_DETALLE_LIBRE.indexOf(proveedorFinal) > -1 && !proveedorDetalle){ toast('Escribí el nombre real del proveedor para "'+proveedorFinal+'"'); return; }
 
     var responsableFinal = data.responsable || '';
