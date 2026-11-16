@@ -578,6 +578,9 @@
     opacity:0;pointer-events:none;transition:opacity .25s;z-index:300;text-align:center;
   }
   .toast.show{opacity:1;}
+  .fp-hojas{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+  .fp-hojas img{width:72px;height:96px;object-fit:cover;border-radius:8px;border:1px solid #ddd;}
+  .fp-hojas .fp-txt{flex-basis:100%;font-size:13px;color:#777;}
 </style>
 </head>
 <body>
@@ -618,6 +621,7 @@
           <button type="button" data-menu-archivo="arreglos" class="menu-con-ico"><span data-icon="nevera"></span>Arreglo electrodomésticos</button>
           <button type="button" data-menu-archivo="cajita" class="menu-con-ico"><span data-icon="cajita"></span>Sobrecito</button>
           <button type="button" data-menu-archivo="cambio" class="menu-con-ico"><span data-icon="coins"></span>Cambio</button>
+          <button type="button" data-menu-archivo="facturasPapel" class="menu-con-ico"><span data-icon="camera"></span>Facturas mes</button>
         </div>
       </nav>
     </div>
@@ -874,6 +878,36 @@
         <div class="menu-grupo">Resumen de lo que queda</div>
         <div id="cambioCajaResumen"></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Facturas en papel que no se cargan en la caja (menú Varios) -->
+<div class="screen" id="facturasPapelScreen">
+  <div class="screen-head">
+    <div class="screen-head-inner">
+      <div>
+        <div class="eyebrow">Facturas</div>
+        <h2>Facturas del mes</h2>
+      </div>
+      <button type="button" class="x-btn" data-cerrar-menu-screen aria-label="Cerrar" data-icon="x"></button>
+    </div>
+  </div>
+  <div class="screen-body">
+    <div class="screen-inner">
+      <p class="muted" style="margin:14px 0;">Para las facturas que llegan a fin de mes (Pollería, Las 3B, La Jaula, Mercandalucía…). <b>No se cargan como gasto</b>: se guardan como la factura del mes y se comparan con sus albaranes.</p>
+      <div class="captura">
+        <button type="button" class="btn-foto-grande" id="fpBtnCamera"><span data-icon="camera"></span><span id="fpBtnCameraTxt">Foto</span></button>
+        <div class="captura-chicos"><button type="button" id="fpBtnUpload"><span data-icon="photo"></span>Subir imagen</button></div>
+        <input type="file" id="fpFileCamera" accept="image/*" capture="environment" style="display:none;">
+        <input type="file" id="fpFileUpload" accept="image/*" style="display:none;">
+      </div>
+      <div id="fpHojas" class="fp-hojas"></div>
+      <div class="scan-actions" id="fpAcciones" style="margin-top:12px;display:none;">
+        <button type="button" class="btn-primary" id="fpEnviar">Guardar factura</button>
+        <button type="button" id="fpBorrar">Empezar de nuevo</button>
+      </div>
+      <div id="facturasPapelEstado" class="menu-estado"></div>
     </div>
   </div>
 </div>
@@ -2763,6 +2797,9 @@
   }
 
   function agregarHojaEscaneada(hoja){
+    // Desde "Facturas" (menú Varios): solo se juntan las hojas, no se lee nada.
+    var fpAbierta = document.getElementById('facturasPapelScreen').classList.contains('open');
+    if(fpAbierta){ agregarHojaFacturaPapel(hoja); return; }
     scanPaginas.push({ url: hoja.toDataURL('image/jpeg', 0.85), w: hoja.width, h: hoja.height, leer: versionParaLeer(hoja) });
     prepararLecturaScan();
     // La primera hoja se lee sola (y así el PDF queda en Drive aunque
@@ -5329,6 +5366,7 @@
     else if(cual === 'arreglos') abrirArreglos();
     else if(cual === 'cajita') abrirCajita();
     else if(cual === 'cambio') abrirCambioCaja();
+    else if(cual === 'facturasPapel') abrirFacturasPapel();
   });
 
   // ---------- pantallas del menú ----------
@@ -5925,6 +5963,53 @@
   // Cambio de tinta: cada impresora con su último cambio de negra y de
   // color, y un botón para apuntar uno nuevo con la fecha de arriba.
   var TINTA_NOMBRE = { negra: 'Tinta negra', color: 'Tinta de color' };
+  // ---------- Facturas en papel (menú Varios → Facturas) ----------
+  // Fotos de una factura que no se carga en la caja (la del mes de Pollería,
+  // Las 3B…): se escanean con el mismo escáner, se juntan en un PDF y van a
+  // "Facturas nuevas" (guardarFacturaPapel_ en Bandejas.gs), que la pasa ya.
+  var facturaPapelHojas = [];
+  function abrirFacturasPapel(){
+    facturaPapelHojas = [];
+    pintarFacturaPapel();
+    estadoMenu('facturasPapelEstado', '');
+    abrirPantallaMenu('facturasPapelScreen');
+  }
+  function agregarHojaFacturaPapel(hoja){
+    facturaPapelHojas.push({ url: hoja.toDataURL('image/jpeg', 0.85), w: hoja.width, h: hoja.height });
+    pintarFacturaPapel();
+  }
+  function pintarFacturaPapel(){
+    var n = facturaPapelHojas.length;
+    document.getElementById('fpHojas').innerHTML = facturaPapelHojas.map(function(h){ return '<img src="' + h.url + '" alt="Hoja de la factura">'; }).join('') +
+      (n ? '<div class="fp-txt">' + (n === 1 ? '1 hoja. Si la factura tiene más, toca "Añadir hoja".' : n + ' hojas (van juntas en un PDF).') + '</div>' : '');
+    document.getElementById('fpAcciones').style.display = n ? '' : 'none';
+    document.getElementById('fpBtnCameraTxt').textContent = n ? 'Añadir hoja' : 'Foto';
+  }
+  ['fpFileCamera', 'fpFileUpload'].forEach(function(id){
+    document.getElementById(id).addEventListener('change', function(){
+      handleScanFile(this.files && this.files[0], this);
+    });
+  });
+  document.getElementById('fpBtnCamera').addEventListener('click', function(){ document.getElementById('fpFileCamera').click(); });
+  document.getElementById('fpBtnUpload').addEventListener('click', function(){ document.getElementById('fpFileUpload').click(); });
+  document.getElementById('fpBorrar').addEventListener('click', function(){ facturaPapelHojas = []; pintarFacturaPapel(); estadoMenu('facturasPapelEstado', ''); });
+  document.getElementById('fpEnviar').addEventListener('click', function(){
+    if(!facturaPapelHojas.length) return;
+    var btn = this;
+    btn.disabled = true;
+    estadoMenu('facturasPapelEstado', 'Guardando y leyendo la factura… (tarda unos segundos)', true);
+    pedirAlSheet({ accionFacturaPapel: true, pdfBase64: pdfDeHojas(facturaPapelHojas) }).then(function(d){
+      btn.disabled = false;
+      facturaPapelHojas = []; pintarFacturaPapel();
+      if(d.problema) estadoMenu('facturasPapelEstado', '⚠️ ' + d.problema, false, true);
+      else estadoMenu('facturasPapelEstado', '✔ ' + (d.hecha || 'Guardada.'));
+    }).catch(function(err){
+      btn.disabled = false;
+      estadoMenu('facturasPapelEstado', 'No se pudo guardar (' + err.message + '). Prueba otra vez.', false, true);
+      avisarErrorPorMail('una factura en papel (menú Facturas) no se guardó', err.message);
+    });
+  });
+
   function abrirTinta(){
     document.getElementById('tintaFecha').value = todayISO();
     abrirPantallaMenu('tintaScreen');

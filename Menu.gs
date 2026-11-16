@@ -41,6 +41,7 @@ function accionDelMenu_(data) {
   else if (data.accionCambioLeer) fn = function () { return leerCambio_(); };
   else if (data.accionCambioGuardar) fn = function () { return guardarCambio_(data.movimiento || {}); };
   else if (data.accionDictarMenu) fn = function () { return dictarMenu_(data); };
+  else if (data.accionFacturaPapel) fn = function () { return guardarFacturaPapel_(data); }; // ver Bandejas.gs
   if (!fn) return null;
   try {
     return respuestaJSON_(fn());

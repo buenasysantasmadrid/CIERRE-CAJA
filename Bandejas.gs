@@ -580,3 +580,25 @@ function fechaCorta_(fechaISO) {
 function euros_(n) {
   return (Math.round(Number(n) * 100) / 100).toFixed(2).replace('.', ',') + ' €';
 }
+
+// Desde la app (menú Varios → Facturas): la foto de una factura en papel que
+// no se carga en la caja (sobre todo la del mes de Pollería, La Jaula,
+// Mercandalucía y Las 3B). Se guarda en "Facturas nuevas" y se pasa ya, como
+// si se hubiera puesto en la carpeta; devuelve qué se hizo con ella.
+function guardarFacturaPapel_(data) {
+  if (!data.pdfBase64) return { ok: false, error: 'No llegó la foto' };
+  var raiz = DriveApp.getFolderById(CARPETA_FACTURAS_ID_);
+  var bandeja = carpetaHija_(raiz, BANDEJA_UNICA_);
+  var nombre = 'Factura en papel ' + Utilities.formatDate(new Date(), 'Europe/Madrid', 'yyyy-MM-dd HH.mm.ss') + '.pdf';
+  var archivo = bandeja.createFile(Utilities.newBlob(Utilities.base64Decode(data.pdfBase64), 'application/pdf', nombre));
+  var r;
+  try {
+    r = procesarFacturaDeBandeja_(archivo, 'auto', raiz, proveedoresParaLeer_(), bandeja);
+  } catch (err) {
+    // Se queda en la carpeta y se prueba otra vez en la vuelta de cada hora.
+    return { ok: true, guardada: true, hecha: 'Guardada. No se pudo leer ahora (' + (err.message || err) + '): se vuelve a intentar sola en menos de una hora.' };
+  }
+  if (r.hecha) apuntarMovFactura_('cargada', r.proveedor, r.importe, 'Foto en la app (Facturas): ' + r.hecha, r.enlace);
+  (r.avisos || []).forEach(function (a) { apuntarMovFactura_(a.tipo, r.proveedor, r.importe, a.que, r.enlace); });
+  return { ok: true, guardada: true, hecha: r.hecha || '', problema: r.problema || '' };
+}
