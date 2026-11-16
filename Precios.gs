@@ -20,7 +20,8 @@ function preciosFactura_(data) {
   var fecha = /^\d{4}-\d{2}-\d{2}$/.test(String(data.fecha || ''))
     ? data.fecha : Utilities.formatDate(new Date(), 'Europe/Madrid', 'yyyy-MM-dd');
   var res = { ok: true };
-  try { res.foto = guardarFotoFactura_(data, proveedor, fecha); } catch (err) { res.errorFoto = String(err); }
+  // soloPrecios: el PDF ya lo guardó la factura de un ticket (FacturaTicket.gs).
+  if (!data.soloPrecios) { try { res.foto = guardarFotoFactura_(data, proveedor, fecha); } catch (err) { res.errorFoto = String(err); } }
   // soloPdf: se añadió una hoja a una factura ya leída — solo se vuelve a
   // guardar el PDF (los precios ya se mandaron).
   var cual = proveedor + ', nº ' + (String(data.numero_factura || '').trim() || '?') + ', fecha ' + fecha;

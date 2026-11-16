@@ -2810,7 +2810,6 @@
       scanIdFactura = [ahora.getHours(), ahora.getMinutes(), ahora.getSeconds()].map(function(n){ return ('0' + n).slice(-2); }).join('.');
       extractInvoiceViaAI(0);
     }
-    else if(scanUltimaLectura) mandarFotoParaPrecios(scanUltimaLectura, true);
   }
 
   function lienzo(w, h){
@@ -3208,7 +3207,9 @@
       // Dia: antes de nada se pregunta si es de Super o de Carne (de eso
       // dependen la carpeta de Drive, el proveedor y los tickets que se buscan).
       preguntarSiDiaEsSuperOCarne(parsed, function(){
-        mandarFotoParaPrecios(parsed);
+        // El PDF (y los precios) se mandan al guardar el movimiento
+        // (enviarFotoAlGuardar): si no se guarda, no queda nada en Drive.
+        scanUltimaLectura = parsed;
         aplicarDatosFactura(parsed);
         // ¿Es la factura de un ticket ya anotado? Si encaja, pregunta; si se
         // escaneó con "Es la factura de un ticket", se elige el ticket a mano.
@@ -3233,9 +3234,9 @@
       document.getElementById('scanStatusLine').style.display = 'none';
       document.getElementById('scanErrorLine').style.display = 'block';
       document.getElementById('scanErrorLine').textContent = 'No se pudieron leer los datos automáticamente. Completá a mano abajo. (' + (msg||'error desconocido') + ')';
-      // El PDF se guarda igual (en "Sin proveedor"), para no perder la factura.
-      if(!scanUltimaLectura) mandarFotoParaPrecios({});
-      avisarErrorPorMail('no se pudieron leer los datos de una factura', 'Claude no pudo leer la factura escaneada: ' + (msg || 'error desconocido') + '.\nEl PDF se guardó en Drive en la carpeta "Sin proveedor" del mes de hoy.');
+      // El PDF se guarda igual al guardar el movimiento, con lo que se escriba a mano.
+      if(!scanUltimaLectura) scanUltimaLectura = {};
+      avisarErrorPorMail('no se pudieron leer los datos de una factura', 'Claude no pudo leer la factura escaneada: ' + (msg || 'error desconocido') + '.\nEl PDF se guarda en Drive cuando se guarde el movimiento.');
     })
     .finally(function(){
       if(!esperandoReintento) btn.disabled = false;
@@ -3246,7 +3247,7 @@
   // todas las hojas) en Drive y pasa los precios de cada producto a la app
   // de Pedidos (Precios.gs). Nada se muestra en pantalla: si falla en el
   // Apps Script, avisa él por email; si ni siquiera llega, avisa la app.
-  function mandarFotoParaPrecios(parsed, soloPdf){
+  function mandarFotoParaPrecios(parsed, soloPdf, soloPrecios){
     var descripcion = '';
     try {
       if(!scanImageBase64 || !scanPaginas.length) return;
@@ -3258,7 +3259,7 @@
       var elegido = parsed.proveedorElegido;
       var esSuper = !!leido && !proveedorDeLaLista(parsed.proveedor_lista) && !buscarProveedorPorNombre(leido) && esSupermercado(leido);
       descripcion = (parsed.proveedor_lista || parsed.proveedor || 'proveedor sin leer') + ', nº ' + (parsed.numero_factura || '?') + ', fecha ' + (parsed.fecha || '?') + ', ' + scanPaginas.length + ' hoja(s)';
-      postConReintentos(JSON.stringify({ accionPreciosFactura: true, soloPdf: !!soloPdf, idEscaneo: scanIdFactura, imageBase64: scanImageBase64, mediaType: scanMediaType,
+      postConReintentos(JSON.stringify({ accionPreciosFactura: true, soloPdf: !!soloPdf, soloPrecios: !!soloPrecios, idEscaneo: scanIdFactura, imageBase64: scanImageBase64, mediaType: scanMediaType,
           imagenes: imagenesParaLeer(), pdfBase64: pdfDeHojas(scanPaginas),
           proveedor: elegido ? elegido.proveedor : esSuper ? 'Super' : (parsed.proveedor_lista || parsed.proveedor || ''),
           detalle: elegido ? elegido.detalle : esSuper ? leido : '',
@@ -3271,6 +3272,21 @@
     } catch(e){
       avisarErrorPorMail('una factura NO se guardó en Drive', 'Al preparar el PDF de la factura (' + descripcion + ') falló: ' + e.message + '.\nHay que volver a escanearla.');
     }
+  }
+
+  // Al guardar un gasto que tiene una factura escaneada: ahora sí va el PDF
+  // a Drive (y los precios a Pedidos), con el proveedor, número y fecha que
+  // quedaron en el formulario. Si el gasto no se guarda, no se manda nada.
+  function enviarFotoAlGuardar(mov, documento){
+    if(!scanPaginas.length || !scanUltimaLectura) return;
+    var p = JSON.parse(JSON.stringify(scanUltimaLectura));
+    if(mov.proveedor) p.proveedorElegido = { proveedor: mov.proveedor, detalle: mov.proveedorDetalle || '' };
+    if(mov.factura) p.numero_factura = mov.factura;
+    if(mov.fecha) p.fecha = mov.fecha;
+    if(documento === 'Albarán') p.tipo_documento = 'albaran';
+    else if(documento === 'Factura') p.tipo_documento = 'factura';
+    mandarFotoParaPrecios(p);
+    scanUltimaLectura = null; // una vez
   }
 
   // Errores que no se muestran en pantalla: llegan por email (ver Avisos.gs).
@@ -3501,6 +3517,8 @@
       // No se espera: el Apps Script tarda unos 20 segundos en rehacer la
       // caja, Contabilidad y Albaranes. Si algo falla llega por email, y la
       // caja en pantalla se actualiza sola cuando termina.
+      if(scanUltimaLectura) mandarFotoParaPrecios(scanUltimaLectura, false, true); // solo precios (el PDF va con la factura)
+      scanUltimaLectura = null;
       aplicarFacturaATickets(e, prov, parsed, quienAhora()).catch(function(){});
       ov.remove();
       closeModal();
@@ -4032,6 +4050,8 @@
       motivo: data.motivo || '',
       responsable: responsableFinal
     };
+
+    if(tipoFinal === 'gasto') enviarFotoAlGuardar(mov, data.documento);
 
     var t = modalTurno;
     var anterior = editingId ? state[t].movimientos.find(function(m){ return m.id === editingId; }) : null;
