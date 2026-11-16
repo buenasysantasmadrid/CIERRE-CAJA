@@ -63,6 +63,7 @@ function asegurarBandejasFacturas_() {
     carpetaHija_(raiz, BANDEJA_UNICA_);
     var hay = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'procesarBandejasFacturas'; });
     if (!hay) ScriptApp.newTrigger('procesarBandejasFacturas').timeBased().everyHours(1).create();
+    asegurarActivadorFacturasQueFaltan_(); // el email del día 3 (FacturasQueFaltan.gs)
     cache.put('bandejas_facturas', '1', 21600);
   } catch (err) {
     Logger.log('Bandejas de facturas: ' + err);
@@ -133,7 +134,10 @@ function procesarBandejasFacturas() {
           salida.seReintentan.push(archivo.getName() + ': ' + (err.message || err));
           r = reintentarDespues_(archivo, bandeja, String(err.message || err));
         }
-        if (r.hecha) hechas.push(r.hecha);
+        if (r.hecha) {
+          hechas.push(r.hecha);
+          apuntarMovFactura_('cargada', r.proveedor, r.importe, 'Por la carpeta: ' + r.hecha, r.enlace); // para el resumen de los lunes
+        }
         // Para el resumen de los lunes: solo lo que hay que mirar (ver ResumenFacturas.gs).
         (r.avisos || []).forEach(function (a) { apuntarMovFactura_(a.tipo, r.proveedor, r.importe, a.que, r.enlace); });
         if (r.problema) {
@@ -174,6 +178,61 @@ function noSePudoLeer_(archivo, bandeja, motivo) {
     proveedor: archivo.getName(), avisos: [{ tipo: 'fallo', que: 'No se pudo leer (' + motivo + '): cargarla a mano.' }],
     enlace: archivo.getUrl()
   };
+}
+
+// La factura del mes de Pollería, La Jaula, Mercandalucía o Las 3B. Va a la
+// carpeta del mes que cubre (el de sus albaranes: si es de los primeros 10
+// días, el mes anterior), con la nota "factura": así la ven el INFORME MES y
+// el paquete de los contables (facturasMensualesEnDrive_ en Albaranes.gs).
+function guardarFacturaMensual_(archivo, raiz, ss, proveedor, fecha, numero, importe, referencias) {
+  var anio = Number(fecha.slice(0, 4)), mes = Number(fecha.slice(5, 7)) - 1;
+  var fechasRef = referencias.map(function (x) { return x.fecha; }).filter(function (f) { return /^\d{4}-\d{2}-\d{2}$/.test(f); }).sort();
+  if (fechasRef.length) {
+    var ultima = fechasRef[fechasRef.length - 1];
+    anio = Number(ultima.slice(0, 4)); mes = Number(ultima.slice(5, 7)) - 1;
+  } else if (Number(fecha.slice(8, 10)) <= 10) {
+    mes--; if (mes < 0) { mes = 11; anio--; }
+  }
+  var mm = ('0' + (mes + 1)).slice(-2);
+  var nombreMes = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'][mes];
+
+  // La suma de los albaranes de ese mes en ALBARANES.
+  var suma = null, n = 0;
+  try {
+    var ssMes = String(anio) === fecha.slice(0, 4) ? ss : SpreadsheetApp.openById(buscarEnIndice_('ALBARANES', String(anio)));
+    var hoja = pestanaAlbaranesParaProveedor_(ssMes, proveedor);
+    var b = hoja ? filasDelMesAlbaranes_(hoja, mes) : null;
+    if (b) {
+      suma = Math.round(b.filas.reduce(function (s, f) { return s + f.importe; }, 0) * 100) / 100;
+      n = b.filas.filter(function (f) { return f.importe; }).length;
+    }
+  } catch (err) { Logger.log('Factura mensual, suma: ' + err); }
+
+  var dir = carpetaHija_(carpetaHija_(carpetaHija_(raiz, String(anio)), mm), sinCaracteresRaros_(proveedor));
+  var ext = (/\.[a-z0-9]{2,4}$/i.exec(archivo.getName()) || ['.pdf'])[0].toLowerCase();
+  var nombre = nombreArchivoFactura_(fecha, proveedor, '', numero) + ext;
+  if (dir.getFilesByName(nombre).hasNext()) {
+    archivo.setName(nombre); archivo.setDescription('');
+    archivo.moveTo(carpetaHija_(archivo.getParents().next(), BANDEJA_REPETIDAS_));
+    return { hecha: proveedor + ' nº ' + numero + ': la factura de ' + nombreMes + ' ya estaba guardada (la copia nueva está en "' + BANDEJA_REPETIDAS_ + '")', proveedor: proveedor, importe: importe, avisos: [] };
+  }
+  archivo.setName(nombre);
+  archivo.setDescription('factura');
+  archivo.moveTo(dir);
+
+  var cual = proveedor + (numero ? ' nº ' + numero : '') + ', factura de ' + nombreMes + ' ' + anio + ', ' + euros_(importe);
+  var r = { hecha: '', proveedor: proveedor, importe: importe, avisos: [], enlace: archivo.getUrl() };
+  if (suma == null || !n) {
+    r.hecha = cual + ': guardada como la factura del mes';
+    r.problema = cual + ': no encontré albaranes de ' + proveedor + ' en ' + nombreMes + ' en ALBARANES para comparar.';
+    r.avisos.push({ tipo: 'fallo', que: 'Factura del mes guardada, pero no hay albaranes de ' + nombreMes + ' en ALBARANES' });
+  } else if (Math.abs(suma - importe) > 0.05) {
+    r.hecha = cual + ': guardada como la factura del mes (los ' + n + ' albaranes suman ' + euros_(suma) + ')';
+    r.avisos.push({ tipo: 'diferencia', que: 'Factura del mes ' + euros_(importe) + ' y sus ' + n + ' albaranes de ' + nombreMes + ' suman ' + euros_(suma) + ' (' + (importe > suma ? '+' : '') + euros_(importe - suma) + '): ¿falta cargar algún albarán?' });
+  } else {
+    r.hecha = cual + ': guardada como la factura del mes; coincide con sus ' + n + ' albaranes';
+  }
+  return r;
 }
 
 // "Facturas nuevas" con dudas: no se carga nada; queda en "⚠️ Revisar".
@@ -227,7 +286,17 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista, bandeja) {
   // domiciliación. Si no está claro, a "⚠️ Revisar" sin cargar nada.
   var resultado;
   var forma = String(r.forma_pago || '');
-  var porBanco = forma === 'transferencia' || forma === 'domiciliacion';
+  // Tarjeta y transferencia son lo mismo (las dos salen del banco, no de la caja).
+  var porBanco = forma === 'transferencia' || forma === 'domiciliacion' || forma === 'tarjeta';
+
+  // Pollería, La Jaula, Mercandalucía, Las 3B: lo de cada día son albaranes
+  // (cargados en la caja) y una vez al mes llega LA factura. Esa no se carga
+  // en ningún lado (sería pagar dos veces): solo se guarda el PDF como la
+  // factura del mes y se compara su total con la suma de los albaranes.
+  if (tipo !== 'transferencia' && deLista && INFORME_MES_FACTURA_MENSUAL_.indexOf(normalizarClave_(deLista)) > -1) {
+    return guardarFacturaMensual_(archivo, raiz, ss, deLista, fecha, numero, importe, r.referencias || []);
+  }
+
   if (tipo === 'auto') {
     var servicio = !deLista || BANDEJA_PROVEEDORES_GENERICOS_.indexOf(normalizarClave_(deLista)) > -1 || !pestanaAlbaranesParaProveedor_(ss, deLista);
     var esDia = / DIA /.test(' ' + normalizarClave_(proveedor).replace(/[^A-Z]+/g, ' ') + ' ');
@@ -237,8 +306,8 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista, bandeja) {
       else if (porBanco) { tipo = 'transferencia'; resultado = null; }
       else return aRevisar_(archivo, bandeja, cual0, 'no encontré su albarán en la caja y la factura no dice que se pague por transferencia. ' +
         'Si es de un albarán: cargar el albarán en la caja y volver a poner la factura en "' + BANDEJA_UNICA_ + '". Si se pagó por transferencia: cargarla a mano');
-    } else if (forma === 'efectivo' || forma === 'tarjeta') {
-      return aRevisar_(archivo, bandeja, cual0, 'no es de un proveedor con albaranes y la factura dice que se pagó con ' + forma + '. Cargarla a mano');
+    } else if (forma === 'efectivo') {
+      return aRevisar_(archivo, bandeja, cual0, 'no es de un proveedor con albaranes y la factura dice que se pagó en efectivo. Cargarla a mano');
     } else {
       tipo = 'transferencia';
     }
@@ -457,7 +526,7 @@ function escribirTransferenciaEnAlbaranes_(ss, proveedor, detalle, fecha, numero
 
   var m = {
     proveedor: proveedor, proveedorDetalle: detalle, importe: importe, iva: iva, factura: numero,
-    subtipo: 'transferencia', info: 'TRANSFERENCIA · PDF recibido por email'
+    subtipo: 'transferencia', info: FORMA_PAGO_ALBARAN_.transferencia + ' · PDF recibido por email'
   };
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);

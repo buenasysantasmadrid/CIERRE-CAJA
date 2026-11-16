@@ -1062,6 +1062,11 @@ function doGet(e) {
   if (esClaude && parametros.probarCambio) {
     return ContentService.createTextOutput(JSON.stringify(probarCambio_())).setMimeType(ContentService.MimeType.JSON);
   }
+  // ?muestraFaltanFacturas=AAAA-MM: manda ya el email del día 3 de ese mes (FacturasQueFaltan.gs).
+  if (esClaude && parametros.muestraFaltanFacturas) {
+    var pm = String(parametros.muestraFaltanFacturas).split('-');
+    return ContentService.createTextOutput(JSON.stringify(mandarFacturasQueFaltanDe_(Number(pm[0]), Number(pm[1]) - 1, 'MUESTRA'))).setMimeType(ContentService.MimeType.JSON);
+  }
   // ?procesarBandejas=1: procesa ya las carpetas de entrada de facturas (Bandejas.gs).
   if (esClaude && parametros.procesarBandejas) {
     return ContentService.createTextOutput(JSON.stringify(procesarBandejasFacturas() || {})).setMimeType(ContentService.MimeType.JSON);
@@ -2027,8 +2032,8 @@ var FORMA_PAGO_LABEL_ = { tarjeta: 'Tarjeta', transferencia: 'Transferencia', ef
 // Palabra de modalidad que se pone en Info junto con "PAGADO" — para
 // Efectivo antiguo se pone "EFECTIVO" (es la forma de pago real; "antiguo"
 // solo aclara que salió de una caja de un día posterior).
-var FORMA_PAGO_MODALIDAD_ = { tarjeta: 'TARJETA', transferencia: 'TRANSFERENCIA', efectivo_antiguo: 'EFECTIVO' };
-var INFO_TAGS_CONOCIDAS_ = ['TARJETA', 'NO PAGADO', 'TRANSFERENCIA'];
+var FORMA_PAGO_MODALIDAD_ = { tarjeta: 'TARJETA/TRANSFERENCIA', transferencia: 'TARJETA/TRANSFERENCIA', efectivo_antiguo: 'EFECTIVO' };
+var INFO_TAGS_CONOCIDAS_ = ['TARJETA', 'NO PAGADO', 'TRANSFERENCIA', 'TARJETA/TRANSFERENCIA'];
 
 // Saca del principio de Info las etiquetas de pago, en cualquier orden y
 // aunque estén repetidas: TARJETA / NO PAGADO / TRANSFERENCIA y un "PAGADO

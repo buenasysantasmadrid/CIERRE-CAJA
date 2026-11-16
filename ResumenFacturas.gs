@@ -23,6 +23,7 @@ var MOV_FACTURAS_PESTANA_ = 'Movimientos facturas';
 var MOV_FACTURAS_ENCABEZADOS_ = ['Fecha', 'Tipo', 'Proveedor', 'Total', 'Qué pasa', 'Enlace'];
 // Secciones del email: tipo, título, explicación, color.
 var MOV_FACTURAS_SECCIONES_ = [
+  ['cargada', 'Cómo se cargaron las facturas', 'Lo que entró esta semana: escaneado en la app o puesto en la carpeta "📥 Facturas nuevas" (y qué se hizo con cada una).', '#1e8449'],
   ['fallo', 'Fallos', 'No se pudieron hacer solas: hay que mirarlas.', '#c0392b'],
   ['error', 'Errores al guardar', 'Lo que falló esta semana (también llegó en los avisos de las 9 y las 18).', '#c0392b'],
   ['repetido', 'Repetidas en ALBARANES', 'La misma factura está dos veces: una sobra.', '#8e44ad'],

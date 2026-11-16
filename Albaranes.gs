@@ -228,8 +228,9 @@ function filaVaciaAlbaranes_() {
 }
 
 var FORMA_PAGO_ALBARAN_ = {
-  efectivo: 'EFECTIVO', efectivo_antiguo: 'EFECTIVO', tarjeta: 'TARJETA',
-  transferencia: 'TRANSFERENCIA', no_pagado: 'NO PAGADO', no_efectivo: 'NO EFECTIVO'
+  // Tarjeta y transferencia son lo mismo (desde el 16/11/2026): una sola forma.
+  efectivo: 'EFECTIVO', efectivo_antiguo: 'EFECTIVO', tarjeta: 'TARJETA/TRANSFERENCIA',
+  transferencia: 'TARJETA/TRANSFERENCIA', no_pagado: 'NO PAGADO', no_efectivo: 'NO EFECTIVO'
 };
 
 // Forma de pago, día de pago y observaciones (Info sin las etiquetas de
@@ -242,7 +243,7 @@ var FORMA_PAGO_ALBARAN_ = {
 // …") si el movimiento se volvió a guardar desde la app.
 function pagoDeGasto_(m, fechaCajaISO) {
   var info = String(m.info || '');
-  var pagado = /(?:^|·\s*)PAGADO(?:\s+([A-Z]+))?(?:\s+(\d{4}-\d{2}-\d{2}))?/.exec(info);
+  var pagado = /(?:^|·\s*)PAGADO(?:\s+([A-Z\/]+))?(?:\s+(\d{4}-\d{2}-\d{2}))?/.exec(info);
   var forma = FORMA_PAGO_ALBARAN_[m.subtipo] || '';
   var dia = '';
   if (pagado) {
@@ -1268,7 +1269,7 @@ var INFORME_MES_FUERA_ = ['EXTRAS', 'NOO', 'GLOVO'];
 var INFORME_MES_PRIMERA_FILA_ = 5;
 // Dan una factura a fin de mes con todos sus albaranes (como se llaman sus
 // pestañas, en mayúsculas y sin tildes).
-var INFORME_MES_FACTURA_MENSUAL_ = ['POLLERIA', 'MERCANDALUCIA', 'LAS 3B'];
+var INFORME_MES_FACTURA_MENSUAL_ = ['POLLERIA', 'LA JAULA', 'MERCANDALUCIA', 'LAS 3B'];
 
 // PDF escaneados como factura (descripción "factura", ver Precios.gs) en
 // Facturas proveedores/AAAA/MM/<proveedor> de los proveedores con factura

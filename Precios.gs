@@ -87,6 +87,12 @@ function guardarFotoFactura_(data, proveedor, fecha) {
   // hasta que llegue su factura (ver albaranesSinFactura_).
   if (data.tipo_documento) archivo.setDescription(String(data.tipo_documento));
   if (claveEscaneo) cache.put(claveEscaneo, archivo.getId(), 6 * 60 * 60);
+  // Para el resumen de los lunes ("Facturas cargadas"); un re-escaneo no cuenta otra vez.
+  if (!anterior) {
+    var doc = String(data.tipo_documento || '');
+    apuntarMovFactura_('cargada', proveedor + (detalle ? ' — ' + detalle : ''), '',
+      'Escaneada en la app' + (doc === 'albaran' ? ' (albarán)' : doc === 'ticket' ? ' (ticket)' : doc === 'factura' ? ' (factura)' : '') + (numero && numero !== String(data.idEscaneo || '') ? ', nº ' + numero : ''), archivo.getUrl());
+  }
   return archivo.getUrl();
 }
 
