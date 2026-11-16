@@ -34,6 +34,7 @@ var BANDEJA_ALBARAN_ = '📥 Facturas de albarán'; // vieja: solo se procesa si
 var BANDEJA_TRANSFERENCIA_ = '📥 Facturas pagadas por transferencia'; // vieja: ídem
 var BANDEJA_NO_LEIDAS_ = '⚠️ No se pudo leer';
 var BANDEJA_REVISAR_ = '⚠️ Revisar';
+var BANDEJA_REPETIDAS_ = '🗑️ Repetidas (ya estaban, se pueden borrar)';
 
 // Lo mismo que se lee al escanear, y además cómo dice la factura que se paga
 // (para saber, en "Facturas nuevas", si es de transferencia).
@@ -121,6 +122,7 @@ function procesarBandejasFacturas() {
       var it = raiz.getFoldersByName(b[0]);
       var bandeja = it.hasNext() ? it.next() : (b[1] === 'auto' ? carpetaHija_(raiz, b[0]) : null);
       if (!bandeja) return;
+      if (b[1] === 'auto') { carpetaHija_(bandeja, BANDEJA_NO_LEIDAS_); carpetaHija_(bandeja, BANDEJA_REVISAR_); } // que se vean desde el principio
       var archivos = bandeja.getFiles();
       while (archivos.hasNext() && Date.now() - inicio < BANDEJA_TIEMPO_MAX_MS_) {
         var archivo = archivos.next();
@@ -281,7 +283,18 @@ function moverFacturaACarpetaProveedor_(archivo, raiz, fecha, proveedor, detalle
     var existe = dir.getFilesByName(nombre);
     while (existe.hasNext()) {
       var otro = existe.next();
-      if (otro.getId() !== archivo.getId()) otro.setTrashed(true);
+      if (otro.getId() === archivo.getId()) continue;
+      try {
+        otro.setTrashed(true);
+      } catch (err) {
+        // La app no puede tirar a la papelera un archivo de otra cuenta
+        // (buenasysantasmadrid): se queda el que ya estaba y la nueva copia
+        // va a "🗑️ Repetidas" dentro de la bandeja, para borrarla a mano.
+        archivo.setName(nombre);
+        archivo.setDescription('');
+        archivo.moveTo(carpetaHija_(archivo.getParents().next(), BANDEJA_REPETIDAS_));
+        return otro.getUrl();
+      }
     }
   }
   archivo.setName(nombre);
