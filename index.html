@@ -721,8 +721,7 @@
   <div class="cierre-bar" id="albaranesBarra" style="display:none;"><div class="cierre-bar-inner">
     <div class="bar-top"><span class="bar-lbl" id="albaranesSelTexto">Ninguno elegido</span><button type="button" class="link-btn" id="albaranesSelCancelar">Cancelar</button></div>
     <div class="alb-pagar-botones">
-      <button type="button" class="btn-big menu-guardar" data-pagar-varios="tarjeta">Pagados con tarjeta</button>
-      <button type="button" class="btn-big menu-guardar" data-pagar-varios="transferencia">Pagados por transferencia</button>
+      <button type="button" class="btn-big menu-guardar" data-pagar-varios="transferencia">Pagados con tarjeta / transferencia</button>
     </div>
   </div></div>
 </div>
@@ -1615,7 +1614,7 @@
     {k:'efectivo',         l:'Efectivo'},
     {k:'efectivo_antiguo', l:'Efectivo antiguo'},
     {k:'tarjeta',          l:'Tarjeta',       noCaja:true},
-    {k:'transferencia',    l:'Transferencia', noCaja:true},
+    {k:'transferencia',    l:'Tarjeta / Transferencia', noCaja:true},
     {k:'no_pagado',        l:'No pagado',     noCaja:true},
     {k:'no_efectivo',      l:'No efectivo',   noCaja:true}
   ];
@@ -1882,15 +1881,18 @@
   // Albaranes (ver "Albaranes: marcar como pagado" más abajo).
   var GASTO_SUBTYPES = [
     {k:'efectivo',l:icon('cash')+'Efectivo'},
-    {k:'tarjeta',l:icon('card')+'Tarjeta'},
-    {k:'no_pagado',l:icon('clock')+'No pagado'},
-    {k:'transferencia',l:icon('bank')+'Transferencia'}
+    // Tarjeta y transferencia son lo mismo (16/11/2026): un solo botón, que
+    // guarda 'transferencia' con la etiqueta TARJETA/TRANSFERENCIA. Los gastos
+    // viejos con 'tarjeta' se siguen leyendo (y al editarlos pasan a este).
+    {k:'transferencia',l:icon('card')+'Tarjeta / Transferencia'},
+    {k:'no_pagado',l:icon('clock')+'No pagado'}
   ];
   // Estas tres opciones son formas de "no efectivo": van a la misma tabla
   // del Sheet ("Gastos no efectivo") y no afectan el cálculo de caja — la
   // diferencia es que cada una deja su etiqueta marcada en el campo Info.
   var SUBTIPOS_NO_EFECTIVO = ['no_efectivo', 'tarjeta', 'no_pagado', 'transferencia'];
-  var GASTO_INFO_TAG = { tarjeta:'TARJETA', no_pagado:'NO PAGADO', transferencia:'TRANSFERENCIA' };
+  var GASTO_INFO_TAG = { tarjeta:'TARJETA', no_pagado:'NO PAGADO', transferencia:'TARJETA/TRANSFERENCIA' };
+  var TAGS_PAGO_INFO = ['TARJETA', 'NO PAGADO', 'TRANSFERENCIA', 'TARJETA/TRANSFERENCIA'];
   // "Ingreso @" no está acá: sigue existiendo para movimientos viejos (ver
   // SUBTIPO_LABEL), pero ya no se puede elegir a mano.
   var INGRESO_SUBTYPES = [
@@ -2023,7 +2025,7 @@
     currentCategoria = 'proveedores';
     currentTipo = 'gasto';
     var gExisting = existing && existing.tipo === 'gasto' ? existing : null;
-    currentSubtipo = gExisting ? gExisting.subtipo : null;
+    currentSubtipo = gExisting ? (gExisting.subtipo === 'tarjeta' ? 'transferencia' : gExisting.subtipo) : null;
     pagoEdicion = datosPagoEdicion(gExisting);
     document.getElementById('scanSlot').innerHTML = scanBoxHTML();
     wireScanUI();
@@ -2230,12 +2232,12 @@
   // subtipo (Tarjeta/No pagado/Transferencia), la saca para mostrar solo lo
   // que el usuario escribió — así, al guardar de nuevo, no queda duplicada.
   function quitarTagInfoGasto(info, subtipo){
-    var tag = GASTO_INFO_TAG[subtipo];
-    if(!tag || !info) return info || '';
-    if(info === tag) return '';
-    var prefijo = tag + ' · ';
-    if(info.indexOf(prefijo) === 0) return info.slice(prefijo.length);
-    return info;
+    // Cualquier etiqueta de pago del principio (también la vieja, si el gasto
+    // era Tarjeta o Transferencia antes de juntarlas).
+    if(!info) return '';
+    var partes = String(info).split(' · ');
+    if(TAGS_PAGO_INFO.indexOf(partes[0].trim()) > -1) partes.shift();
+    return partes.join(' · ');
   }
 
   function actualizarPlaceholderInfoGasto(){
@@ -2636,7 +2638,7 @@
     // Primero la forma de pago: al elegirla se vuelve a dibujar el
     // formulario, así que después se rellenan los campos.
     if(FORMAS_PAGO_DICTADO.indexOf(d.forma_pago) > -1){
-      var chip = document.querySelector('#levelTwoRow [data-k="' + d.forma_pago + '"]');
+      var chip = document.querySelector('#levelTwoRow [data-k="' + (d.forma_pago === 'tarjeta' ? 'transferencia' : d.forma_pago) + '"]');
       if(chip) chip.click();
     }
 
@@ -4399,7 +4401,7 @@
       if(!lista.length) return;
       var total = lista.reduce(function(s, f){ return s + num(f.importe); }, 0);
       preguntar('¿Marcar ' + (lista.length === 1 ? '1 albarán' : lista.length + ' albaranes') + ' (' + fmt(total) + ') como pagados ' +
-        (forma === 'tarjeta' ? 'con tarjeta' : 'por transferencia') + '?', 'Sí, marcar pagados', 'Cancelar', function(){
+        'con tarjeta / transferencia?', 'Sí, marcar pagados', 'Cancelar', function(){
         pagarVariosAlbaranes(lista, forma);
       });
     });
@@ -4435,7 +4437,7 @@
       });
     });
     cadena.then(function(){
-      var modo = forma === 'tarjeta' ? 'con tarjeta' : 'por transferencia';
+      var modo = 'con tarjeta / transferencia';
       if(mal.length) avisarErrorPorMail('algunos albaranes no se marcaron como pagados', bien + ' se marcaron como pagados ' + modo + '. No se pudieron cambiar: ' + mal.join(', ') + '. Hay que volver a marcarlos.');
       albaranesPagandoVarios = false;
       guardarPagosEnCaja(turnosConPago);
@@ -4459,8 +4461,7 @@
     document.getElementById('pagoAlbaranPasoForma').style.display = '';
     document.getElementById('pagoAlbaranPasoTurno').style.display = 'none';
     renderOpcionesGrandes(document.getElementById('pagoAlbaranFormaRow'), [
-      {k:'tarjeta', icon:'card', cls:'c-empanadas', l:'Tarjeta', d:'Solo cambia la etiqueta, no toca la caja'},
-      {k:'transferencia', icon:'bank', cls:'c-empanadas', l:'Transferencia', d:'Solo cambia la etiqueta, no toca la caja'},
+      {k:'transferencia', icon:'card', cls:'c-empanadas', l:'Tarjeta / Transferencia', d:'Solo cambia la etiqueta, no toca la caja'},
       {k:'efectivo', icon:'cash', cls:'c-ingreso', l:'Efectivo', d:'Sale de la caja de hoy'}
     ], elegirFormaPagoAlbaran);
     document.getElementById('pagoAlbaranOverlay').classList.add('open');
@@ -4666,14 +4667,14 @@
   // Info con "PAGADO <MODALIDAD> <fecha de pago> · <lo que tenía>". Si solo
   // se cambiara la forma de pago, al volver a sincronizar ese día desde este
   // dispositivo se pisaría en el Sheet el "PAGADO …".
-  var FORMA_PAGO_MODALIDAD = { tarjeta:'TARJETA', transferencia:'TRANSFERENCIA', efectivo_antiguo:'EFECTIVO' };
+  var FORMA_PAGO_MODALIDAD = { tarjeta:'TARJETA/TRANSFERENCIA', transferencia:'TARJETA/TRANSFERENCIA', efectivo_antiguo:'EFECTIVO' };
   function infoPagadoAlbaran(infoActual, subtipoNuevo, fechaPago){
     // Igual que quitarTagInfo_ del Apps Script: saca del principio las
     // etiquetas de pago, en cualquier orden.
     var partes = String(infoActual || '').split(' · ');
     while(partes.length){
       var p0 = partes[0].trim();
-      if(['TARJETA', 'NO PAGADO', 'TRANSFERENCIA'].indexOf(p0) > -1 || /^PAGADO(\s+\S+){0,2}$/.test(p0)) partes.shift();
+      if(TAGS_PAGO_INFO.indexOf(p0) > -1 || /^PAGADO(\s+\S+){0,2}$/.test(p0)) partes.shift();
       else break;
     }
     var info = partes.join(' · ');
