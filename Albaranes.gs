@@ -1274,6 +1274,15 @@ var INFORME_MES_FACTURA_MENSUAL_ = ['POLLERIA', 'LA JAULA', 'MERCANDALUCIA', 'LA
 // PDF escaneados como factura (descripción "factura", ver Precios.gs) en
 // Facturas proveedores/AAAA/MM/<proveedor> de los proveedores con factura
 // mensual: { 'POLLERIA': [{ numero, fecha }] }.
+// Base, IVA y total de las facturas del mes, si todas se leyeron; si no, null
+// (y se usa la suma de los albaranes, como antes).
+function importesFacturasMensuales_(pdfs) {
+  if (!pdfs || !pdfs.length || pdfs.some(function (p) { return p.total == null || p.iva == null || p.base == null; })) return null;
+  var r = [0, 0, 0];
+  pdfs.forEach(function (p) { r[0] += p.base; r[1] += p.iva; r[2] += p.total; });
+  return r.map(function (x) { return Math.round(x * 100) / 100; });
+}
+
 function facturasMensualesEnDrive_(anio, mesIndex) {
   var r = {};
   try {
@@ -1289,13 +1298,22 @@ function facturasMensualesEnDrive_(anio, mesIndex) {
       var archivos = prov.getFiles();
       while (archivos.hasNext()) {
         var a = archivos.next();
-        if (a.getDescription() !== 'factura') continue;
+        var desc = String(a.getDescription() || '').split('\n');
+        if (desc[0] !== 'factura') continue;
+        var datos = null;
+        try { datos = desc[1] ? JSON.parse(desc[1]) : null; } catch (e) { datos = null; }
         // "2026-10-31 Polleria F-123.pdf" → fecha y nº
         var nombre = a.getName().replace(/\.[a-z0-9]{2,4}$/i, '');
         var m = /^(\d{4})-(\d{2})-(\d{2})\s+(.*)$/.exec(nombre);
         var resto = m ? m[4] : nombre;
         if (resto.toLowerCase().indexOf(prov.getName().toLowerCase()) === 0) resto = resto.slice(prov.getName().length).trim();
-        (r[clave] = r[clave] || []).push({ numero: resto || '(sin nº)', fecha: m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : '' });
+        (r[clave] = r[clave] || []).push({
+          numero: resto || '(sin nº)', fecha: m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : '',
+          // Lo leído de la factura (si se guardó desde "Facturas nuevas" o "Facturas mes"); si no, null.
+          total: datos && datos.total != null ? Number(datos.total) : null,
+          iva: datos && datos.iva != null ? Number(datos.iva) : null,
+          base: datos && datos.base != null ? Number(datos.base) : null
+        });
       }
     }
   } catch (err) { Logger.log('Facturas mensuales en Drive: ' + err); }
@@ -1474,7 +1492,8 @@ function generarInformeMes_(ss, hoja) {
       suma = suma.map(function (x) { return Math.round(x * 100) / 100; });
       var pdfs = facturasMensualesDrive[normalizarClave_(nombre)] || [];
       if (pdfs.length) {
-        filas.push([pdfs[0].fecha, nombre + ' — factura del mes (' + albaranesMes.length + ' albaranes)', pdfs.map(function (p) { return p.numero; }).join(', '), suma[0], suma[1], suma[2]]);
+        var deFactura = importesFacturasMensuales_(pdfs) || suma;
+        filas.push([pdfs[0].fecha, nombre + ' — factura del mes (' + albaranesMes.length + ' albaranes)', pdfs.map(function (p) { return p.numero; }).join(', '), deFactura[0], deFactura[1], deFactura[2]]);
       } else {
         mensuales.push(['', nombre + ' — ' + albaranesMes.length + ' albaranes del mes', 'FALTA LA FACTURA DEL MES', suma[0], suma[1], suma[2]]);
       }

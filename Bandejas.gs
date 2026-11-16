@@ -184,7 +184,7 @@ function noSePudoLeer_(archivo, bandeja, motivo) {
 // carpeta del mes que cubre (el de sus albaranes: si es de los primeros 10
 // días, el mes anterior), con la nota "factura": así la ven el INFORME MES y
 // el paquete de los contables (facturasMensualesEnDrive_ en Albaranes.gs).
-function guardarFacturaMensual_(archivo, raiz, ss, proveedor, fecha, numero, importe, referencias) {
+function guardarFacturaMensual_(archivo, raiz, ss, proveedor, fecha, numero, importe, referencias, iva, base) {
   var anio = Number(fecha.slice(0, 4)), mes = Number(fecha.slice(5, 7)) - 1;
   var fechasRef = referencias.map(function (x) { return x.fecha; }).filter(function (f) { return /^\d{4}-\d{2}-\d{2}$/.test(f); }).sort();
   if (fechasRef.length) {
@@ -217,7 +217,11 @@ function guardarFacturaMensual_(archivo, raiz, ss, proveedor, fecha, numero, imp
     return { hecha: proveedor + ' nº ' + numero + ': la factura de ' + nombreMes + ' ya estaba guardada (la copia nueva está en "' + BANDEJA_REPETIDAS_ + '")', proveedor: proveedor, importe: importe, avisos: [] };
   }
   archivo.setName(nombre);
-  archivo.setDescription('factura');
+  // Los datos de la factura (lo que va a los contables): la primera línea
+  // sigue siendo "factura"; debajo, total, IVA y base leídos.
+  if (iva == null && base != null) iva = Math.round((importe - base) * 100) / 100;
+  if (base == null && iva != null) base = Math.round((importe - iva) * 100) / 100;
+  archivo.setDescription('factura\n' + JSON.stringify({ numero: numero, fecha: fecha, total: importe, iva: iva, base: base }));
   archivo.moveTo(dir);
 
   var cual = proveedor + (numero ? ' nº ' + numero : '') + ', factura de ' + nombreMes + ' ' + anio + ', ' + euros_(importe);
@@ -294,7 +298,8 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista, bandeja) {
   // en ningún lado (sería pagar dos veces): solo se guarda el PDF como la
   // factura del mes y se compara su total con la suma de los albaranes.
   if (tipo !== 'transferencia' && deLista && INFORME_MES_FACTURA_MENSUAL_.indexOf(normalizarClave_(deLista)) > -1) {
-    return guardarFacturaMensual_(archivo, raiz, ss, deLista, fecha, numero, importe, r.referencias || []);
+    var baseLeida = parseFloat(String(r.base_imponible || '').replace(',', '.'));
+    return guardarFacturaMensual_(archivo, raiz, ss, deLista, fecha, numero, importe, r.referencias || [], isNaN(iva) ? null : iva, isNaN(baseLeida) ? null : baseLeida);
   }
 
   if (tipo === 'auto') {

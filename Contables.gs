@@ -189,6 +189,8 @@ function clasificarMesAlbaranes_(anio, mesIndex) {
       var pdfs = pdfsMensuales[normalizarClave_(nombre)] || [];
       var linea = { proveedor: nombre + ' — ' + mensual.n + ' albaranes del mes', fecha: pdfs.length && pdfs[0].fecha ? dia(pdfs[0].fecha) : '',
         numero: pdfs.map(function (p) { return p.numero; }).join(', '), base: Math.round((tot - ivaM) * 100) / 100, iva: ivaM, total: tot, forma: '' };
+      var deFactura = importesFacturasMensuales_(pdfs); // lo leído de la factura, si está
+      if (pdfs.length && deFactura) { linea.base = deFactura[0]; linea.iva = deFactura[1]; linea.total = deFactura[2]; }
       if (pdfs.length) { linea.proveedor = nombre + ' — factura del mes (' + mensual.n + ' albaranes)'; r.facturas.push(linea); }
       else { linea.numero = 'FALTA LA FACTURA DEL MES'; r.esperan.push(linea); }
     }
