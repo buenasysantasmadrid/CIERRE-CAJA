@@ -15,7 +15,7 @@
 // ============================================================================
 
 var DIRECCION = 'buenasysantasmadrid+facturas@gmail.com';
-var REMITENTES = ['info@buenasysantas.es', 'luciana@buenasysantas.es', 'clara@buenasysantas.es', 'yamila@buenasysantas.es', 'lfisbein@gmail.com'];
+var REMITENTES = ['info@buenasysantas.es', 'luciana@buenasysantas.es', 'clara@buenasysantas.es', 'yamila@buenasysantas.es', 'lfisbein@gmail.com', 'yamilafisbein@gmail.com', 'efronclara@gmail.com'];
 var CARPETA_FACTURAS_ID = '15R08k4qgm84msoGqxpUnMtU7sLeczWCz'; // "Facturas proveedores"
 var BANDEJA = '📥 Facturas nuevas';
 var ETIQUETA_OK = 'Factura procesada';
