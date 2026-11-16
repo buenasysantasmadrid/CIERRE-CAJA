@@ -60,13 +60,21 @@ function sinCaracteresRaros_(s) {
 // añadió una hoja).
 function guardarFotoFactura_(data, proveedor, fecha) {
   var raiz = carpetaFacturas_();
-  var dir = carpetaHija_(carpetaHija_(carpetaHija_(raiz, fecha.slice(0, 4)), fecha.slice(5, 7)), sinCaracteresRaros_(proveedor));
   var esPdf = !!data.pdfBase64;
   var tipo = esPdf ? 'application/pdf' : (data.mediaType || 'image/jpeg');
   // Sin número de factura, la hora del primer escaneo (la manda la app).
   var numero = String(data.numero_factura || '').trim() || String(data.idEscaneo || '').trim();
   // detalle: el nombre del súper cuando la carpeta es "Super" (ej. "Carrefour Market").
   var detalle = String(data.detalle || '').trim();
+  // Una tienda que no es de la lista de proveedores (Varios): a la carpeta
+  // "Varios" del mes, con el nombre de la tienda en el archivo (como Super).
+  proveedor = String(proveedor || '').trim();
+  if (proveedor && !detalle && CARPETAS_FIJAS_FACTURAS_.indexOf(proveedor) === -1 && !noEsVarios_(proveedor)) {
+    var lista = [];
+    try { lista = proveedoresParaLeer_(); } catch (err) { /* sin lista, se deja como está */ }
+    if (lista.length && !proveedorDeLaListaLeida_(proveedor, lista)) { detalle = proveedor; proveedor = 'Varios'; }
+  }
+  var dir = carpetaHija_(carpetaHija_(carpetaHija_(raiz, fecha.slice(0, 4)), fecha.slice(5, 7)), sinCaracteresRaros_(proveedor || 'Sin proveedor'));
   var nombre = nombreArchivoFactura_(fecha, proveedor, detalle, numero) + (esPdf ? '.pdf' : (tipo === 'image/png' ? '.png' : '.jpg'));
   if (numero) {
     var existe = dir.getFilesByName(nombre);
@@ -98,12 +106,15 @@ function guardarFotoFactura_(data, proveedor, fecha) {
 
 // Carpeta y detalle (lo que va en el nombre) de un gasto, como al
 // escanearlo: Super y Servicios tienen su carpeta y el nombre real va en el
-// archivo; Varios va a la carpeta con el nombre real.
+// archivo. Varios igual (desde el 16/11/2026; antes iba a una carpeta con el
+// nombre de la tienda).
+var CARPETAS_FIJAS_FACTURAS_ = ['Varios', 'Super', 'Servicios', 'Sin proveedor', 'Extras', 'Glovo'];
+// Dia y Glovo nunca son Varios (Dia va en Super o Dia Carne; Glovo tiene su carpeta).
+function noEsVarios_(nombre) { return / (DIA|GLOVO|GLOVOAPP) /.test(' ' + normalizarClave_(nombre).replace(/[^A-Z]+/g, ' ') + ' '); }
 function carpetaDeGasto_(proveedor, detalle) {
   proveedor = String(proveedor || '').trim();
   detalle = String(detalle || '').trim();
-  if (proveedor === 'Varios') return { carpeta: detalle || 'Varios', detalle: '' };
-  if (proveedor === 'Super' || proveedor === 'Servicios') return { carpeta: proveedor, detalle: detalle };
+  if (proveedor === 'Varios' || proveedor === 'Super' || proveedor === 'Servicios') return { carpeta: proveedor, detalle: detalle };
   return { carpeta: proveedor || 'Sin proveedor', detalle: '' };
 }
 
@@ -690,4 +701,44 @@ function accesoPedidosValido_(acceso) {
   if (p.length !== 3 || !(Number(p[1]) > Date.now())) return null;
   if (firmaPedidos_(p[0] + '|' + p[1]) !== p[2]) return null;
   return CUENTAS_PERMITIDAS_.indexOf(p[0]) === -1 ? null : p[0];
+}
+// Solo Claude (GET ?ordenarVarios=AAAA-MM, con &mover=1 para hacerlo): las
+// carpetas de tiendas que no son proveedores de la lista (lo de antes del
+// 16/11/2026) pasan a "Varios", con el nombre de la tienda en el archivo.
+// Sin &mover=1 solo dice qué haría.
+function ordenarCarpetasVarios_(periodo, mover) {
+  var p = String(periodo).split('-');
+  var raiz = carpetaFacturas_();
+  var itA = raiz.getFoldersByName(p[0]); if (!itA.hasNext()) return { ok: false, error: 'no hay ' + p[0] };
+  var itM = itA.next().getFoldersByName(p[1]); if (!itM.hasNext()) return { ok: false, error: 'no hay ' + periodo };
+  var mes = itM.next();
+  var lista = proveedoresParaLeer_();
+  var hecho = [], quedan = [];
+  var provs = mes.getFolders();
+  while (provs.hasNext()) {
+    var prov = provs.next(), nom = prov.getName();
+    if (/^[📥⚠🗑]/.test(nom) || CARPETAS_FIJAS_FACTURAS_.indexOf(nom) > -1 || noEsVarios_(nom) || proveedorDeLaListaLeida_(nom, lista)) { quedan.push(nom); continue; }
+    var mover1 = function (carpeta, sub) {
+      var archivos = carpeta.getFiles();
+      while (archivos.hasNext()) {
+        var a = archivos.next(), viejo = a.getName();
+        var m = /^(\d{4}-\d{2}-\d{2}) (.*)$/.exec(viejo);
+        var nuevo = m ? m[1] + ' Varios ' + m[2] : 'Varios ' + viejo;
+        if (m && m[2].toLowerCase().indexOf(nom.toLowerCase()) !== 0) nuevo = m[1] + ' Varios ' + nom + ' ' + m[2];
+        hecho.push(nom + (sub ? '/' + sub : '') + '/' + viejo + ' → Varios' + (sub ? '/' + sub : '') + '/' + nuevo);
+        if (mover) {
+          var dir = carpetaHija_(mes, 'Varios');
+          moverConNombre_(a, sub ? carpetaHija_(dir, sub) : dir, sinCaracteresRaros_(nuevo.replace(/\.[a-z0-9]{2,4}$/i, '')) + ((/\.[a-z0-9]{2,4}$/i.exec(viejo) || [''])[0]));
+        }
+      }
+    };
+    mover1(prov, '');
+    var subs = prov.getFolders();
+    while (subs.hasNext()) { var sf = subs.next(); mover1(sf, sf.getName()); if (mover) { try { if (!sf.getFiles().hasNext() && !sf.getFolders().hasNext()) sf.setTrashed(true); } catch (e) {} } }
+    if (mover) {
+      try { if (!prov.getFiles().hasNext() && !prov.getFolders().hasNext()) { prov.setTrashed(true); hecho.push('carpeta "' + nom + '" borrada'); } }
+      catch (err) { hecho.push('carpeta "' + nom + '" quedó vacía (no se pudo borrar: ' + err.message + ')'); }
+    } else hecho.push('carpeta "' + nom + '" (se borraría si queda vacía)');
+  }
+  return { ok: true, mover: !!mover, hecho: hecho, quedan: quedan };
 }

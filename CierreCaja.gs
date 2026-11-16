@@ -1062,6 +1062,10 @@ function doGet(e) {
   if (esClaude && parametros.probarCambio) {
     return ContentService.createTextOutput(JSON.stringify(probarCambio_())).setMimeType(ContentService.MimeType.JSON);
   }
+  // ?ordenarVarios=AAAA-MM (&mover=1): pasa las carpetas de tiendas a "Varios" (Precios.gs).
+  if (esClaude && parametros.ordenarVarios) {
+    return ContentService.createTextOutput(JSON.stringify(ordenarCarpetasVarios_(parametros.ordenarVarios, parametros.mover === '1'))).setMimeType(ContentService.MimeType.JSON);
+  }
   // ?muestraFaltanFacturas=AAAA-MM: manda ya el email del día 3 de ese mes (FacturasQueFaltan.gs).
   if (esClaude && parametros.muestraFaltanFacturas) {
     var pm = String(parametros.muestraFaltanFacturas).split('-');
