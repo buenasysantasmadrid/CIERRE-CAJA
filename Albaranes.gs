@@ -99,20 +99,53 @@ function crearPestanaServiciosAlbaranes() {
 }
 
 function asegurarPestanaServiciosAlbaranes_(ss) {
-  var hoja = pestanaAlbaranesParaProveedor_(ss, ALBARANES_PESTANA_SERVICIOS_);
+  return asegurarPestanaConProveedorAlbaranes_(ss, ALBARANES_PESTANA_SERVICIOS_);
+}
+
+// FC VYR: las facturas de Pidebio y Madrid Rural (llegan por email a
+// "Facturas nuevas"). Pestaña como SERVICIOS (el proveedor en la columna
+// PROVEEDOR), con su fila en TOTALES pero FUERA del TOTAL de compras
+// (ALBARANES_FUERA_DEL_TOTAL_). Sí van a los contables (Excel y ZIP del
+// día 5) y al INFORME MES. El PDF va a la carpeta del proveedor (Pidebio,
+// Madrid Rural).
+var ALBARANES_PESTANA_FC_VYR_ = 'FC VYR';
+var FC_VYR_PROVEEDORES_ = [
+  { nombre: 'Pidebio', claves: ['PIDEBIO', 'PLATAFORMA IBERICA DISTRIBUCION ECOLOGICA'] },
+  { nombre: 'Madrid Rural', claves: ['MADRID RURAL', 'AGROHUB'] }
+];
+// El nombre corto ('Pidebio', 'Madrid Rural') si alguno de los textos es de
+// un proveedor de FC VYR; si no, ''.
+function proveedorFcVyr_() {
+  var textos = Array.prototype.slice.call(arguments).map(function (t) {
+    return ' ' + normalizarClave_(t).replace(/[^A-Z0-9]+/g, ' ') + ' ';
+  });
+  for (var i = 0; i < FC_VYR_PROVEEDORES_.length; i++) {
+    var p = FC_VYR_PROVEEDORES_[i];
+    if (textos.some(function (t) { return p.claves.some(function (c) { return t.indexOf(' ' + c + ' ') > -1; }); })) return p.nombre;
+  }
+  return '';
+}
+function asegurarPestanaFcVyrAlbaranes_(ss) {
+  return asegurarPestanaConProveedorAlbaranes_(ss, ALBARANES_PESTANA_FC_VYR_);
+}
+
+// Crea la pestaña `nombre` (al final, copiando VARIOS vacía) y su fila en
+// TOTALES, si no está.
+function asegurarPestanaConProveedorAlbaranes_(ss, nombre) {
+  var hoja = pestanaAlbaranesParaProveedor_(ss, nombre);
   if (hoja) return hoja;
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    hoja = pestanaAlbaranesParaProveedor_(ss, ALBARANES_PESTANA_SERVICIOS_); // la pudo crear otro guardado mientras se esperaba
+    hoja = pestanaAlbaranesParaProveedor_(ss, nombre); // la pudo crear otro guardado mientras se esperaba
     if (hoja) return hoja;
     var modelo = pestanaAlbaranesParaProveedor_(ss, 'VARIOS');
     if (!modelo) return null;
-    crearPestanaProveedorAlbaranes_(ss, ALBARANES_PESTANA_SERVICIOS_, modelo);
-    hoja = ss.getSheetByName(ALBARANES_PESTANA_SERVICIOS_);
+    crearPestanaProveedorAlbaranes_(ss, nombre, modelo);
+    hoja = ss.getSheetByName(nombre);
     ss.setActiveSheet(hoja);
     ss.moveActiveSheet(ss.getNumSheets());
-    try { ponerServiciosEnTotales_(ss); } catch (err) { Logger.log('TOTALES SERVICIOS: ' + err); }
+    try { ponerEnTotalesAlbaranes_(ss, nombre); } catch (err) { Logger.log('TOTALES ' + nombre + ': ' + err); }
     SpreadsheetApp.flush();
     return hoja;
   } finally {
@@ -120,17 +153,18 @@ function asegurarPestanaServiciosAlbaranes_(ss) {
   }
 }
 
-// Fila de SERVICIOS en TOTALES: en una fila libre antes del TOTAL; si no
-// hay, se agrega una justo antes y el TOTAL se vuelve a escribir para que
-// la sume (sin NOO, ver sacarDelTotalAlbaranes_).
-function ponerServiciosEnTotales_(ss) {
-  var r = arreglarTotalesAlbaranes_(ss, [ALBARANES_PESTANA_SERVICIOS_]);
-  if (!r.some(function (x) { return x.indexOf('no hubo fila libre') > -1; })) return;
-  var hoja = ss.getSheetByName('TOTALES');
-  var filaTotal = filaTotalDeTotales_(hoja);
-  if (filaTotal === -1) return;
-  hoja.insertRowBefore(filaTotal);
-  arreglarTotalesAlbaranes_(ss, [ALBARANES_PESTANA_SERVICIOS_]);
+// Fila de la pestaña en TOTALES: en una fila libre antes del TOTAL; si no
+// hay, se agrega una justo antes y el TOTAL se vuelve a escribir (sin NOO
+// ni lo de ALBARANES_FUERA_DEL_TOTAL_, ver sacarDelTotalAlbaranes_).
+function ponerEnTotalesAlbaranes_(ss, nombre) {
+  var r = arreglarTotalesAlbaranes_(ss, [nombre]);
+  if (r.some(function (x) { return x.indexOf('no hubo fila libre') > -1; })) {
+    var hoja = ss.getSheetByName('TOTALES');
+    var filaTotal = filaTotalDeTotales_(hoja);
+    if (filaTotal === -1) return;
+    hoja.insertRowBefore(filaTotal);
+    arreglarTotalesAlbaranes_(ss, [nombre]);
+  }
   sacarDelTotalAlbaranes_(ss, ALBARANES_COPIA_VIEJA_.de);
 }
 
@@ -667,7 +701,7 @@ function reenviarMesAAlbaranes(periodo) {
 // PAGO y DIA DE PAGO. Un bloque ya pasado no se vuelve a tocar.
 var ALBARANES_ENC_NORMAL_ = ['FECHA', 'Nº FACTURA', 'IVA', 'IMPORTE', 'OBERVACIONES', 'FORMA DE PAGO', 'DIA DE PAGO', 'VARIOS'];
 var ALBARANES_ENC_CON_PROVEEDOR_ = ['FECHA', 'PROVEEDOR', 'Nº FACTURA', 'IVA', 'IMPORTE', 'OBERVACIONES', 'FORMA DE PAGO', 'DIA DE PAGO', 'VARIOS'];
-var ALBARANES_PESTANAS_CON_PROVEEDOR_ = ['VARIOS', 'SUPER', 'SERVICIOS'];
+var ALBARANES_PESTANAS_CON_PROVEEDOR_ = ['VARIOS', 'SUPER', 'SERVICIOS', 'FC VYR'];
 var ALBARANES_PESTANAS_SIN_CAMBIO_ = ['EXTRAS'];
 var ALBARANES_PROVEEDORES_NUEVOS_ = ['LOS FUENTEÑOS', 'WINEUP'];
 
@@ -838,7 +872,7 @@ function arreglarTotalesAlbaranes_(ss, nuevas) {
 // Contabilidad) no suma SERVICIOS ni EXTRAS, y tampoco NOO (copia vieja de
 // FRUTAPRO). Se reescribe al guardar mientras la fila TOTAL no lleve ya los
 // SUMIF de todos (alguien la pudo cambiar a mano), como mucho cada 6 horas.
-var ALBARANES_FUERA_DEL_TOTAL_ = ['SERVICIOS', 'EXTRAS', 'GLOVO'];
+var ALBARANES_FUERA_DEL_TOTAL_ = ['SERVICIOS', 'EXTRAS', 'GLOVO', 'FC VYR'];
 function totalSinServiciosNiExtras_(ss) {
   var cache = CacheService.getScriptCache(), clave = 'totales_sin_servicios_extras_' + ss.getId();
   if (cache.get(clave)) return;

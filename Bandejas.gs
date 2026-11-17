@@ -50,7 +50,7 @@ var INSTRUCCIONES_FORMA_PAGO_ =
   'Vacío si la factura no lo dice.';
 var BANDEJA_TIEMPO_MAX_MS_ = 4.5 * 60 * 1000; // el activador corta a los 6 minutos
 var BANDEJA_INTENTOS_ = 3; // fallos (ej. Claude saturado) antes de dejarla en "No se pudo leer"
-var BANDEJA_PROVEEDORES_GENERICOS_ = ['VARIOS', 'SUPER', 'EXTRAS', 'SERVICIOS', 'GLOVO'];
+var BANDEJA_PROVEEDORES_GENERICOS_ = ['VARIOS', 'SUPER', 'EXTRAS', 'SERVICIOS', 'GLOVO', 'FC VYR'];
 
 // Desde cada guardado de la caja (doPost): crea las dos carpetas y el
 // activador de cada hora, si no están.
@@ -280,6 +280,19 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista, bandeja) {
   var idPlanilla = buscarEnIndice_('ALBARANES', anio);
   if (!idPlanilla) throw new Error('No hay planilla de ALBARANES ' + anio + ' en el Índice');
   var ss = SpreadsheetApp.openById(idPlanilla);
+
+  // Pidebio y Madrid Rural: a la pestaña FC VYR (fuera del total de compras,
+  // pero va a los contables), sin buscar albaranes ni mirar la forma de pago.
+  var vyr = proveedorFcVyr_(leido, deLista, r.proveedor_lista);
+  if (vyr) {
+    var resVyr = escribirTransferenciaEnAlbaranes_(ss, ALBARANES_PESTANA_FC_VYR_, vyr, fecha, numero, importe, isNaN(iva) ? null : iva, 'pdf-' + archivo.getId());
+    var cualVyr = 'FC VYR — ' + vyr + (numero ? ' nº ' + numero : '') + ' del ' + fechaCorta_(fecha) + ', ' + euros_(importe);
+    return {
+      hecha: cualVyr + ': ' + resVyr.texto, problema: '',
+      proveedor: vyr, importe: importe, avisos: [],
+      enlace: moverFacturaACarpetaProveedor_(archivo, raiz, fecha, vyr, '', numero)
+    };
+  }
 
   var proveedor = deLista || leido || 'Sin proveedor', detalle = '';
   var cual0 = proveedor + (numero ? ' nº ' + numero : '') + ' del ' + fechaCorta_(fecha) + ', ' + euros_(importe);
@@ -514,7 +527,9 @@ function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, ref
 // Factura pagada por transferencia: una fila nueva en ALBARANES. Si ya
 // estaba (mismo número, o mismo nombre, día e importe), no se repite.
 function escribirTransferenciaEnAlbaranes_(ss, proveedor, detalle, fecha, numero, importe, iva, id) {
-  var hoja = proveedor === 'Servicios' ? asegurarPestanaServiciosAlbaranes_(ss) : pestanaAlbaranesParaProveedor_(ss, proveedor);
+  var hoja = proveedor === 'Servicios' ? asegurarPestanaServiciosAlbaranes_(ss)
+    : proveedor === ALBARANES_PESTANA_FC_VYR_ ? asegurarPestanaFcVyrAlbaranes_(ss)
+    : pestanaAlbaranesParaProveedor_(ss, proveedor);
   if (!hoja) throw new Error('No hay pestaña "' + (proveedor === 'Servicios' ? ALBARANES_PESTANA_SERVICIOS_ : proveedor) + '" en ALBARANES');
   var mesIndex = Number(fecha.slice(5, 7)) - 1;
   var b = filasDelMesAlbaranes_(hoja, mesIndex);
@@ -606,4 +621,65 @@ function guardarFacturaPapel_(data) {
   if (r.hecha) apuntarMovFactura_('cargada', r.proveedor, r.importe, 'Foto en la app (Facturas): ' + r.hecha, r.enlace);
   (r.avisos || []).forEach(function (a) { apuntarMovFactura_(a.tipo, r.proveedor, r.importe, a.que, r.enlace); });
   return { ok: true, guardada: true, hecha: r.hecha || '', problema: r.problema || '' };
+}
+
+// Solo Claude (GET ?pasarAFcVyr=AAAA): las facturas de Pidebio y Madrid
+// Rural que se cargaron en SERVICIOS antes de que existiera FC VYR pasan a
+// esa pestaña (la fila tal cual, con el nombre corto en PROVEEDOR) y su PDF
+// a la carpeta del proveedor.
+function pasarServiciosAFcVyr_(anio) {
+  var ss = SpreadsheetApp.openById(buscarEnIndice_('ALBARANES', String(anio)));
+  var serv = pestanaAlbaranesParaProveedor_(ss, ALBARANES_PESTANA_SERVICIOS_);
+  if (!serv) return { ok: true, hechos: ['No hay pestaña SERVICIOS'] };
+  var vyr = asegurarPestanaFcVyrAlbaranes_(ss);
+  if (!vyr) return { ok: false, error: 'No se pudo crear la pestaña FC VYR (no hay VARIOS para copiar)' };
+  var raiz = DriveApp.getFolderById(CARPETA_FACTURAS_ID_);
+  var hechos = [], meses = [];
+  var encServ = filasEncabezadoAlbaranes_(serv), encVyr = filasEncabezadoAlbaranes_(vyr);
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    encServ.forEach(function (filaEnc, mes) {
+      var mapa = mapaColumnasAlbaranes_(serv.getRange(filaEnc, 1, 1, ALBARANES_ANCHO_).getValues()[0]);
+      if (mapa.detalle == null) return;
+      var valores = serv.getRange(filaEnc + 1, 1, ALBARANES_FILAS_DATOS_, ALBARANES_ANCHO_).getValues();
+      var ids = serv.getRange(filaEnc + 1, ALBARANES_COL_ID_, ALBARANES_FILAS_DATOS_, 1).getValues();
+      var quedan = [], pasan = [];
+      valores.forEach(function (v, i) {
+        var id = String(ids[i][0] || '');
+        if (v.every(function (x) { return x === '' || x == null; }) && !id) return;
+        var nombre = proveedorFcVyr_(v[mapa.detalle]);
+        if (!nombre) { quedan.push({ id: id, fila: v }); return; }
+        if (id.indexOf('pdf-') !== 0) { // cargada desde una caja: no se toca
+          quedan.push({ id: id, fila: v });
+          hechos.push(nombre + ' (mes ' + (mes + 1) + '): viene de una caja, se queda en SERVICIOS');
+          return;
+        }
+        var fila = v.slice();
+        fila[mapa.detalle] = nombre;
+        pasan.push({ id: id, fila: fila, nombre: nombre, numero: mapa.factura != null ? String(v[mapa.factura] || '') : '',
+          fecha: mapa.fecha != null && v[mapa.fecha] instanceof Date ? Utilities.formatDate(v[mapa.fecha], 'Europe/Madrid', 'yyyy-MM-dd') : '',
+          importe: mapa.importe != null ? Number(v[mapa.importe]) || 0 : 0 });
+      });
+      if (!pasan.length) return;
+      if (!encVyr[mes]) throw new Error('FC VYR no tiene el bloque del mes ' + (mes + 1));
+      reescribirBloqueAlbaranes_(vyr, encVyr[mes], {}, pasan.map(function (p, k) { return { id: p.id || ('fcvyr-' + mes + '-' + k), fila: p.fila }; }));
+      guardarBloqueOrdenado_(serv, filaEnc, quedan);
+      meses.push(mes);
+      pasan.forEach(function (p) {
+        var pdf = '';
+        if (p.id.indexOf('pdf-') === 0 && p.fecha) {
+          try { pdf = ' · PDF a ' + p.fecha.slice(0, 7).replace('-', '/') + '/' + p.nombre + ': ' + moverFacturaACarpetaProveedor_(DriveApp.getFileById(p.id.slice(4)), raiz, p.fecha, p.nombre, '', p.numero); }
+          catch (err) { pdf = ' · el PDF no se pudo mover: ' + err; }
+        }
+        hechos.push(p.nombre + ' ' + p.numero + ' del ' + fechaCorta_(p.fecha) + ' (' + euros_(p.importe) + '): de SERVICIOS a FC VYR' + pdf);
+      });
+    });
+  } finally {
+    lock.releaseLock();
+  }
+  try { if (meses.length) refrescarInformeMesSiToca_(ss, meses); } catch (err) { hechos.push('INFORME MES: ' + err); }
+  try { sacarDelTotalAlbaranes_(ss, ALBARANES_COPIA_VIEJA_.de); } catch (err) { hechos.push('TOTAL: ' + err); }
+  invalidarCacheListados_();
+  return { ok: true, hechos: hechos };
 }

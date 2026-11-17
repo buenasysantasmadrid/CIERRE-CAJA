@@ -1072,6 +1072,10 @@ function doGet(e) {
     return ContentService.createTextOutput(JSON.stringify(mandarFacturasQueFaltanDe_(Number(pm[0]), Number(pm[1]) - 1, 'MUESTRA'))).setMimeType(ContentService.MimeType.JSON);
   }
   // ?procesarBandejas=1: procesa ya las carpetas de entrada de facturas (Bandejas.gs).
+  // ?pasarAFcVyr=AAAA: Pidebio y Madrid Rural de SERVICIOS a FC VYR (Bandejas.gs).
+  if (esClaude && parametros.pasarAFcVyr) {
+    return ContentService.createTextOutput(JSON.stringify(pasarServiciosAFcVyr_(String(parametros.pasarAFcVyr)))).setMimeType(ContentService.MimeType.JSON);
+  }
   if (esClaude && parametros.procesarBandejas) {
     return ContentService.createTextOutput(JSON.stringify(procesarBandejasFacturas() || {})).setMimeType(ContentService.MimeType.JSON);
   }
