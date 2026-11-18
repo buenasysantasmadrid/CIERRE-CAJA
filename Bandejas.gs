@@ -337,9 +337,12 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista, bandeja) {
     if (!servicio || esDia) {
       resultado = pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, isNaN(iva) ? null : iva, r.referencias || []);
       if (!resultado.noEncontrado && !resultado.sinPestana) tipo = 'albaran';
-      else if (porBanco) { tipo = 'transferencia'; resultado = null; }
-      else return aRevisar_(archivo, bandeja, cual0, 'no encontré su albarán en la caja y la factura no dice que se pague por transferencia. ' +
-        'Si es de un albarán: cargar el albarán en la caja y volver a poner la factura en "' + BANDEJA_UNICA_ + '". Si se pagó por transferencia: cargarla a mano');
+      // Proveedor con albaranes y sin el albarán en la caja: no se carga
+      // nunca sola (antes, si decía transferencia, se cargaba como ya
+      // pagada; que llegue la factura no quiere decir que esté pagada).
+      else if (porBanco && resultado.sinPestana) { tipo = 'transferencia'; resultado = null; }
+      else return aRevisar_(archivo, bandeja, cual0, 'no encontré su albarán en la caja' + (porBanco ? ' (la factura dice que se paga por transferencia, pero no se carga sola: que llegue no quiere decir que esté pagada)' : '') + '. ' +
+        'Si es de un albarán: cargar el albarán en la caja y volver a poner la factura en "' + BANDEJA_UNICA_ + '". Si no hay albarán: cargarla a mano en la caja (como "No pagado" si todavía no se pagó)');
     } else if (forma === 'efectivo') {
       return aRevisar_(archivo, bandeja, cual0, 'no es de un proveedor con albaranes y la factura dice que se pagó en efectivo. Cargarla a mano');
     } else {
@@ -450,7 +453,9 @@ function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, ref
   // factura se queda donde esté el ticket (en la app se pregunta, aquí no
   // hay a quién).
   var esDia = / DIA /.test(' ' + normalizarClave_(proveedor).replace(/[^A-Z]+/g, ' ') + ' ');
-  var hojas = (esDia ? ['Dia Carne', 'Super'] : [proveedor]).map(function (p) { return pestanaAlbaranesParaProveedor_(ss, p); }).filter(Boolean);
+  // Disbesa: el albarán puede estar en DISBESA o en DISBESA CAFE (ver ALBARANES_BUSCAR_JUNTOS_).
+  var juntos = ALBARANES_BUSCAR_JUNTOS_.filter(function (g) { return g.indexOf(normalizarClave_(proveedor)) > -1; })[0];
+  var hojas = (esDia ? ['Dia Carne', 'Super'] : juntos || [proveedor]).map(function (p) { return pestanaAlbaranesParaProveedor_(ss, p); }).filter(Boolean);
   if (!hojas.length) return { sinPestana: true, avisos: [{ tipo: 'fallo', que: 'No tiene pestaña en ALBARANES: no se pudo buscar su albarán' }], texto: 'guardada en Drive', problema: 'no hay pestaña de "' + proveedor + '" en ALBARANES, así que no se pudo buscar el albarán para ponerle los datos de la factura.' };
   var hoja = hojas[0];
 
@@ -483,12 +488,19 @@ function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, ref
   });
   var encontradas = porNumero;
   if (!encontradas.length) {
-    // Sin número que coincida: el mismo importe en el día de un albarán que
-    // menciona o hasta 10 días antes o después de la factura.
+    // Sin número que coincida: un importe parecido (la factura puede ser algo
+    // menos que el albarán por una devolución: hasta un 10 %, o 5 €) en el día
+    // de un albarán que menciona o hasta 10 días antes o después de la
+    // factura; el más parecido. Los albaranes que ya pasaron a factura
+    // ("Ticket ..." en observaciones) no cuentan.
     var t = fechaComoDate_(fecha).getTime();
+    var margen = Math.max(5, importe * 0.10);
     encontradas = todas.filter(function (f) {
-      if (Math.abs(f.importe - importe) > 0.02 || !f.fecha) return false;
+      if (Math.abs(f.importe - importe) > margen || !f.fecha) return false;
+      if (/(^|·\s*)TICKET\s/.test(normalizarClave_(f.obs))) return false;
       return fechasRef.indexOf(dia(f.fecha)) > -1 || Math.abs(f.fecha.getTime() - t) <= 10 * 86400000;
+    }).sort(function (a, b) {
+      return Math.abs(a.importe - importe) - Math.abs(b.importe - importe) || Math.abs(a.fecha.getTime() - t) - Math.abs(b.fecha.getTime() - t);
     }).slice(0, 1);
   }
   if (!encontradas.length) {

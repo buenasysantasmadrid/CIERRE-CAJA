@@ -205,16 +205,56 @@ function asegurarPestanaGlovoAlbaranes_(ss) {
   }
 }
 
+// Proveedores que cambiaron de nombre: cualquiera de los nombres de un grupo
+// encuentra la pestaña, se llame como se llame (el primero es el nuevo).
+// Delta Cafe es el café de Disbesa (18/11/2026).
+var ALBARANES_ALIAS_ = [['DISBESA CAFE', 'DELTA CAFE']];
+// Pestañas donde puede estar el albarán de una factura de ese proveedor.
+var ALBARANES_BUSCAR_JUNTOS_ = [['DISBESA', 'DISBESA CAFE']];
+
 function pestanaAlbaranesParaProveedor_(ss, proveedor) {
   var buscado = normalizarClave_(proveedor);
   if (!buscado) return null;
+  var nombres = ALBARANES_ALIAS_.filter(function (g) { return g.indexOf(buscado) > -1; })[0] || [buscado];
   var hojas = ss.getSheets();
   for (var i = 0; i < hojas.length; i++) {
     var nombre = hojas[i].getName();
     if (ALBARANES_PESTANAS_EXCLUIDAS_.indexOf(nombre) > -1) continue;
-    if (normalizarClave_(nombre) === buscado) return hojas[i];
+    if (nombres.indexOf(normalizarClave_(nombre)) > -1) return hojas[i];
   }
   return null;
+}
+
+// Solo Claude (GET ?renombrarPestanaAlbaranes=AAAA): la pestaña con el nombre
+// viejo de cada grupo de ALBARANES_ALIAS_ pasa a llamarse con el nuevo (las
+// fórmulas de TOTALES se cambian solas; la etiqueta de TOTALES se rehace).
+function renombrarPestanasAlias_(anio) {
+  var id = buscarEnIndice_('ALBARANES', String(anio));
+  if (!id) return { ok: false, error: 'No hay ALBARANES ' + anio };
+  var ss = SpreadsheetApp.openById(id);
+  var hechos = [];
+  ALBARANES_ALIAS_.forEach(function (g) {
+    var hoja = pestanaAlbaranesParaProveedor_(ss, g[0]);
+    if (!hoja) { hechos.push(g[0] + ': no hay pestaña'); return; }
+    if (normalizarClave_(hoja.getName()) === g[0]) { hechos.push(g[0] + ': ya se llamaba así'); return; }
+    var viejo = hoja.getName();
+    hoja.setName(g[0]);
+    hechos.push(viejo + ' → ' + g[0]);
+    // "IDs app" guarda el nombre de la pestaña de cada gasto: si queda el
+    // viejo, al volver a guardar esa caja no se borraría la fila y se repetiría.
+    var ids = getOrCrearHojaIdsAlbaranes_(ss);
+    var n = ids.getLastRow();
+    if (n > 1) {
+      var col = ids.getRange(2, 3, n - 1, 1).getValues();
+      var cambiadas = 0;
+      col.forEach(function (c) { if (c[0] === viejo) { c[0] = g[0]; cambiadas++; } });
+      if (cambiadas) { ids.getRange(2, 3, n - 1, 1).setNumberFormat('@').setValues(col); hechos.push('IDs app: ' + cambiadas + ' filas con el nombre nuevo'); }
+    }
+  });
+  SpreadsheetApp.flush();
+  hechos = hechos.concat(arreglarTotalesAlbaranes_(ss, []));
+  invalidarCacheListados_();
+  return { ok: true, hechos: hechos };
 }
 
 function getOrCrearHojaIdsAlbaranes_(ss) {

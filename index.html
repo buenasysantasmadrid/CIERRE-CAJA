@@ -1014,10 +1014,15 @@
     "Varios","Frutapro","Mercandalucia","Polleria","Super","Las 3B","Dia Carne","Extras",
     "Alimentos Australes","cbg","Atlanta","cream de luxe","Disbesa","Duo Harinero","Envapro",
     "Franco Arg","Gabarrera","Gamo","Hughes","Iberolactal","La Jaula","Los Fuenteños","Mercadona","Monbake",
-    "Delta Cafe","Vino","Wineup","Bailandera",
+    "Disbesa Cafe","Vino","Wineup","Bailandera",
     "Glovo", // factura a favor (lo que nos paga Glovo): ver FACTURA_A_FAVOR
     "Servicios" // siempre el último del desplegable
   ];
+
+  // Proveedores que cambiaron de nombre: los movimientos viejos se muestran
+  // con el nombre nuevo (en ALBARANES van a la misma pestaña, ver
+  // ALBARANES_ALIAS_ en Albaranes.gs). Delta Cafe es el café de Disbesa.
+  var PROVEEDORES_RENOMBRADOS = { 'Delta Cafe': 'Disbesa Cafe' };
 
   // Proveedores genéricos: al elegirlos, piden escribir a mano el nombre
   // real (igual que "Varios"). "Super" es un proveedor genérico (Mercadona,
@@ -1035,6 +1040,7 @@
     'Atlanta': ['ATLANTA RESTAURACION TELEMATICA S.L.'],
     'cream de luxe': ['CREM DE LUX S.L.'],
     'Disbesa': ['INICIATIVAS SODEXO S.L.', 'SODEXO'],
+    'Disbesa Cafe': ['DELTA CAFES', 'DELTA CAFE'],
     'Envapro': ['ENVASES PARA PROFESIONALES S.L.'],
     'Hughes': ['ALBERTO L. HUGHES S.L.'],
     'Iberolactal': ['IBEROLACTAL IMPORT-EXPORT S.L.'],
@@ -3377,6 +3383,8 @@
     // "Dia Carne", "Super — DIA", "Super — GRUPO DIA"): se traen todos los
     // gastos y se quedan los que comparten nombre (ver palabrasProveedor).
     var claves = todos ? [] : palabrasProveedor((prov.proveedor === 'Super' || prov.proveedor === 'Varios' ? '' : prov.proveedor) + ' ' + (prov.detalle || ''));
+    // Disbesa y Disbesa Cafe (antes "Delta Cafe") son el mismo proveedor: se buscan en los dos.
+    if(claves.indexOf('disbesa') > -1) claves = ['disbesa', 'delta'];
     var getUrl = url + (url.indexOf('?') > -1 ? '&' : '?') + 'listarFacturas=1' + (claves.length || todos ? '' : '&proveedor=' + encodeURIComponent(prov.proveedor) +
       (prov.proveedor === 'Varios' && prov.detalle ? '&detalle=' + encodeURIComponent(prov.detalle) : ''));
     return fetch(getUrl).then(function(r){ return r.json(); }).then(function(data){
@@ -3916,6 +3924,7 @@
   // viejo que haya quedado con un nombre suelto (de cuando sí existía) se
   // trata acá como si fuera "Varios" con ese nombre como detalle.
   function proveedorField(selected, detalle){
+    if(PROVEEDORES_RENOMBRADOS[selected]) selected = PROVEEDORES_RENOMBRADOS[selected];
     var yaConocido = PROVEEDORES_CONOCIDOS.indexOf(selected) > -1;
     var esLegado = !!selected && !yaConocido && selected !== 'Varios';
     var valorEfectivo = esLegado ? 'Varios' : selected;

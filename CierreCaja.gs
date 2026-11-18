@@ -1105,6 +1105,10 @@ function doGet(e) {
     };
     return ContentService.createTextOutput(JSON.stringify(listar(dir, 0))).setMimeType(ContentService.MimeType.JSON);
   }
+  // ?renombrarPestanaAlbaranes=AAAA: pestañas de proveedores que cambiaron de nombre (Albaranes.gs).
+  if (esClaude && parametros.renombrarPestanaAlbaranes) {
+    return ContentService.createTextOutput(JSON.stringify(renombrarPestanasAlias_(String(parametros.renombrarPestanaAlbaranes)))).setMimeType(ContentService.MimeType.JSON);
+  }
   // ?totalesAlbaranes=AAAA: pone bien la fila TOTAL de TOTALES (ver
   // totalSinServiciosNiExtras_) y devuelve la pestaña, para comprobarla.
   if (esClaude && parametros.totalesAlbaranes) {
