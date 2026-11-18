@@ -11,7 +11,7 @@
 //   · El email ya pasado queda con la etiqueta "Factura procesada".
 //   · Si no trae ningún PDF (ej. la factura es un enlace), llega un email.
 //   · Los emails no se quedan en la bandeja de entrada: se archivan y quedan
-//     solo con su etiqueta (los avisos de arriba sí llegan a la bandeja).
+//     solo con su etiqueta. Los avisos de arriba llegan a lfisbein@gmail.com.
 //   · Pasa cada 10 minutos (el activador se cambia solo, ver activadorCada10_).
 // Instalar: ejecutar a mano "instalar" desde el editor (pide los permisos y
 // pone el activador de cada 10 minutos).
@@ -86,7 +86,7 @@ function traerFacturasDelCorreo() {
   });
   // Los que ya estaban pasados y siguen en la bandeja de entrada.
   GmailApp.search('to:' + DIRECCION + ' in:inbox (label:"' + ETIQUETA_OK + '" OR label:"' + ETIQUETA_NO + '")', 0, 100).forEach(function (h) { h.moveToArchive(); });
-  var yo = Session.getEffectiveUser().getEmail();
+  var yo = 'lfisbein@gmail.com'; // los avisos de que algo salió mal van a la dueña
   if (salida.ignorados.length) {
     MailApp.sendEmail(yo, 'Facturas por email: un email no se tomó',
       'Solo se toman las facturas reenviadas desde ' + REMITENTES.join(', ') + '. Estos llegaron de otra dirección y quedaron con la etiqueta "' + ETIQUETA_NO + '":\n' + salida.ignorados.join('\n'));
