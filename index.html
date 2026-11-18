@@ -622,7 +622,7 @@
           <button type="button" data-menu-archivo="cajita" class="menu-con-ico"><span data-icon="cajita"></span>Sobrecito</button>
           <button type="button" data-menu-archivo="cambio" class="menu-con-ico"><span data-icon="coins"></span>Cambio</button>
           <button type="button" data-menu-archivo="facturasPapel" class="menu-con-ico"><span data-icon="camera"></span>Facturas mes</button>
-          <button type="button" data-menu-archivo="facturaExterna" class="menu-con-ico"><span data-icon="camera"></span>Factura externa</button>
+          <button type="button" data-menu-archivo="facturaExterna" class="menu-con-ico"><span data-icon="camera"></span>Factura NO USAR</button>
         </div>
       </nav>
     </div>
@@ -896,7 +896,7 @@
   </div>
   <div class="screen-body">
     <div class="screen-inner">
-      <p class="muted" id="fpExplicaExterna" style="margin:14px 0;display:none;">Facturas a nombre del restaurante que <b>no son gasto del restaurante</b>. <b>No se cargan en la caja ni suman en tus cuentas del mes</b>, pero sí van a los contables (pestaña FC VYR de ALBARANES). También se pueden dejar en la carpeta de Drive <b>📥 Facturas externas</b>.</p>
+      <p class="muted" id="fpExplicaExterna" style="margin:14px 0;display:none;">Facturas a nombre del restaurante que <b>no son gasto del restaurante</b>. <b>No se cargan en la caja ni suman en tus cuentas del mes</b>, pero sí van a los contables (pestaña FC VYR de ALBARANES). También se pueden dejar en la carpeta de Drive <b>📥 Facturas NO USAR</b>.</p>
       <p class="muted" id="fpExplicaMes" style="margin:14px 0;">Para las facturas que llegan a fin de mes (Pollería, Las 3B, La Jaula, Mercandalucía…). <b>No se cargan como gasto</b>: se guardan como la factura del mes y se comparan con sus albaranes.</p>
       <div class="captura">
         <button type="button" class="btn-foto-grande" id="fpBtnCamera"><span data-icon="camera"></span><span id="fpBtnCameraTxt">Foto</span></button>
@@ -5990,12 +5990,12 @@
   // Fotos de una factura que no se carga en la caja (la del mes de Pollería,
   // Las 3B…): se escanean con el mismo escáner, se juntan en un PDF y van a
   // "Facturas nuevas" (guardarFacturaPapel_ en Bandejas.gs), que la pasa ya.
-  // externa: "Factura externa" (menú Varios): la misma pantalla, pero la
+  // externa: "Factura NO USAR" (menú Varios): la misma pantalla, pero la
   // factura va a FC VYR (ver BANDEJA_EXTERNAS_ en Bandejas.gs).
   var facturaPapelHojas = [], facturaPapelExterna = false;
   function abrirFacturasPapel(externa){
     facturaPapelExterna = !!externa;
-    document.getElementById('fpTitulo').textContent = externa ? 'Factura externa' : 'Facturas del mes';
+    document.getElementById('fpTitulo').textContent = externa ? 'Factura NO USAR' : 'Facturas del mes';
     document.getElementById('fpExplicaExterna').style.display = externa ? '' : 'none';
     document.getElementById('fpExplicaMes').style.display = externa ? 'none' : '';
     facturaPapelHojas = [];
