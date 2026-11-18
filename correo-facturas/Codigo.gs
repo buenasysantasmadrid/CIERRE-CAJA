@@ -10,8 +10,11 @@
 //   · Solo adjuntos PDF o fotos (las fotos pequeñas, logos y firmas, no).
 //   · El email ya pasado queda con la etiqueta "Factura procesada".
 //   · Si no trae ningún PDF (ej. la factura es un enlace), llega un email.
+//   · Los emails no se quedan en la bandeja de entrada: se archivan y quedan
+//     solo con su etiqueta (los avisos de arriba sí llegan a la bandeja).
+//   · Pasa cada 10 minutos (el activador se cambia solo, ver activadorCada10_).
 // Instalar: ejecutar a mano "instalar" desde el editor (pide los permisos y
-// pone el activador de cada hora).
+// pone el activador de cada 10 minutos).
 // ============================================================================
 
 var DIRECCION = 'buenasysantasmadrid+facturas@gmail.com';
@@ -26,13 +29,26 @@ function instalar() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === 'traerFacturasDelCorreo') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('traerFacturasDelCorreo').timeBased().everyHours(1).create();
+  ScriptApp.newTrigger('traerFacturasDelCorreo').timeBased().everyMinutes(10).create();
+  PropertiesService.getScriptProperties().setProperty('activador', 'cada10');
   var r = traerFacturasDelCorreo();
   Logger.log('Instalado. ' + JSON.stringify(r));
   return r;
 }
 
+// El activador era de cada hora: se cambia a cada 10 minutos una sola vez.
+function activadorCada10_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('activador') === 'cada10') return;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'traerFacturasDelCorreo') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('traerFacturasDelCorreo').timeBased().everyMinutes(10).create();
+  props.setProperty('activador', 'cada10');
+}
+
 function traerFacturasDelCorreo() {
+  try { activadorCada10_(); } catch (err) { Logger.log('Activador: ' + err); }
   var salida = { traidas: [], ignorados: [], sinAdjunto: [] };
   var raiz = DriveApp.getFolderById(CARPETA_FACTURAS_ID);
   var it = raiz.getFoldersByName(BANDEJA);
@@ -66,7 +82,10 @@ function traerFacturasDelCorreo() {
       });
     });
     hilo.addLabel(algunoBueno ? ok : no);
+    hilo.moveToArchive();
   });
+  // Los que ya estaban pasados y siguen en la bandeja de entrada.
+  GmailApp.search('to:' + DIRECCION + ' in:inbox (label:"' + ETIQUETA_OK + '" OR label:"' + ETIQUETA_NO + '")', 0, 100).forEach(function (h) { h.moveToArchive(); });
   var yo = Session.getEffectiveUser().getEmail();
   if (salida.ignorados.length) {
     MailApp.sendEmail(yo, 'Facturas por email: un email no se tomó',
