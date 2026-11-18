@@ -47,6 +47,63 @@ function activadorCada10_() {
   props.setProperty('activador', 'cada10');
 }
 
+// ----------------------------------------------------------------------------
+// VIGILANCIA DE LA APP DE CAJA. Cada 15 minutos se prueba si la app responde.
+// Va en este proyecto (de otra cuenta) a propósito: si la app de caja se cae
+// (el 18/11 Google le quitó el permiso a lfisbein y daba "Acceso denegado" a
+// todos), sus propios avisos tampoco salen. Avisa a lfisbein cuando falla 2
+// veces seguidas (para no avisar por un corte de un momento) y otra vez cuando
+// vuelve a funcionar. Instalar: ejecutar a mano "instalarVigilancia".
+// ----------------------------------------------------------------------------
+var URL_APP_CAJA = 'https://script.google.com/macros/s/AKfycbyrfOE73JqgjTXAEaLetRz8aJg1Ldb-Du4dsqGgW34H-zgwLSJMrAkSKApiTCoz6t7m_A/exec';
+
+function instalarVigilancia() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'vigilarAppCaja') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('vigilarAppCaja').timeBased().everyMinutes(15).create();
+  var r = probarAppCaja_();
+  Logger.log('Vigilancia instalada. Ahora la app ' + (r.ok ? 'funciona bien.' : 'NO responde: ' + r.detalle));
+}
+
+function probarAppCaja_() {
+  try {
+    var resp = UrlFetchApp.fetch(URL_APP_CAJA + '?salud=1', { muteHttpExceptions: true, followRedirects: true });
+    var codigo = resp.getResponseCode();
+    if (codigo !== 200) return { ok: false, detalle: 'Google respondió con el código ' + codigo + (codigo === 403 ? ' (Acceso denegado)' : '') };
+    try { JSON.parse(resp.getContentText()); } catch (e) { return { ok: false, detalle: 'respondió una página de Google en vez de la app (seguramente pide autorización)' }; }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, detalle: 'no se pudo conectar: ' + err };
+  }
+}
+
+function vigilarAppCaja() {
+  var props = PropertiesService.getScriptProperties();
+  var r = probarAppCaja_();
+  var fallos = Number(props.getProperty('appFallos') || 0);
+  var avisado = props.getProperty('appAvisado') === 'si';
+  var yo = 'lfisbein@gmail.com';
+  if (r.ok) {
+    if (avisado) MailApp.sendEmail(yo, 'App de caja: vuelve a funcionar', 'La app de caja vuelve a responder bien.');
+    props.setProperty('appFallos', '0');
+    props.setProperty('appAvisado', 'no');
+    return;
+  }
+  fallos++;
+  props.setProperty('appFallos', String(fallos));
+  if (fallos >= 2 && !avisado) {
+    MailApp.sendEmail(yo, '⚠️ App de caja CAÍDA: nadie puede entrar',
+      'La app de caja no responde (' + r.detalle + ').\n\n' +
+      'Lo que lo arregló la otra vez (18/11):\n' +
+      '1. Entrar en el navegador con lfisbein@gmail.com.\n' +
+      '2. Abrir https://script.google.com/home/projects/1INf8MRY3syralbQwrwSHKRQ8wy6BCnWZ9IK9joh2Uw3l5bnWSXgmBJUW/edit\n' +
+      '3. Abrir Salud.gs, elegir "revisarSalud" y pulsar Ejecutar. Si pide permisos, aceptarlos.\n\n' +
+      'Cuando vuelva a funcionar llega otro email.');
+    props.setProperty('appAvisado', 'si');
+  }
+}
+
 function traerFacturasDelCorreo() {
   try { activadorCada10_(); } catch (err) { Logger.log('Activador: ' + err); }
   var salida = { traidas: [], ignorados: [], sinAdjunto: [] };
