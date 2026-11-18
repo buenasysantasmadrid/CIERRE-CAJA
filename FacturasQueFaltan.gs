@@ -6,9 +6,14 @@
 //     meses anteriores a ese mes. Si ese mes no tiene nada, falta.
 //   · Pollería, La Jaula, Mercandalucía y Las 3B (factura mensual): falta si
 //     hay albaranes del mes pero su factura del mes no está en Drive.
+//   · Atlanta, Disbesa, Iberolactal y CBG (primero el albarán, después la
+//     factura): falta la factura de cada albarán del mes que no pasó a factura.
 //   · Varios, Super, Extras y Glovo no cuentan: no son fijos.
 // El activador se pone solo desde los guardados de la caja (Bandejas.gs).
 // ============================================================================
+
+// Los que traen albarán y después la factura (nombres de pestaña de ALBARANES).
+var FALTAN_ALBARAN_LUEGO_FACTURA_ = ['ATLANTA', 'DISBESA', 'IBEROLACTAL', 'CBG'];
 
 var FALTAN_NOMBRES_MES_ = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
@@ -111,6 +116,31 @@ function facturasQueFaltan_(anio, mes) {
     var x = actual[clave];
     if (!x || (pdfs[clave] || []).length) return;
     faltan.push({ proveedor: x.nombre, que: 'Falta la factura del mes (' + x.n + ' albaranes, ' + euros_(Math.round(x.total * 100) / 100) + ')' });
+  });
+
+  // Atlanta, Disbesa, Iberolactal y CBG: primero traen el albarán y después
+  // la factura. Falta la de cada albarán del mes que no pasó a factura (al
+  // pasar, en observaciones queda "Ticket <nº del albarán>", ver
+  // FacturaTicket.gs). Los "SIN FACTURA" no cuentan.
+  var ssMes = planilla(anio);
+  if (ssMes) ssMes.getSheets().forEach(function (h) {
+    if (FALTAN_ALBARAN_LUEGO_FACTURA_.indexOf(normalizarClave_(h.getName())) === -1) return;
+    var b;
+    try { b = filasDelMesAlbaranes_(h, mes); } catch (err) { return; }
+    if (!b) return;
+    var sin = b.filas.filter(function (f) {
+      var notas = normalizarClave_(f.obs);
+      return f.importe && !/(^|·\s*)TICKET\b/.test(notas) && !/SIN FACTURA/.test(notas);
+    });
+    if (!sin.length) return;
+    var total = Math.round(sin.reduce(function (s, f) { return s + f.importe; }, 0) * 100) / 100;
+    faltan.push({
+      proveedor: h.getName(),
+      que: (sin.length === 1 ? 'Falta la factura de 1 albarán: ' : 'Faltan las facturas de ' + sin.length + ' albaranes (' + euros_(total) + '): ') +
+        sin.map(function (f) {
+          return (f.numero ? 'nº ' + f.numero + ' ' : '') + 'del ' + (f.fecha ? Utilities.formatDate(f.fecha, 'Europe/Madrid', 'dd/MM') : '?') + ' (' + euros_(f.importe) + ')';
+        }).join(', ')
+    });
   });
   return faltan.sort(function (a, b) { return a.proveedor.localeCompare(b.proveedor); });
 }
