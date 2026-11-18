@@ -30,6 +30,9 @@
 // ============================================================================
 
 var BANDEJA_UNICA_ = '📥 Facturas nuevas';
+// Facturas externas: a nuestro nombre pero no son gasto del restaurante. Van
+// a FC VYR (no suman en las cuentas del mes, sí van a los contables).
+var BANDEJA_EXTERNAS_ = '📥 Facturas externas';
 var BANDEJA_ALBARAN_ = '📥 Facturas de albarán'; // vieja: solo se procesa si existe
 var BANDEJA_TRANSFERENCIA_ = '📥 Facturas pagadas por transferencia'; // vieja: ídem
 var BANDEJA_NO_LEIDAS_ = '⚠️ No se pudo leer';
@@ -61,6 +64,7 @@ function asegurarBandejasFacturas_() {
     if (cache.get('bandejas_facturas')) return;
     var raiz = DriveApp.getFolderById(CARPETA_FACTURAS_ID_);
     carpetaHija_(raiz, BANDEJA_UNICA_);
+    carpetaHija_(raiz, BANDEJA_EXTERNAS_);
     var hay = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'procesarBandejasFacturas'; });
     if (!hay) ScriptApp.newTrigger('procesarBandejasFacturas').timeBased().everyHours(1).create();
     asegurarActivadorFacturasQueFaltan_(); // el email del día 3 (FacturasQueFaltan.gs)
@@ -118,12 +122,12 @@ function procesarBandejasFacturas() {
     var raiz = DriveApp.getFolderById(CARPETA_FACTURAS_ID_);
     var lista = proveedoresParaLeer_();
     var hechas = [], salida ={ ok: true, hechas: hechas, problemas: [], seReintentan: [] };
-    [[BANDEJA_UNICA_, 'auto'], [BANDEJA_ALBARAN_, 'albaran'], [BANDEJA_TRANSFERENCIA_, 'transferencia']].forEach(function (b) {
+    [[BANDEJA_UNICA_, 'auto'], [BANDEJA_EXTERNAS_, 'externa'], [BANDEJA_ALBARAN_, 'albaran'], [BANDEJA_TRANSFERENCIA_, 'transferencia']].forEach(function (b) {
       // Las dos viejas no se vuelven a crear: solo si todavía están.
       var it = raiz.getFoldersByName(b[0]);
-      var bandeja = it.hasNext() ? it.next() : (b[1] === 'auto' ? carpetaHija_(raiz, b[0]) : null);
+      var bandeja = it.hasNext() ? it.next() : (b[1] === 'auto' || b[1] === 'externa' ? carpetaHija_(raiz, b[0]) : null);
       if (!bandeja) return;
-      if (b[1] === 'auto') { carpetaHija_(bandeja, BANDEJA_NO_LEIDAS_); carpetaHija_(bandeja, BANDEJA_REVISAR_); } // que se vean desde el principio
+      if (b[1] === 'auto' || b[1] === 'externa') { carpetaHija_(bandeja, BANDEJA_NO_LEIDAS_); carpetaHija_(bandeja, BANDEJA_REVISAR_); } // que se vean desde el principio
       var archivos = bandeja.getFiles();
       while (archivos.hasNext() && Date.now() - inicio < BANDEJA_TIEMPO_MAX_MS_) {
         var archivo = archivos.next();
@@ -281,9 +285,11 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista, bandeja) {
   if (!idPlanilla) throw new Error('No hay planilla de ALBARANES ' + anio + ' en el Índice');
   var ss = SpreadsheetApp.openById(idPlanilla);
 
-  // Pidebio y Madrid Rural: a la pestaña FC VYR (fuera del total de compras,
+  // Pidebio y Madrid Rural, y toda factura externa (carpeta "📥 Facturas
+  // externas" o "Factura externa" en la app: a nuestro nombre pero no es
+  // gasto del restaurante): a la pestaña FC VYR (fuera del total de compras,
   // pero va a los contables), sin buscar albaranes ni mirar la forma de pago.
-  var vyr = proveedorFcVyr_(leido, deLista, r.proveedor_lista);
+  var vyr = proveedorFcVyr_(leido, deLista, r.proveedor_lista) || (tipo === 'externa' ? (leido || deLista || 'Sin proveedor') : '');
   if (vyr) {
     var resVyr = escribirTransferenciaEnAlbaranes_(ss, ALBARANES_PESTANA_FC_VYR_, vyr, fecha, numero, importe, isNaN(iva) ? null : iva, 'pdf-' + archivo.getId());
     var cualVyr = 'FC VYR — ' + vyr + (numero ? ' nº ' + numero : '') + ' del ' + fechaCorta_(fecha) + ', ' + euros_(importe);
@@ -608,17 +614,19 @@ function euros_(n) {
 function guardarFacturaPapel_(data) {
   if (!data.pdfBase64) return { ok: false, error: 'No llegó la foto' };
   var raiz = DriveApp.getFolderById(CARPETA_FACTURAS_ID_);
-  var bandeja = carpetaHija_(raiz, BANDEJA_UNICA_);
-  var nombre = 'Factura en papel ' + Utilities.formatDate(new Date(), 'Europe/Madrid', 'yyyy-MM-dd HH.mm.ss') + '.pdf';
+  // data.externa: "Factura externa" en la app (va a FC VYR, ver BANDEJA_EXTERNAS_).
+  var tipo = data.externa ? 'externa' : 'auto';
+  var bandeja = carpetaHija_(raiz, data.externa ? BANDEJA_EXTERNAS_ : BANDEJA_UNICA_);
+  var nombre = (data.externa ? 'Factura externa ' : 'Factura en papel ') + Utilities.formatDate(new Date(), 'Europe/Madrid', 'yyyy-MM-dd HH.mm.ss') + '.pdf';
   var archivo = bandeja.createFile(Utilities.newBlob(Utilities.base64Decode(data.pdfBase64), 'application/pdf', nombre));
   var r;
   try {
-    r = procesarFacturaDeBandeja_(archivo, 'auto', raiz, proveedoresParaLeer_(), bandeja);
+    r = procesarFacturaDeBandeja_(archivo, tipo, raiz, proveedoresParaLeer_(), bandeja);
   } catch (err) {
     // Se queda en la carpeta y se prueba otra vez en la vuelta de cada hora.
     return { ok: true, guardada: true, hecha: 'Guardada. No se pudo leer ahora (' + (err.message || err) + '): se vuelve a intentar sola en menos de una hora.' };
   }
-  if (r.hecha) apuntarMovFactura_('cargada', r.proveedor, r.importe, 'Foto en la app (Facturas): ' + r.hecha, r.enlace);
+  if (r.hecha) apuntarMovFactura_('cargada', r.proveedor, r.importe, 'Foto en la app (' + (data.externa ? 'Factura externa' : 'Facturas') + '): ' + r.hecha, r.enlace);
   (r.avisos || []).forEach(function (a) { apuntarMovFactura_(a.tipo, r.proveedor, r.importe, a.que, r.enlace); });
   return { ok: true, guardada: true, hecha: r.hecha || '', problema: r.problema || '' };
 }
