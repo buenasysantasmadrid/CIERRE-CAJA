@@ -1076,6 +1076,10 @@ function doGet(e) {
   if (esClaude && parametros.pasarAFcVyr) {
     return ContentService.createTextOutput(JSON.stringify(pasarServiciosAFcVyr_(String(parametros.pasarAFcVyr)))).setMimeType(ContentService.MimeType.JSON);
   }
+  // ?serviciosAVarios=AAAA[&probar=1]: las de VARIOS_CONOCIDOS_ de SERVICIOS a VARIOS (ServiciosVarios.gs).
+  if (esClaude && parametros.serviciosAVarios) {
+    return ContentService.createTextOutput(JSON.stringify(pasarServiciosAVarios_(String(parametros.serviciosAVarios), !!parametros.probar))).setMimeType(ContentService.MimeType.JSON);
+  }
   if (esClaude && parametros.procesarBandejas) {
     return ContentService.createTextOutput(JSON.stringify(procesarBandejasFacturas() || {})).setMimeType(ContentService.MimeType.JSON);
   }

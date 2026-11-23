@@ -350,12 +350,21 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista, bandeja) {
     }
   }
 
-  // Proveedor (carpeta y pestaña) y detalle (el nombre real, en SERVICIOS).
+  // Proveedor (carpeta y pestaña) y detalle (el nombre real, en SERVICIOS o
+  // VARIOS). Solo los servicios conocidos van a SERVICIOS; lo que no se sabe,
+  // a VARIOS y se pregunta (ServiciosVarios.gs).
+  var dudaServicio = false;
   if (tipo === 'transferencia' && (!deLista || BANDEJA_PROVEEDORES_GENERICOS_.indexOf(normalizarClave_(deLista)) > -1 || !pestanaAlbaranesParaProveedor_(ss, deLista))) {
-    proveedor = 'Servicios';
-    detalle = leido || deLista;
+    var nombreReal = leido || deLista;
+    var servicio = servicioConocido_(leido) || servicioConocido_(deLista);
+    if (servicio) { proveedor = 'Servicios'; detalle = servicio; }
+    else {
+      proveedor = 'Varios';
+      detalle = nombreReal;
+      dudaServicio = !variosConocido_(nombreReal);
+    }
   }
-  var cual = (detalle ? 'Servicios — ' + detalle : proveedor) + (numero ? ' nº ' + numero : '') + ' del ' + fechaCorta_(fecha) + ', ' + euros_(importe);
+  var cual = (detalle ? proveedor + ' — ' + detalle : proveedor) + (numero ? ' nº ' + numero : '') + ' del ' + fechaCorta_(fecha) + ', ' + euros_(importe);
 
   if (resultado) {
     // ya pasada a factura arriba ("Facturas nuevas")
@@ -369,7 +378,8 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista, bandeja) {
 
   var enlace = moverFacturaACarpetaProveedor_(archivo, raiz, fecha, proveedor, detalle, numero);
   var avisos = (resultado.avisos || []).slice();
-  if (!deLista) avisos.push({ tipo: 'varios', que: 'No es de ningún proveedor de la lista: ' + (detalle ? 'cargada en Servicios' : 'guardada como "' + proveedor + '"') });
+  if (dudaServicio) avisos.push({ tipo: 'varios', que: 'No sé si es un servicio: la puse en VARIOS. ¿Va en VARIOS o en SERVICIOS? Díselo a Claude y se acordará para las próximas' });
+  else if (!deLista) avisos.push({ tipo: 'varios', que: 'No es de ningún proveedor de la lista: cargada en ' + (proveedor === 'Servicios' ? 'Servicios' : '"' + proveedor + '"') });
   return {
     hecha: cual + ': ' + resultado.texto,
     problema: resultado.problema ? cual + ': ' + resultado.problema : '',
