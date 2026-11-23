@@ -418,7 +418,39 @@ function moverFacturaACarpetaProveedor_(archivo, raiz, fecha, proveedor, detalle
   archivo.setName(nombre);
   archivo.setDescription('');
   archivo.moveTo(dir);
+  if (numero) quitarFotosDeLaMismaFactura_(dir, archivo, numero);
   return archivo.getUrl();
+}
+
+// 23/11/2026 (Luciana): una factura que se sacó en foto y después llega por
+// email: queda la del email (es la buena) y la foto va a la papelera (se
+// puede recuperar 30 días). Se busca por número aunque el nombre del
+// archivo no sea idéntico (otra fecha leída, el número escrito con
+// guiones...), en la carpeta del proveedor y en su subcarpeta Albaranes
+// (ahí la pudo apartar pasarAlbaranesAFactura_). Los albaranes de verdad
+// (descripción "albaran") no se tocan. Números de menos de 4 cifras no
+// (Las 3B "000002": se repiten).
+function quitarFotosDeLaMismaFactura_(dir, archivo, numero) {
+  var clave = claveNumeroFactura_(numero);
+  if (clave.length < 4) return 0;
+  var quitadas = 0;
+  var revisar = function (carpeta) {
+    var fs = carpeta.getFiles();
+    while (fs.hasNext()) {
+      var f = fs.next();
+      if (f.getId() === archivo.getId()) continue;
+      if (String(f.getDescription() || '').toLowerCase() === 'albaran') continue;
+      var sinFecha = f.getName().replace(/\.[a-z0-9]{2,4}$/i, '').replace(/^\d{4}-\d{2}-\d{2}\s*/, '');
+      if (!claveNumeroFactura_(sinFecha).endsWith(clave)) continue;
+      try { f.setTrashed(true); quitadas++; }
+      catch (err) { Logger.log('No se pudo quitar la foto ' + f.getName() + ': ' + err); }
+    }
+  };
+  revisar(dir);
+  var subs = dir.getFoldersByName('Albaranes');
+  if (subs.hasNext()) revisar(subs.next());
+  if (quitadas) archivo.setDescription('del email (reemplaza la foto)');
+  return quitadas;
 }
 
 // Número de factura o albarán para comparar: sin espacios, barras ni ceros
