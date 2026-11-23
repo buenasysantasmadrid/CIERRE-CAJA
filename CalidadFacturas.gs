@@ -60,6 +60,8 @@ function revisarCalidadPdfs_(periodo, desde, cuantos, correo) {
     var fila = { nombre: x.ruta, url: x.archivo.getUrl(),
       bien: r.ok ? r.se_lee_bien : null, problema: r.ok ? r.problema_imagen : 'no se pudo revisar: ' + r.error };
     hechos.push(fila);
+    // Una tanda repetida (se cortó la conexión) no apunta dos veces la misma.
+    malos = malos.filter(function (m) { return m.url !== fila.url; });
     if (fila.bien !== true) malos.push({ nombre: fila.nombre, url: fila.url, problema: fila.problema });
   }
   props.setProperty(clave, JSON.stringify(malos));
