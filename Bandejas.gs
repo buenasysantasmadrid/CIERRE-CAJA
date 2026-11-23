@@ -354,7 +354,9 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista, bandeja) {
   // VARIOS). Solo los servicios conocidos van a SERVICIOS; lo que no se sabe,
   // a VARIOS y se pregunta (ServiciosVarios.gs).
   var dudaServicio = false;
-  if (tipo === 'transferencia' && (!deLista || BANDEJA_PROVEEDORES_GENERICOS_.indexOf(normalizarClave_(deLista)) > -1 || !pestanaAlbaranesParaProveedor_(ss, deLista))) {
+  // Glovo tiene su pestaña (GLOVO) y su carpeta: nunca a SERVICIOS ni VARIOS.
+  if (/glovo/i.test(leido + ' ' + (deLista || ''))) { proveedor = 'Glovo'; detalle = ''; }
+  else if (tipo === 'transferencia' && (!deLista || BANDEJA_PROVEEDORES_GENERICOS_.indexOf(normalizarClave_(deLista)) > -1 || !pestanaAlbaranesParaProveedor_(ss, deLista))) {
     var nombreReal = leido || deLista;
     var servicio = servicioConocido_(leido) || servicioConocido_(deLista);
     if (servicio) { proveedor = 'Servicios'; detalle = servicio; }
