@@ -22,6 +22,31 @@ var AN_DIAS_CORTOS_ = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 var AN_MESES_ = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 var AN_VERDE_ = '#1e8449', AN_ROJO_ = '#c0392b', AN_GRIS_ = '#888';
 
+// A quién van el análisis del mes y el resumen de los lunes (lo pidió Luciana el 23/11/2026).
+var AN_PARA_ = 'info@buenasysantas.es';
+
+// Noches que antes se abrían y ahora no (dia: 0 = lunes). Sale de la pestaña
+// "comparativa": martes noche hasta dic. 2024, miércoles noche hasta oct. 2025.
+// Al comparar con un periodo en que esa noche se abría, se le resta lo que se
+// facturó esas noches, para comparar con los mismos turnos que hoy.
+var AN_NOCHES_CERRADAS_ = [
+  { dia: 1, desde: '2025-01-01', nombre: 'martes', hasta: 'diciembre de 2024' },
+  { dia: 2, desde: '2025-11-01', nombre: 'miércoles', hasta: 'octubre de 2025' }
+];
+// true si la noche de ese día de la semana se abría en 'pasada' y en 'actual' ya no (AAAA-MM-DD).
+function anQuitarNoche_(w, actual, pasada) {
+  return AN_NOCHES_CERRADAS_.some(function (c) { return c.dia === w && actual >= c.desde && pasada < c.desde; });
+}
+function anNotaNoches_() {
+  return '<p style="margin:4px 0 0;color:#999;font-size:11px">* Mismos turnos que ahora: a ese periodo se le resta lo que se facturó ' +
+    AN_NOCHES_CERRADAS_.map(function (c) { return 'el ' + c.nombre + ' por la noche (se abría hasta ' + c.hasta + ')'; }).join(' y ') +
+    '. Entre paréntesis, lo que se facturó de verdad.</p>';
+}
+// "1.234 €" o "1.234 € *" con lo real debajo si se restaron noches.
+function anEurComp_(x) {
+  return anEur_(x.fact != null ? x.fact : x.total) + (x.quitado ? ' *<br><span style="color:#999;font-weight:normal;font-size:11px">(' + anEur_(x.factReal != null ? x.factReal : x.real) + ')</span>' : '');
+}
+
 // ---------- utilidades ----------
 function anR_(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 function anDow_(iso) { return (new Date(iso + 'T12:00:00Z').getUTCDay() + 6) % 7; } // lunes = 0
@@ -131,22 +156,61 @@ function anMes_(datos, anio, mes) {
 
 // Lo facturado en esas fechas de un año pasado: real si hay día por día, si no
 // aproximado (ver arriba). null si no hay datos de ese año.
-function anOtroAnio_(datos, fechas) {
-  var real = anSumar_(anDias_(fechas[0], fechas[fechas.length - 1]), fechas, anFact_);
-  if (real.dias) return { total: real.total, dias: real.dias, aprox: false };
+// actuales: las fechas de ahora con las que se compara (mismo orden). Si se
+// pasan, se resta lo de las noches que entonces se abrían y ahora no
+// (total = mismos turnos, real = lo facturado de verdad, quitado = la resta).
+function anOtroAnio_(datos, fechas, actuales) {
+  var dias = anDias_(fechas[0], fechas[fechas.length - 1]);
+  var real = anSumar_(dias, fechas, anFact_);
+  var quitado = 0;
+  if (real.dias) {
+    fechas.forEach(function (f, i) {
+      if (dias[f] && actuales && anQuitarNoche_(anDow_(f), actuales[i], f)) quitado += dias[f].noche || 0;
+    });
+    return { total: anR_(real.total - quitado), real: real.total, quitado: anR_(quitado), dias: real.dias, aprox: false };
+  }
   var t = 0, n = 0;
   for (var i = 0; i < fechas.length; i++) {
-    var iso = fechas[i], anio = iso.slice(0, 4), mes = Number(iso.slice(5, 7));
+    var iso = fechas[i], anio = iso.slice(0, 4), mes = Number(iso.slice(5, 7)), w = anDow_(iso);
     var sem = datos.semana[anio] && datos.semana[anio][String(mes)];
     var mm = anMes_(datos, anio, mes);
     if (!sem || !mm || !mm.dias) return null;
-    var local = sem.total[anDow_(iso)];
+    var local = sem.total[w];
     if (!local) continue; // ese día de la semana no se abría
     t += local + mm.deliv / mm.dias;
+    if (actuales && anQuitarNoche_(w, actuales[i], iso)) quitado += (sem.noche && sem.noche[w]) || 0;
     n++;
   }
-  return { total: anR_(t), dias: n, aprox: true };
+  return { total: anR_(t - quitado), real: anR_(t), quitado: anR_(quitado), dias: n, aprox: true };
 }
+
+// Un mes pasado (anMes_) comparable con el periodo que empieza en ref
+// (AAAA-MM-DD): sin las noches que entonces se abrían y en ref ya no.
+// fact y nc quedan con los mismos turnos; factReal, lo facturado de verdad.
+// Es aproximado: promedio de esa noche ("comparativa") × cuántos de ese día
+// de la semana se abrieron en el mes.
+function anMesComp_(datos, anio, mes, ref) {
+  var mm = anMes_(datos, anio, mes);
+  if (!mm) return null;
+  mm.factReal = mm.fact;
+  mm.quitado = 0;
+  var ini = anio + '-' + anDosDig_(mes) + '-01';
+  var sem = datos.semana[String(anio)] && datos.semana[String(anio)][String(mes)];
+  if (!sem || !sem.noche) return mm;
+  var fechas = anFechas_(ini, anio + '-' + anDosDig_(mes) + '-' + anDosDig_(anUltimoDia_(anio, mes)));
+  // Si el mes tuvo menos días abiertos de lo normal (vacaciones), se reduce igual.
+  var normales = fechas.filter(function (f) { return sem.total[anDow_(f)]; }).length;
+  var factor = normales && mm.dias ? Math.min(1, mm.dias / normales) : 1;
+  fechas.forEach(function (f) {
+    var w = anDow_(f);
+    if (sem.total[w] && anQuitarNoche_(w, ref, f)) mm.quitado += (sem.noche[w] || 0) * factor;
+  });
+  mm.quitado = anR_(mm.quitado);
+  mm.fact = anR_(mm.fact - mm.quitado);
+  if (mm.nc != null) mm.nc = anR_(mm.nc - mm.quitado);
+  return mm;
+}
+function anRef_(anio, mes) { return anio + '-' + anDosDig_(mes) + '-01'; }
 function anMoverAnios_(fechas, anios) { return fechas.map(function (f) { return semanalSumarDias_(f, -364 * anios); }); } // mismo día de la semana
 
 // Los albaranes de cada año sin lo que no es compra a proveedores: EXTRAS
@@ -198,14 +262,15 @@ function analisisSemana_(hasta, compras) {
   var previas = [];
   for (var k = 1; k <= 4; k++) { var s = anSumar_(dias, semana(k), anFact_); if (s.dias) previas.push(s); }
   var media4 = previas.length ? anR_(anSuma_(previas.map(function (x) { return x.total; })) / previas.length) : null;
-  var pasados = [1, 2, 3].map(function (a) { var r = anOtroAnio_(datos, anMoverAnios_(fechas, a)); if (r) r.anio = anio - a; return r; }).filter(Boolean);
+  var pasados = [1, 2, 3].map(function (a) { var r = anOtroAnio_(datos, anMoverAnios_(fechas, a), fechas); if (r) r.anio = anio - a; return r; }).filter(Boolean);
+  var hayNoches = pasados.some(function (p) { return p.quitado; });
   var porDia = function (s) { return s && s.dias ? s.total / s.dias : null; };
 
   var filas = [];
   if (ant.dias) filas.push(['Semana anterior', anEur_(ant.total), ant.dias, anEur_(porDia(ant)), anPctHtml_(anPct_(esta.total, ant.total))]);
   if (media4) filas.push(['Media de las ' + previas.length + ' semanas anteriores', anEur_(media4), '', '', anPctHtml_(anPct_(esta.total, media4))]);
   pasados.forEach(function (p) {
-    filas.push(['Misma semana de ' + p.anio + (p.aprox ? ' <span style="color:#999;font-weight:normal">(aprox.)</span>' : ''), anEur_(p.total), p.dias, anEur_(porDia(p)), anPctHtml_(anPct_(esta.total, p.total))]);
+    filas.push(['Misma semana de ' + p.anio + (p.aprox ? ' <span style="color:#999;font-weight:normal">(aprox.)</span>' : ''), anEurComp_(p), p.dias, anEur_(porDia(p)), anPctHtml_(anPct_(esta.total, p.total))]);
   });
 
   var cambio = ant.dias ? anPct_(esta.total, ant.total) : null;
@@ -226,6 +291,7 @@ function analisisSemana_(hasta, compras) {
   if (pasados.some(function (p) { return p.aprox; })) {
     html.push('<p style="margin:4px 0 0;color:#999;font-size:11px">Aprox.: de esos años solo hay promedios por día de la semana de cada mes, no el día a día.</p>');
   }
+  if (hayNoches) html.push(anNotaNoches_());
 
   // --- desglose ---
   var partes = [
@@ -285,14 +351,17 @@ function analisisSemana_(hasta, compras) {
       }
       if (vals.length >= 4) proy += anSuma_(vals) / vals.length;
     });
-    var mesPas = anMes_(datos, anio - 1, mes);
+    var mesPas = anMesComp_(datos, anio - 1, mes, inicioMes);
+    var notaMes = false;
     [1, 2, 3].forEach(function (a) {
-      var r = anOtroAnio_(datos, anMoverAnios_(fechasMes, a));
-      if (r) filasMes.push([anCap_(AN_MESES_[mes - 1]) + ' ' + (anio - a) + ', mismos días' + (r.aprox ? ' <span style="color:#999;font-weight:normal">(aprox.)</span>' : ''), anEur_(r.total), anPctHtml_(anPct_(mesAct.total, r.total))]);
+      var r = anOtroAnio_(datos, anMoverAnios_(fechasMes, a), fechasMes);
+      if (r && r.quitado) notaMes = true;
+      if (r) filasMes.push([anCap_(AN_MESES_[mes - 1]) + ' ' + (anio - a) + ', mismos días' + (r.aprox ? ' <span style="color:#999;font-weight:normal">(aprox.)</span>' : ''), anEurComp_(r), anPctHtml_(anPct_(mesAct.total, r.total))]);
     });
     html.push(anH2_(anCap_(AN_MESES_[mes - 1]) + ' hasta el ' + anDDMM_(hasta),
-      'Llevas ' + anEur_(mesAct.total) + ' en ' + mesAct.dias + ' días.' + (resto.length ? ' Si sigue como las últimas semanas, cerraría en unos <b>' + anEur_(proy) + '</b>' + (mesPas ? ' (' + AN_MESES_[mes - 1] + ' ' + (anio - 1) + ' cerró en ' + anEur_(mesPas.fact) + ')' : '') + '.' : '')));
+      'Llevas ' + anEur_(mesAct.total) + ' en ' + mesAct.dias + ' días.' + (resto.length ? ' Si sigue como las últimas semanas, cerraría en unos <b>' + anEur_(proy) + '</b>' + (mesPas ? ' (' + AN_MESES_[mes - 1] + ' ' + (anio - 1) + ' cerró en ' + anEur_(mesPas.fact) + (mesPas.quitado ? ' con los mismos turnos que ahora; de verdad, ' + anEur_(mesPas.factReal) : '') + ')' : '') + '.' : '')));
     if (filasMes.length) html.push(anTabla_(['Comparado con', 'Facturado', anCap_(AN_MESES_[mes - 1]) + ' ' + anio], filasMes));
+    if (notaMes && !hayNoches) html.push(anNotaNoches_());
   }
 
   // Año: meses completos de "años" + lo que va del mes.
@@ -301,16 +370,19 @@ function analisisSemana_(hasta, compras) {
   var filasAnio = [], anioAnt1 = 0;
   [1, 2, 3].forEach(function (a) {
     var t = 0, ok = true;
-    for (var m = 1; m < mes; m++) { var mm = anMes_(datos, anio - a, m); if (!mm) { ok = false; break; } t += mm.fact; }
-    var parcial = mesAct.dias ? anOtroAnio_(datos, anMoverAnios_(fechasMes, a)) : { total: 0 };
+    var tReal = 0;
+    for (var m = 1; m < mes; m++) { var mm = anMesComp_(datos, anio - a, m, anRef_(anio, m)); if (!mm) { ok = false; break; } t += mm.fact; tReal += mm.factReal; }
+    var parcial = mesAct.dias ? anOtroAnio_(datos, anMoverAnios_(fechasMes, a), fechasMes) : { total: 0, real: 0 };
     if (!ok || !parcial) return;
     t += parcial.total;
+    tReal += parcial.real;
     if (a === 1) anioAnt1 = t;
-    filasAnio.push([String(anio - a) + ', mismo periodo', anEur_(t), anPctHtml_(anPct_(anioAct, t))]);
+    filasAnio.push([String(anio - a) + ', mismo periodo', anEurComp_({ total: t, real: tReal, quitado: Math.round(tReal - t) }), anPctHtml_(anPct_(anioAct, t))]);
   });
   if (filasAnio.length) {
     html.push(anH2_('El año hasta el ' + anDDMM_(hasta), 'Llevas ' + anEur_(anioAct) + ' en ' + anio + '.'));
     html.push(anTabla_(['Comparado con', 'Facturado', String(anio)], filasAnio));
+    if (filasAnio.some(function (f) { return f[1].indexOf('*') !== -1; })) html.push(anNotaNoches_());
     var a1 = filasAnio[0];
     if (a1 && anioAnt1) destacados.push('En el año llevas ' + anEur_(anioAct) + ', ' + anUn_(anPct_(anioAct, anioAnt1)) + ' que ' + (anio - 1) + ' a estas alturas.');
   }
@@ -372,21 +444,27 @@ function analisisMes_(anio, mes) {
   var destacados = [], html = [];
 
   // --- comparaciones del total ---
-  var mAnt = mes === 1 ? anMes_(datos, anio - 1, 12) : anMes_(datos, anio, mes - 1);
-  var pasados = [1, 2, 3].map(function (a) { var m = anMes_(datos, anio - a, mes); if (m) m.anio = anio - a; return m; }).filter(Boolean);
-  var filas = [];
-  if (mAnt) filas.push(['Mes anterior (' + AN_MESES_[(mes + 10) % 12] + ')', anEur_(mAnt.fact), anPctHtml_(anPct_(cur.fact, mAnt.fact)), anEur_(porDia(mAnt)), anPctHtml_(anPct_(porDia(cur), porDia(mAnt)))]);
-  pasados.forEach(function (p) { filas.push([Mes + ' ' + p.anio, anEur_(p.fact), anPctHtml_(anPct_(cur.fact, p.fact)), anEur_(porDia(p)), anPctHtml_(anPct_(porDia(cur), porDia(p)))]); });
+  // Los meses pasados, con los mismos turnos que ahora (ver AN_NOCHES_CERRADAS_).
+  var mAnt = mes === 1 ? anMesComp_(datos, anio - 1, 12, ini) : anMesComp_(datos, anio, mes - 1, ini);
+  var pasados = [1, 2, 3].map(function (a) { var m = anMesComp_(datos, anio - a, mes, ini); if (m) m.anio = anio - a; return m; }).filter(Boolean);
+  var diasTxt = function (m) { return m && m.dias ? anDiasTxt_(m.dias) : '—'; };
+  var filas = [[Mes + ' ' + anio + ' (este mes)', anEur_(cur.fact), diasTxt(cur), '', anEur_(porDia(cur)), '']];
+  if (mAnt) filas.push(['Mes anterior (' + AN_MESES_[(mes + 10) % 12] + ')', anEurComp_(mAnt), diasTxt(mAnt), anPctHtml_(anPct_(cur.fact, mAnt.fact)), anEur_(porDia(mAnt)), anPctHtml_(anPct_(porDia(cur), porDia(mAnt)))]);
+  pasados.forEach(function (p) { filas.push([Mes + ' ' + p.anio, anEurComp_(p), diasTxt(p), anPctHtml_(anPct_(cur.fact, p.fact)), anEur_(porDia(p)), anPctHtml_(anPct_(porDia(cur), porDia(p)))]); });
   if (pasados.length >= 2) {
     var med = anSuma_(pasados.map(function (p) { return p.fact; })) / pasados.length;
     var medDia = anSuma_(pasados.map(function (p) { return porDia(p) || 0; })) / pasados.length;
-    filas.push(['Media de esos ' + pasados.length + ' años', anEur_(med), anPctHtml_(anPct_(cur.fact, med)), anEur_(medDia), anPctHtml_(anPct_(porDia(cur), medDia))]);
+    var medDias = anSuma_(pasados.map(function (p) { return p.dias || 0; })) / pasados.length;
+    filas.push(['Media de esos ' + pasados.length + ' años', anEur_(med), anDiasTxt_(Math.round(medDias * 10) / 10), anPctHtml_(anPct_(cur.fact, med)), anEur_(medDia), anPctHtml_(anPct_(porDia(cur), medDia))]);
   }
-  // Ranking de ese mes en todos los años, y de todos los meses de la historia.
+  var hayNoches = (mAnt && mAnt.quitado) || pasados.some(function (p) { return p.quitado; });
+  // Ranking de ese mes en todos los años, y de todos los meses de la historia
+  // (con los mismos turnos que ahora).
   var historia = [], todos = [];
   Object.keys(datos.ventas).forEach(function (a) {
     datos.ventas[a].forEach(function (r) {
-      var f = (Number(a) === anio && r.mes === mes) ? cur.fact : (r.sistema || 0) + (r.delivery || 0) + (r.web || 0);
+      var mc = anMesComp_(datos, Number(a), r.mes, ini);
+      var f = (Number(a) === anio && r.mes === mes) ? cur.fact : (mc ? mc.fact : (r.sistema || 0) + (r.delivery || 0) + (r.web || 0));
       todos.push({ anio: Number(a), mes: r.mes, fact: f });
       if (r.mes === mes) historia.push({ anio: Number(a), fact: f });
     });
@@ -396,9 +474,11 @@ function analisisMes_(anio, mes) {
   var puesto = historia.map(function (h) { return h.anio; }).indexOf(anio) + 1;
 
   var cambioAnio = pasados[0] ? anPct_(cur.fact, pasados[0].fact) : null;
-  destacados.push('Facturaste <b>' + anEur_(cur.fact) + '</b> en ' + anDiasTxt_(cur.dias) + ' días' +
-    (cambioAnio != null ? ', <b>' + anUn_(cambioAnio) + '</b> que ' + nombreMes + ' de ' + pasados[0].anio : '') +
-    (pasados[0] && porDia(pasados[0]) ? ' (por día trabajado, ' + anPctTxt_(anPct_(porDia(cur), porDia(pasados[0]))) + ')' : '') + '.');
+  destacados.push('Facturaste <b>' + anEur_(cur.fact) + '</b> en <b>' + anDiasTxt_(cur.dias) + ' días abiertos</b>' +
+    (cambioAnio != null ? ', <b>' + anUn_(cambioAnio) + '</b> que ' + nombreMes + ' de ' + pasados[0].anio +
+      (pasados[0].dias ? ', que tuvo ' + anDiasTxt_(pasados[0].dias) + ' días abiertos' : '') +
+      (pasados[0].quitado ? ' (con los mismos turnos que ahora)' : '') : '') +
+    (pasados[0] && porDia(pasados[0]) ? '. Por día abierto: ' + anEur_(porDia(cur)) + ' frente a ' + anEur_(porDia(pasados[0])) + ' (' + anPctTxt_(anPct_(porDia(cur), porDia(pasados[0]))) + ')' : '') + '.');
   if (historia.length > 2) {
     destacados.push(puesto === 1 ? '<b>Es el mejor ' + nombreMes + ' de la historia</b> (desde ' + historia.reduce(function (m, h) { return Math.min(m, h.anio); }, 9999) + ').'
       : 'Es el ' + puesto + 'º mejor ' + nombreMes + ' de ' + historia.length + ' (el mejor fue ' + historia[0].anio + ', con ' + anEur_(historia[0].fact) + ').');
@@ -407,8 +487,9 @@ function analisisMes_(anio, mes) {
   if (todos[0] && todos[0].anio === anio && todos[0].mes === mes) destacados.push('<b>¡Es el mes que más se facturó en toda la historia!</b>');
 
   html.push(anH2_('Facturado en ' + nombreMes, 'Local + delivery + web. Las empanadas a otros negocios, aparte' + (cur.emp ? ' (' + anEur_(cur.emp) + ' este mes)' : '') + '.'));
-  html.push(anGrande_(anEur_(cur.fact), anDiasTxt_(cur.dias) + ' días trabajados · ' + anEur_(porDia(cur)) + ' por día' + (historia.length > 2 ? ' · ' + puesto + 'º de ' + historia.length + ' ' + nombreMes + 's' : '')));
-  html.push(anTabla_(['Comparado con', 'Facturado', Mes + ' ' + anio, 'Por día', 'Por día ' + anio], filas));
+  html.push(anGrande_(anEur_(cur.fact), anDiasTxt_(cur.dias) + ' días abiertos · ' + anEur_(porDia(cur)) + ' por día' + (historia.length > 2 ? ' · ' + puesto + 'º de ' + historia.length + ' ' + nombreMes + 's' : '')));
+  html.push(anTabla_(['Comparado con', 'Facturado', 'Días abiertos', Mes + ' ' + anio, 'Por día', 'Por día ' + anio], filas, function (j) { return j === 0; }));
+  if (hayNoches) html.push(anNotaNoches_());
 
   // --- desglose vs mismo mes del año pasado ---
   var p1 = pasados[0];
@@ -422,7 +503,7 @@ function analisisMes_(anio, mes) {
   html.push(anH2_('De dónde salió'));
   html.push(anTabla_(['', String(anio), 'Del total', p1 ? String(p1.anio) : '', p1 ? 'Del total' : '', 'Cambio'], filasDes));
   if (p1 && p1.deliv && cur.fact && p1.fact) {
-    var cd = cur.deliv / cur.fact * 100, cdA = p1.deliv / p1.fact * 100;
+    var cd = cur.deliv / cur.fact * 100, cdA = p1.deliv / p1.factReal * 100;
     if (Math.abs(cd - cdA) >= 3) destacados.push('El delivery pesa el ' + Math.round(cd) + ' % de lo facturado (en ' + p1.anio + ', el ' + Math.round(cdA) + ' %).');
   }
   if (p1 && p1.md && p1.nc && cur.md && cur.nc) {
@@ -441,7 +522,8 @@ function analisisMes_(anio, mes) {
       if (v != null && (mejorDia < 0 || v > suma[mejorDia] / cuenta[mejorDia])) mejorDia = w;
       var fila = [n + (cuenta[w] ? ' <span style="color:#999;font-weight:normal">(' + cuenta[w] + ')</span>' : ''), v != null ? anEur_(v) : '<span style="color:#999">cerrado</span>'];
       anios.forEach(function (a, i) {
-        var b = datos.semana[String(a)][String(mes)].total[w];
+        var sb = datos.semana[String(a)][String(mes)], b = sb.total[w];
+        if (b && sb.noche && anQuitarNoche_(w, ini, anRef_(a, mes))) { b -= sb.noche[w] || 0; hayNoches = true; }
         fila.push(b ? anEur_(b) : '—');
         if (i === 0) {
           fila.push(v != null && b ? anPctHtml_(anPct_(v, b)) : '—');
@@ -452,7 +534,7 @@ function analisisMes_(anio, mes) {
     });
     var cab = ['', anio + ' (promedio)'];
     anios.forEach(function (a, i) { cab.push(String(a)); if (i === 0) cab.push('Cambio'); });
-    html.push(anH2_('Por día de la semana', 'Promedio de lo facturado en el local cada día (sin delivery). Entre paréntesis, cuántos hubo en el mes.'));
+    html.push(anH2_('Por día de la semana', 'Promedio de lo facturado en el local cada día (sin delivery). Entre paréntesis, cuántos hubo en el mes.' + (hayNoches ? ' De los años en que se abría martes o miércoles por la noche, esos días sin la noche.' : '')));
     html.push(anTabla_(cab, filasSem));
     if (mayorCambio && Math.abs(mayorCambio.c) >= 15) destacados.push('Los ' + AN_DIAS_[mayorCambio.w].toLowerCase() + (/s$/.test(AN_DIAS_[mayorCambio.w]) ? '' : 's') + ' son los que más cambiaron: ' + anPctTxt_(mayorCambio.c) + ' que en ' + nombreMes + ' de ' + anios[0] + '.');
 
@@ -470,7 +552,7 @@ function analisisMes_(anio, mes) {
     var t = 0;
     for (var m = 1; m <= hastaMes; m++) {
       if (a === anio && m === mes) { t += cur.fact; continue; }
-      var mm = anMes_(datos, a, m);
+      var mm = anMesComp_(datos, a, m, anRef_(anio, m));
       if (!mm) return null;
       t += mm.fact;
     }
@@ -486,14 +568,14 @@ function analisisMes_(anio, mes) {
       for (var i = 0; i < 12; i++) {
         var n = anio * 12 + (mes - 1) - i - corrimiento, a = Math.floor(n / 12), m = n % 12 + 1;
         if (a === anio && m === mes) { t += cur.fact; continue; }
-        var mm = anMes_(datos, a, m);
+        var mm = anMesComp_(datos, a, m, anRef_(a + corrimiento / 12, m));
         if (!mm) return null;
         t += mm.fact;
       }
       return t;
     };
     var u12 = doce(0), p12 = doce(12);
-    html.push(anH2_('El año', 'De enero a ' + nombreMes + '.'));
+    html.push(anH2_('El año', 'De enero a ' + nombreMes + '.' + (hayNoches ? ' Los años anteriores, con los mismos turnos que ahora (sin martes ni miércoles por la noche).' : '')));
     html.push(anGrande_(anEur_(anioAct), 'facturado en ' + anio + ' hasta ' + nombreMes));
     if (filasA.length) html.push(anTabla_(['Mismo periodo de', 'Facturado', String(anio)], filasA));
     if (u12 != null && p12 != null) {
@@ -508,12 +590,12 @@ function analisisMes_(anio, mes) {
     var filasC = [[Mes + ' ' + anio, anEur_(comp), Math.round(comp / cur.fact * 100) + ' %', '']];
     pasados.forEach(function (p) {
       var c = anCompras_(datos, p.anio, mes);
-      if (c) filasC.push([Mes + ' ' + p.anio, anEur_(c), Math.round(c / p.fact * 100) + ' %', anPctHtml_(anPct_(comp, c), false)]);
+      if (c) filasC.push([Mes + ' ' + p.anio, anEur_(c), Math.round(c / p.factReal * 100) + ' %', anPctHtml_(anPct_(comp, c), false)]);
     });
     html.push(anH2_('Compras a proveedores', 'Lo de las facturas de los albaranes, y qué parte de lo facturado se fue en compras.'));
     html.push(anTabla_(['', 'Compras', 'Sobre lo facturado', 'Cambio de ' + anio], filasC));
     if (filasC[1]) {
-      var pcAct = comp / cur.fact * 100, pcAnt = anCompras_(datos, pasados[0].anio, mes) / pasados[0].fact * 100;
+      var pcAct = comp / cur.fact * 100, pcAnt = anCompras_(datos, pasados[0].anio, mes) / pasados[0].factReal * 100;
       if (Math.abs(pcAct - pcAnt) >= 3) destacados.push('Las compras fueron el <b>' + Math.round(pcAct) + ' %</b> de lo facturado (en ' + nombreMes + ' de ' + pasados[0].anio + ', el ' + Math.round(pcAnt) + ' %).');
     }
 
@@ -553,7 +635,7 @@ function analisisMes_(anio, mes) {
     filasQ.push(['<span style="font-size:15px">Queda</span>', '<b style="font-size:15px">' + anEur_(q) + '</b>']);
     var cA = p1 ? anCompras_(datos, p1.anio, mes) : null, extra = '';
     if (p1 && cA && p1.nominas) {
-      var qA = queda(p1.fact, p1.emp, cA, p1.nominas, p1.extras);
+      var qA = queda(p1.factReal, p1.emp, cA, p1.nominas, p1.extras);
       extra = ' En ' + nombreMes + ' de ' + p1.anio + ' quedaron ' + anEur_(qA) + ' (' + anPctTxt_(anPct_(q, qA)) + ').';
     }
     html.push(anH2_('Después de compras y nóminas', 'Sin alquiler, luz, impuestos ni otros gastos: es solo una idea.' + extra));
@@ -592,14 +674,14 @@ function mandarAnalisisMes() {
   var anio = Number(Utilities.formatDate(hoy, 'Europe/Madrid', 'yyyy')), mes = Number(Utilities.formatDate(hoy, 'Europe/Madrid', 'M')) - 1;
   if (mes === 0) { mes = 12; anio--; }
   var r = analisisMes_(anio, mes);
-  MailApp.sendEmail({ to: Session.getEffectiveUser().getEmail(), subject: r.asunto, htmlBody: r.html, body: r.texto });
+  MailApp.sendEmail({ to: AN_PARA_, subject: r.asunto, htmlBody: r.html, body: r.texto });
 }
 
 // Claude: ?muestraAnalisisMes=AAAA-MM manda una muestra (y deja puesto el activador).
 function mandarMuestraAnalisisMes_(aaaamm) {
   asegurarActivadorAnalisisMes_();
   var r = analisisMes_(Number(aaaamm.slice(0, 4)), Number(aaaamm.slice(5, 7)));
-  MailApp.sendEmail({ to: Session.getEffectiveUser().getEmail(), subject: 'MUESTRA — ' + r.asunto, htmlBody: r.html, body: r.texto });
+  MailApp.sendEmail({ to: AN_PARA_, subject: 'MUESTRA — ' + r.asunto, htmlBody: r.html, body: r.texto });
   return { ok: true, asunto: r.asunto };
 }
 

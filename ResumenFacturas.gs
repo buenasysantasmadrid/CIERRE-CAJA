@@ -72,7 +72,7 @@ function mandarResumenFacturas() {
   var desde = props.getProperty('resumen_facturas_desde') || new Date(Date.now() - 7 * 86400000).toISOString();
   var ahora = new Date();
   var r = resumenFacturas_(new Date(desde), ahora);
-  MailApp.sendEmail({ to: Session.getEffectiveUser().getEmail(), subject: r.asunto, htmlBody: r.html, body: r.texto });
+  MailApp.sendEmail({ to: AN_PARA_, subject: r.asunto, htmlBody: r.html, body: r.texto });
   props.setProperty('resumen_facturas_desde', ahora.toISOString());
 }
 
@@ -80,7 +80,7 @@ function mandarResumenFacturas() {
 // días, sin cambiar desde cuándo cuenta el resumen de verdad.
 function mandarMuestraResumenFacturas_() {
   var r = resumenFacturas_(new Date(Date.now() - 7 * 86400000), new Date());
-  MailApp.sendEmail({ to: Session.getEffectiveUser().getEmail(), subject: 'MUESTRA — ' + r.asunto, htmlBody: r.html, body: r.texto });
+  MailApp.sendEmail({ to: AN_PARA_, subject: 'MUESTRA — ' + r.asunto, htmlBody: r.html, body: r.texto });
   return { ok: true, cuantos: r.cuantos };
 }
 
