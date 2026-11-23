@@ -215,7 +215,8 @@ function borrarPestanaNoo_(anio, probar) {
 // pasa esas filas de una pestaña de ALBARANES a otra (columnas por su nombre).
 function moverFilasAlbaranes_(anio, de, a, ids, probar) {
   var ss = SpreadsheetApp.openById(buscarEnIndice_('ALBARANES', String(anio)));
-  var hDe = pestanaAlbaranesParaProveedor_(ss, de), hA = pestanaAlbaranesParaProveedor_(ss, a);
+  // La de origen por su nombre exacto (VINO redirige a WINEUP en pestanaAlbaranesParaProveedor_).
+  var hDe = ss.getSheetByName(de) || pestanaAlbaranesParaProveedor_(ss, de), hA = pestanaAlbaranesParaProveedor_(ss, a);
   if (!hDe || !hA) return { ok: false, error: 'No están las pestañas ' + de + ' y ' + a };
   var quiero = {}; ids.forEach(function (x) { quiero[x] = true; });
   var encDe = filasEncabezadoAlbaranes_(hDe), encA = filasEncabezadoAlbaranes_(hA), hechos = [], meses = [];
@@ -226,20 +227,25 @@ function moverFilasAlbaranes_(anio, de, a, ids, probar) {
       var mapa = mapaColumnasAlbaranes_(hDe.getRange(filaEnc, 1, 1, ALBARANES_ANCHO_).getValues()[0]);
       var valores = hDe.getRange(filaEnc + 1, 1, ALBARANES_FILAS_DATOS_, ALBARANES_ANCHO_).getValues();
       var idsCol = hDe.getRange(filaEnc + 1, ALBARANES_COL_ID_, ALBARANES_FILAS_DATOS_, 1).getValues();
-      var pasan = [], borrar = {};
+      var pasan = [], quedan = [];
       valores.forEach(function (v, i) {
         var id = String(idsCol[i][0] || '');
-        if (!id || !quiero[id]) return;
+        if (v.every(function (x) { return x === '' || x == null; }) && !id) return;
+        // Sin id (filas viejas): 'sinid:MES:IMPORTE'.
+        var importe = mapa.importe != null ? Math.round((Number(v[mapa.importe]) || 0) * 100) / 100 : 0;
+        var elegida = id ? quiero[id] : quiero['sinid:' + (mes + 1) + ':' + importe];
+        if (!elegida) { quedan.push({ id: id, fila: v }); return; }
+        if (!id) id = 'movida-' + normalizarClave_(de).toLowerCase() + '-' + (mes + 1) + '-' + i;
         if (!encA[mes]) throw new Error(a + ' no tiene el bloque del mes ' + (mes + 1));
         var mapaA = mapaColumnasAlbaranes_(hA.getRange(encA[mes], 1, 1, ALBARANES_ANCHO_).getValues()[0]);
         var fila = []; for (var c = 0; c < ALBARANES_ANCHO_; c++) fila.push('');
         Object.keys(mapa).forEach(function (k) { if (mapaA[k] != null) fila[mapaA[k]] = v[mapa[k]]; });
-        pasan.push({ id: id, fila: fila }); borrar[id] = true;
+        pasan.push({ id: id, fila: fila });
         hechos.push('mes ' + (mes + 1) + ': ' + v.filter(function (x) { return x !== ''; }).map(function (x) { return x instanceof Date ? Utilities.formatDate(x, 'Europe/Madrid', 'dd/MM') : String(x); }).join(' · ') + (probar ? ' → pasaría a ' : ' → pasada a ') + hA.getName());
       });
       if (!pasan.length || probar) return;
       reescribirBloqueAlbaranes_(hA, encA[mes], {}, pasan);
-      reescribirBloqueAlbaranes_(hDe, filaEnc, borrar, []);
+      guardarBloqueOrdenado_(hDe, filaEnc, quedan);
       meses.push(mes);
     });
   } finally {
