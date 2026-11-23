@@ -212,9 +212,13 @@ var ALBARANES_ALIAS_ = [['DISBESA CAFE', 'DELTA CAFE']];
 // Pestañas donde puede estar el albarán de una factura de ese proveedor.
 var ALBARANES_BUSCAR_JUNTOS_ = [['DISBESA', 'DISBESA CAFE']];
 
+// Lo cargado como "Vino" va a WINEUP (desde el 23/11/2026 Vino ya no está en el desplegable).
+var ALBARANES_REDIRIGIR_ = { 'VINO': 'WINEUP' };
+
 function pestanaAlbaranesParaProveedor_(ss, proveedor) {
   var buscado = normalizarClave_(proveedor);
   if (!buscado) return null;
+  buscado = ALBARANES_REDIRIGIR_[buscado] || buscado;
   var nombres = ALBARANES_ALIAS_.filter(function (g) { return g.indexOf(buscado) > -1; })[0] || [buscado];
   var hojas = ss.getSheets();
   for (var i = 0; i < hojas.length; i++) {

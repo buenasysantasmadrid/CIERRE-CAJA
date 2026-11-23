@@ -1080,6 +1080,19 @@ function doGet(e) {
   if (esClaude && parametros.serviciosAVarios) {
     return ContentService.createTextOutput(JSON.stringify(pasarServiciosAVarios_(String(parametros.serviciosAVarios), parametros.probar === "todas" ? "todas" : !!parametros.probar))).setMimeType(ContentService.MimeType.JSON);
   }
+  // Revisar y arreglar ALBARANES (ServiciosVarios.gs).
+  if (esClaude && parametros.listarPestana) {
+    return ContentService.createTextOutput(JSON.stringify(listarPestanaAlbaranes_(String(parametros.anio || hoyISO_().slice(0, 4)), String(parametros.listarPestana), parametros.desdeMes))).setMimeType(ContentService.MimeType.JSON);
+  }
+  if (esClaude && parametros.quitarFilaAlbaranes) {
+    return ContentService.createTextOutput(JSON.stringify(quitarFilaAlbaranes_(String(parametros.quitarFilaAlbaranes), String(parametros.pestana || ''), String(parametros.id || ''), !!parametros.probar))).setMimeType(ContentService.MimeType.JSON);
+  }
+  if (esClaude && parametros.borrarNoo) {
+    return ContentService.createTextOutput(JSON.stringify(borrarPestanaNoo_(String(parametros.borrarNoo), !!parametros.probar))).setMimeType(ContentService.MimeType.JSON);
+  }
+  if (esClaude && parametros.moverFilasAlbaranes) {
+    return ContentService.createTextOutput(JSON.stringify(moverFilasAlbaranes_(String(parametros.moverFilasAlbaranes), String(parametros.de || ''), String(parametros.a || ''), String(parametros.ids || '').split('|').filter(String), !!parametros.probar))).setMimeType(ContentService.MimeType.JSON);
+  }
   if (esClaude && parametros.procesarBandejas) {
     return ContentService.createTextOutput(JSON.stringify(procesarBandejasFacturas() || {})).setMimeType(ContentService.MimeType.JSON);
   }
