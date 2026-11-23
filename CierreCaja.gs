@@ -1062,6 +1062,12 @@ function doGet(e) {
   if (esClaude && parametros.probarCambio) {
     return ContentService.createTextOutput(JSON.stringify(probarCambio_())).setMimeType(ContentService.MimeType.JSON);
   }
+  // ?documentosAlbaranes=AAAA (&activador=1): columna DOCUMENTO y pestaña FALTA FACTURA (DocumentosAlbaranes.gs).
+  if (esClaude && parametros.documentosAlbaranes) {
+    var resDoc = documentosAlbaranes_(String(parametros.documentosAlbaranes));
+    if (parametros.activador === '1') resDoc.activadorNuevo = asegurarActivadorDocumentos_();
+    return ContentService.createTextOutput(JSON.stringify(resDoc)).setMimeType(ContentService.MimeType.JSON);
+  }
   // ?revisarPdfs=AAAA-MM&desde=0&cuantos=15 (&correo=1): ¿se leen bien los PDF? (CalidadFacturas.gs).
   if (esClaude && parametros.revisarPdfs) {
     return ContentService.createTextOutput(JSON.stringify(revisarCalidadPdfs_(parametros.revisarPdfs, parametros.desde, parametros.cuantos, parametros.correo === '1'))).setMimeType(ContentService.MimeType.JSON);

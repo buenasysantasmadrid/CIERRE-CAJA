@@ -436,15 +436,32 @@ function guardarBloqueOrdenado_(hoja, filaEncabezado, filas) {
     return fa !== fb ? fa - fb : a.orden - b.orden;
   });
 
-  var salida = [], salidaIds = [];
+  // Columna DOCUMENTO (J, DocumentosAlbaranes.gs): se mueve con su fila (por
+  // ID o, sin ID, por fecha + nº + importe). Lo nuevo queda vacío hasta la
+  // próxima actualización (cada 2 horas).
+  var conDoc = normalizarClave_(hoja.getRange(filaEncabezado, ALBARANES_COL_DOC_).getValue()) === 'DOCUMENTO';
+  var claveFila = function (v, id) {
+    if (id) return 'id:' + id;
+    var fe = v[colFecha] instanceof Date ? v[colFecha].getTime() : String(v[colFecha]);
+    return [fe, mapa.factura != null ? String(v[mapa.factura]) : '', mapa.importe != null ? Number(v[mapa.importe]) : ''].join('|');
+  };
+  var docPrevio = {};
+  if (conDoc) {
+    var antes = rango.getValues(), idsAntes = rangoIds.getValues(), docsAntes = hoja.getRange(primera, ALBARANES_COL_DOC_, ALBARANES_FILAS_DATOS_, 1).getValues();
+    antes.forEach(function (v, i) { if (docsAntes[i][0]) docPrevio[claveFila(v, String(idsAntes[i][0] || ''))] = docsAntes[i][0]; });
+  }
+
+  var salida = [], salidaIds = [], salidaDoc = [];
   for (var k = 0; k < ALBARANES_FILAS_DATOS_; k++) {
     var f = k < filas.length ? filas[k].fila.slice(0, ALBARANES_ANCHO_) : [];
     while (f.length < ALBARANES_ANCHO_) f.push('');
     salida.push(f);
     salidaIds.push([k < filas.length ? filas[k].id : '']);
+    salidaDoc.push([k < filas.length ? (docPrevio[claveFila(f, filas[k].id)] || '') : '']);
   }
   rango.setValues(salida);
   rangoIds.setValues(salidaIds);
+  if (conDoc) hoja.getRange(primera, ALBARANES_COL_DOC_, ALBARANES_FILAS_DATOS_, 1).setValues(salidaDoc);
   if (mapa.fecha != null) hoja.getRange(primera, mapa.fecha + 1, ALBARANES_FILAS_DATOS_, 1).setNumberFormat('dd/MM/yyyy');
   if (mapa.diaPago != null) hoja.getRange(primera, mapa.diaPago + 1, ALBARANES_FILAS_DATOS_, 1).setNumberFormat('dd/MM/yyyy').setFontWeight('bold');
   if (!hoja.isColumnHiddenByUser(ALBARANES_COL_ID_)) hoja.hideColumns(ALBARANES_COL_ID_);
