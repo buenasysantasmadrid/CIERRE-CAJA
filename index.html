@@ -3059,12 +3059,20 @@
     lctx.drawImage(chico, 0, 0, w, h);
     var fondo = lctx.getImageData(0, 0, w, h).data;
     var ctx = hoja.getContext('2d'), img = ctx.getImageData(0, 0, w, h), d = img.data;
-    var NEGRO = 35, BLANCO = 225;
+    // 23/11/2026: antes BLANCO era 225 y todo lo un poco más oscuro que el
+    // papel quedaba blanco: la letra fina y gris (CBG del 17/11) se borraba.
+    // Ahora solo el papel queda blanco y la curva oscurece la letra clara.
+    var NEGRO = 25, BLANCO = 238, CURVA = 2.5;
+    var tabla = new Uint8ClampedArray(256);
+    for(var t = 0; t < 256; t++){
+      var n = (t - NEGRO) / (BLANCO - NEGRO);
+      n = n < 0 ? 0 : (n > 1 ? 1 : n);
+      tabla[t] = Math.round(Math.pow(n, CURVA) * 255);
+    }
     for(var i = 0; i < d.length; i += 4){
       for(var ch = 0; ch < 3; ch++){
         var v = d[i + ch] / Math.max(fondo[i + ch], 40) * 255;
-        v = (v - NEGRO) * 255 / (BLANCO - NEGRO);
-        d[i + ch] = v < 0 ? 0 : (v > 255 ? 255 : v);
+        d[i + ch] = tabla[v > 255 ? 255 : Math.round(v)];
       }
     }
     ctx.putImageData(img, 0, 0);
@@ -3212,6 +3220,13 @@
       var totalLeido = num(parsed.importe_total), baseLeida = num(parsed.base_imponible), ivaLeido = num(parsed.importe_iva);
       if(ivaLeido > 0 && baseLeida > 0 && Math.abs(totalLeido - baseLeida) < 0.005) parsed.importe_total = String(Math.round((baseLeida + ivaLeido) * 100) / 100);
       document.getElementById('scanOkLine').style.display = 'block';
+      // Claude dice si la foto se ve mal: se avisa ahora, con el papel en la mano.
+      if(parsed.se_lee_bien === false){
+        var malLinea = document.getElementById('scanErrorLine');
+        malLinea.style.display = 'block';
+        malLinea.textContent = '⚠️ La foto se ve mal' + (parsed.problema_imagen ? ' (' + parsed.problema_imagen + ')' : '') +
+          '. Mejor repetirla: con buena luz, sin sombras, el papel plano y el móvil quieto.';
+      }
       // Dia: antes de nada se pregunta si es de Super o de Carne (de eso
       // dependen la carpeta de Drive, el proveedor y los tickets que se buscan).
       preguntarSiDiaEsSuperOCarne(parsed, function(){

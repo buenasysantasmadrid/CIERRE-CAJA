@@ -1062,6 +1062,10 @@ function doGet(e) {
   if (esClaude && parametros.probarCambio) {
     return ContentService.createTextOutput(JSON.stringify(probarCambio_())).setMimeType(ContentService.MimeType.JSON);
   }
+  // ?revisarPdfs=AAAA-MM&desde=0&cuantos=15 (&correo=1): ¿se leen bien los PDF? (CalidadFacturas.gs).
+  if (esClaude && parametros.revisarPdfs) {
+    return ContentService.createTextOutput(JSON.stringify(revisarCalidadPdfs_(parametros.revisarPdfs, parametros.desde, parametros.cuantos, parametros.correo === '1'))).setMimeType(ContentService.MimeType.JSON);
+  }
   // ?ordenarVarios=AAAA-MM (&mover=1): pasa las carpetas de tiendas a "Varios" (Precios.gs).
   if (esClaude && parametros.ordenarVarios) {
     return ContentService.createTextOutput(JSON.stringify(ordenarCarpetasVarios_(parametros.ordenarVarios, parametros.mover === '1'))).setMimeType(ContentService.MimeType.JSON);
@@ -3294,6 +3298,8 @@ var ESQUEMA_FACTURA = {
     tipo_iva: { type: 'string' },
     proveedor_lista: { type: 'string' },
     tipo_documento: { type: 'string', enum: ['factura', 'ticket', 'albaran', ''] },
+    se_lee_bien: { type: 'boolean' },
+    problema_imagen: { type: 'string' },
     referencias: {
       type: 'array',
       items: {
@@ -3304,9 +3310,15 @@ var ESQUEMA_FACTURA = {
       }
     }
   },
-  required: ['proveedor', 'numero_factura', 'fecha', 'importe_total', 'importe_iva', 'base_imponible', 'tipo_iva', 'proveedor_lista', 'tipo_documento', 'referencias'],
+  required: ['proveedor', 'numero_factura', 'fecha', 'importe_total', 'importe_iva', 'base_imponible', 'tipo_iva', 'proveedor_lista', 'tipo_documento', 'se_lee_bien', 'problema_imagen', 'referencias'],
   additionalProperties: false
 };
+
+// También lo usa la revisión de los PDF ya guardados (CalidadFacturas.gs).
+var CALIDAD_IMAGEN_TEXTO_ =
+  '- se_lee_bien: false si la foto se ve mal y algún dato importante (importes, precios, total, IVA, número o fecha) ' +
+  'está borroso, desvaído o muy claro, cortado, tapado por sombras o reflejos, o hay que adivinarlo. true si todo eso se lee sin dudas.\n' +
+  '- problema_imagen: si se_lee_bien es false, qué se ve mal en pocas palabras (ej. "letra muy clara, no se leen los precios"). Si no, vacío.\n';
 
 var INSTRUCCIONES_FACTURA =
   'Esta es la foto de una factura, albarán o ticket de compra de un restaurante ' +
@@ -3333,6 +3345,7 @@ var INSTRUCCIONES_FACTURA =
   '(ej. "Ticket nº 1382403 de 12/10/2026", "Albarán 5531", "Fecha de la operación: 12/10/2026"): una por cada uno, con su ' +
   'número (vacío si no lo dice) y su fecha en YYYY-MM-DD (vacía si no la dice). Si la factura dice una fecha de operación o de ' +
   'compra distinta de la de la factura, ponla aquí aunque no haya número. Si no menciona nada de eso, lista vacía.\n' +
+  CALIDAD_IMAGEN_TEXTO_ +
   'Los importes con punto como separador decimal y sin símbolo de euro (ejemplo: 1234.56). ' +
   'Si un dato no aparece o no se lee con seguridad, deja el campo vacío ("") en vez de inventarlo.';
 
