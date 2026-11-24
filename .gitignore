@@ -7,3 +7,8 @@ ClaveClaude.gs
 .claude/errores-ultima-revision.txt
 ClavePedidos.gs
 ClaveRutina.gs
+
+# Planillas y copias locales: nunca a GitHub
+*.xlsx
+*.csv
+index.backup.html
