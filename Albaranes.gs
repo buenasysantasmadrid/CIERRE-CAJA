@@ -1477,6 +1477,7 @@ function alEditarAlbaranes(e) {
   try {
     if (!e || !e.range) return;
     var hoja = e.range.getSheet();
+    if (hoja.getName() === PENDIENTES_PESTANA_) { alEditarPendientes_(e); return; }
     if (hoja.getName() !== INFORME_MES_PESTANA_) {
       // Un cambio a mano en una pestaña de proveedor (o en TOTALES): que
       // PROVEEDORES de Contabilidad lo refleje.

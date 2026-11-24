@@ -181,7 +181,9 @@ function documentosAlbaranes_(anio) {
   });
 
   escribirFaltaFactura_(ss, faltan, mensuales);
-  return { ok: true, anio: anio, cuenta: cuenta, faltan: faltan.length, mensualesSinFactura: mensuales.length, saltadas: saltadas, pdfsEnDrive: docs.length, desdeMes: mesInicio + 1, faltanPorMes: porMes, mensualesLista: mensuales.map(function (m) { return m[0] + ' ' + m[1]; }) };
+  var pendientes = '';
+  if (Number(anio) === new Date().getFullYear()) { try { pendientes = escribirPendientes_(ss, anio, faltan, mensuales); } catch (err) { pendientes = 'error: ' + err; } }
+  return { ok: true, anio: anio, pendientes: pendientes, cuenta: cuenta, faltan: faltan.length, mensualesSinFactura: mensuales.length, saltadas: saltadas, pdfsEnDrive: docs.length, desdeMes: mesInicio + 1, faltanPorMes: porMes, mensualesLista: mensuales.map(function (m) { return m[0] + ' ' + m[1]; }) };
 }
 
 function escribirFaltaFactura_(ss, faltan, mensuales) {

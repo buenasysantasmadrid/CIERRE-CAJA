@@ -140,14 +140,13 @@ function procesarBandejasFacturas() {
       if (b[1] === 'auto' || b[1] === 'externa') { carpetaHija_(bandeja, BANDEJA_NO_LEIDAS_); carpetaHija_(bandeja, BANDEJA_REVISAR_); } // que se vean desde el principio
       var archivos = bandeja.getFiles();
       // Y las que esperan en "⚠️ Revisar" a que se cargue su foto o albarán
-      // en la caja (7 días como mucho; después se quedan ahí para hacerlo a mano).
+      // en la caja (un día; después se cargan solas como NO PAGADO).
       var esperan = [];
       if (b[1] === 'auto') {
         var enRevisar = carpetaHija_(bandeja, BANDEJA_REVISAR_).getFiles();
         while (enRevisar.hasNext()) {
           var e = enRevisar.next(), le = leerEsperando_(e);
           if (!le) continue;
-          if (Date.now() - new Date(le.desde).getTime() > ESPERANDO_DIAS_ * 86400000) { e.setDescription(''); continue; }
           esperan.push(e);
         }
       }
@@ -184,7 +183,11 @@ function procesarBandejasFacturas() {
 // Facturas en "⚠️ Revisar" que esperan a que su foto o su albarán se cargue
 // en la caja: en la descripción llevan "esperando: {desde, r}" (r = lo leído).
 var ESPERANDO_ = 'esperando: ';
-var ESPERANDO_DIAS_ = 7;
+// 24/11/2026 (Luciana): hay facturas que no tienen albarán. Se espera un día
+// por si se carga la foto o el albarán en la caja (Envapro llegó por email la
+// noche antes de cargar la foto); después se carga sola como NO PAGADO.
+var ESPERANDO_HORAS_ = 24;
+function esperaVencida_(e) { return !!e && Date.now() - new Date(e.desde).getTime() > ESPERANDO_HORAS_ * 3600000; }
 function leerEsperando_(archivo) {
   var d = String(archivo.getDescription() || '');
   if (d.indexOf(ESPERANDO_) !== 0) return null;
@@ -309,13 +312,12 @@ function guardarFacturaMensual_(archivo, raiz, ss, proveedor, fecha, numero, imp
 // "Facturas nuevas" con dudas: no se carga nada; queda en "⚠️ Revisar".
 function aRevisar_(archivo, bandeja, cual, motivo, lecturaParaEsperar) {
   if (lecturaParaEsperar) {
-    // Se vuelve a probar cada hora (procesarBandejasFacturas) 7 días. Solo
-    // se avisa la primera vez.
+    // Se vuelve a probar cada hora (procesarBandejasFacturas) un día.
     var antes = leerEsperando_(archivo);
     var desde = antes ? antes.desde : new Date().toISOString();
     archivo.setDescription(ESPERANDO_ + JSON.stringify({ desde: desde, r: lecturaParaEsperar }));
     archivo.moveTo(carpetaHija_(bandeja, BANDEJA_REVISAR_));
-    if (antes) return {};
+    return {}; // no se avisa: se ve en la pestaña PENDIENTES de ALBARANES
   } else {
     archivo.setDescription('');
     archivo.moveTo(carpetaHija_(bandeja, BANDEJA_REVISAR_));
@@ -336,6 +338,7 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista, bandeja) {
   // Una que está esperando a que se cargue en la caja (ver aRevisar_) ya se
   // leyó: no se vuelve a pagar a Claude.
   var esperando = leerEsperando_(archivo);
+  var vencida = esperaVencida_(esperando);
   var r = esperando && esperando.r;
   if (!r) {
     var b64 = Utilities.base64Encode(archivo.getBlob().getBytes());
@@ -440,8 +443,21 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista, bandeja) {
       // nunca sola (antes, si decía transferencia, se cargaba como ya
       // pagada; que llegue la factura no quiere decir que esté pagada).
       else if (porBanco && resultado.sinPestana) { tipo = 'transferencia'; resultado = null; }
-      else return aRevisar_(archivo, bandeja, cual0, 'no encontré en la caja ni su albarán ni la foto de esta factura' + (porBanco ? ' (la factura dice que se paga por transferencia, pero no se carga sola: que llegue no quiere decir que esté pagada)' : '') + '. ' +
-        'La vuelvo a probar sola cada hora durante 7 días, por si se carga después en la caja. Si no hay albarán ni foto: cargarla a mano en la caja (como "No pagado" si todavía no se pagó)', r);
+      else if (!vencida) return aRevisar_(archivo, bandeja, cual0, 'esperando un día por si se carga su albarán o su foto en la caja', r);
+      // Pasado el día sin albarán ni foto: es una factura sin albarán. Se
+      // carga en su pestaña como NO PAGADO (que llegue no quiere decir que
+      // esté pagada; el banco la marca cuando se pague). Si la factura dice
+      // que se pagó con tarjeta (compra que no pasó por el local), ya está
+      // pagada: TARJETA/TRANSFERENCIA.
+      else {
+        var resSin = escribirTransferenciaEnAlbaranes_(ss, deLista || proveedor, '', fecha, numero, importe, isNaN(iva) ? null : iva, 'pdf-' + archivo.getId(), forma === 'tarjeta' ? 'tarjeta' : true);
+        return {
+          hecha: cual0 + ': ' + resSin.texto, problema: '',
+          proveedor: proveedor, importe: importe,
+          avisos: [],
+          enlace: moverFacturaACarpetaProveedor_(archivo, raiz, fecha, deLista || proveedor, '', numero)
+        };
+      }
     } else if (forma === 'efectivo') {
       return aRevisar_(archivo, bandeja, cual0, 'no es de un proveedor con albaranes y la factura dice que se pagó en efectivo. Cargarla a mano');
     } else {
@@ -697,7 +713,7 @@ function pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, iva, ref
 
 // Factura pagada por transferencia: una fila nueva en ALBARANES. Si ya
 // estaba (mismo número, o mismo nombre, día e importe), no se repite.
-function escribirTransferenciaEnAlbaranes_(ss, proveedor, detalle, fecha, numero, importe, iva, id) {
+function escribirTransferenciaEnAlbaranes_(ss, proveedor, detalle, fecha, numero, importe, iva, id, noPagado) {
   var hoja = proveedor === 'Servicios' ? asegurarPestanaServiciosAlbaranes_(ss)
     : proveedor === ALBARANES_PESTANA_FC_VYR_ ? asegurarPestanaFcVyrAlbaranes_(ss)
     : pestanaAlbaranesParaProveedor_(ss, proveedor);
@@ -717,7 +733,9 @@ function escribirTransferenciaEnAlbaranes_(ss, proveedor, detalle, fecha, numero
 
   var m = {
     proveedor: proveedor, proveedorDetalle: detalle, importe: importe, iva: iva, factura: numero,
-    subtipo: 'transferencia', info: FORMA_PAGO_ALBARAN_.transferencia + ' · PDF recibido por email'
+    subtipo: noPagado === 'tarjeta' ? 'tarjeta' : noPagado ? 'no_pagado' : 'transferencia',
+    info: noPagado === 'tarjeta' ? FORMA_PAGO_ALBARAN_.tarjeta + ' · PDF recibido por email, sin albarán'
+      : noPagado ? FORMA_PAGO_ALBARAN_.no_pagado + ' · PDF recibido por email, sin albarán' : FORMA_PAGO_ALBARAN_.transferencia + ' · PDF recibido por email'
   };
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -728,6 +746,8 @@ function escribirTransferenciaEnAlbaranes_(ss, proveedor, detalle, fecha, numero
   }
   try { refrescarInformeMesSiToca_(ss, [mesIndex]); } catch (err) { Logger.log('INFORME MES: ' + err); }
   try { actualizarProveedoresContabilidad_(fecha.slice(0, 4)); } catch (err) { Logger.log('PROVEEDORES Contabilidad: ' + err); }
+  if (noPagado === 'tarjeta') return { texto: 'no tenía albarán ni foto en la caja: cargada como factura en ALBARANES (pestaña ' + hoja.getName() + '), pagada con tarjeta' };
+  if (noPagado) return { texto: 'no tenía albarán ni foto en la caja: cargada como factura en ALBARANES (pestaña ' + hoja.getName() + ') como NO PAGADO' };
   return { texto: 'cargada en ALBARANES (pestaña ' + hoja.getName() + '), pagada por transferencia el ' + fechaCorta_(fecha) };
 }
 
