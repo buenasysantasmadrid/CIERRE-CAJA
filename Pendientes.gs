@@ -21,8 +21,11 @@
 var PENDIENTES_PESTANA_ = 'PENDIENTES';
 ALBARANES_PESTANAS_EXCLUIDAS_.push(PENDIENTES_PESTANA_);
 var PENDIENTES_HECHOS_ = 'pendientes_hechos';
-var PENDIENTES_CAB_ = ['Qué pasa', 'Proveedor', 'Fecha', 'Nº', 'Importe', 'Detalle', 'PDF', 'Ya está', 'clave'];
-var PENDIENTES_COL_HECHO_ = 8, PENDIENTES_COL_CLAVE_ = 9;
+// Una sola tabla con filtro (24/11/2026, Luciana: poder mirar por meses).
+var PENDIENTES_CAB_ = ['Mes', 'Qué pasa', 'Proveedor', 'Fecha', 'Nº', 'Importe', 'Detalle', 'PDF', 'Ya está', 'clave'];
+var PENDIENTES_COL_HECHO_ = 9, PENDIENTES_COL_CLAVE_ = 10, PENDIENTES_FILA_CAB_ = 5;
+var PENDIENTES_MESES_ = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+function textoMesPendientes_(anio, mesIndex) { return anio + '-' + ('0' + (mesIndex + 1)).slice(-2) + ' ' + PENDIENTES_MESES_[mesIndex]; }
 
 // Secciones, en este orden: [código, título, color].
 var PENDIENTES_SECCIONES_ = [
@@ -53,9 +56,10 @@ function escribirPendientes_(ss, anio, faltan, mensuales) {
   var hoy = new Date();
   var hechos = leerHechosPendientes_();
   var items = [];
-  var poner = function (sec, prov, fecha, num, importe, que, url, clave) {
+  var poner = function (sec, prov, fecha, num, importe, que, url, clave, mes) {
     if (clave && hechos[clave]) return;
-    items.push({ sec: sec, prov: prov || '', fecha: fecha instanceof Date ? fecha : (/^\d{4}-\d{2}-\d{2}$/.test(String(fecha)) ? fechaComoDate_(fecha) : ''),
+    var f = fecha instanceof Date ? fecha : (/^\d{4}-\d{2}-\d{2}$/.test(String(fecha)) ? fechaComoDate_(fecha) : '');
+    items.push({ sec: sec, prov: prov || '', fecha: f, mes: mes || (f ? textoMesPendientes_(f.getFullYear(), f.getMonth()) : ''),
       num: num || '', importe: Number(importe) || '', que: que || '', url: url || '', clave: clave || '' });
   };
   var log = function (q, err) { Logger.log('PENDIENTES, ' + q + ': ' + err); };
@@ -106,7 +110,7 @@ function escribirPendientes_(ss, anio, faltan, mensuales) {
   });
 
   // 3. Albaranes sin factura y factura del mes que falta.
-  (mensuales || []).forEach(function (m) { poner('mensual', m[0], '', '', m[3], 'Factura de ' + m[1] + ' (' + m[2] + ' albaranes).'); });
+  (mensuales || []).forEach(function (m) { poner('mensual', m[0], '', '', m[3], 'Factura de ' + m[1] + ' (' + m[2] + ' albaranes).', '', '', PENDIENTES_MESES_.indexOf(m[1]) > -1 ? textoMesPendientes_(Number(anio), PENDIENTES_MESES_.indexOf(m[1])) : ''); });
   (faltan || []).forEach(function (f) {
     poner('albaran', f[0], f[1], f[2], f[3], (f[4] ? f[4].toLowerCase() + ' · ' : '') + (f[5] !== '' ? 'esperando hace ' + f[5] + ' días' : ''), f[6]);
   });
@@ -169,44 +173,51 @@ function escribirPendientes_(ss, anio, faltan, mensuales) {
 
 function pintarPendientes_(ss, items) {
   var h = ss.getSheetByName(PENDIENTES_PESTANA_) || ss.insertSheet(PENDIENTES_PESTANA_, 0);
+  if (h.getFilter()) h.getFilter().remove();
   h.getRange(1, 1, h.getMaxRows(), h.getMaxColumns()).breakApart().clearDataValidations();
   h.clear();
+  h.showColumns(1, h.getMaxColumns()); // la versión anterior escondía otra columna
   var ancho = PENDIENTES_CAB_.length;
+  var orden = {}, color = {}, titulo = {};
+  PENDIENTES_SECCIONES_.forEach(function (s, i) { orden[s[0]] = i; color[s[0]] = s[2]; titulo[s[0]] = s[1].split(' (')[0]; });
   var cuenta = {};
   items.forEach(function (x) { cuenta[x.sec] = (cuenta[x.sec] || 0) + 1; });
   h.getRange(1, 1).setValue('Pendientes de facturas y albaranes').setFontWeight('bold').setFontSize(14);
   h.getRange(2, 1).setValue('Actualizado el ' + Utilities.formatDate(new Date(), 'Europe/Madrid', 'dd/MM/yyyy HH:mm') +
-    ' (se rehace solo cada 2 horas). Lo que se soluciona sale solo. Lo que tiene casilla "Ya está": marcarla cuando esté arreglado y desaparece.').setFontColor('#666');
-  var resumen = PENDIENTES_SECCIONES_.filter(function (s) { return cuenta[s[0]]; }).map(function (s) { return s[1].split(' (')[0] + ': ' + cuenta[s[0]]; });
+    ' (se rehace solo cada 2 horas). Para ver un mes o un tipo: el botón de filtro de la columna Mes o Qué pasa. Lo que se soluciona sale solo; lo que tiene casilla "Ya está": marcarla cuando esté arreglado y desaparece.').setFontColor('#666');
+  var resumen = PENDIENTES_SECCIONES_.filter(function (s) { return cuenta[s[0]]; }).map(function (s) { return titulo[s[0]] + ': ' + cuenta[s[0]]; });
   h.getRange(3, 1).setValue(resumen.length ? resumen.join(' · ') : 'No hay nada pendiente. 👍').setFontWeight('bold');
 
-  var fila = 5;
-  var valores = [], formulas = [], formatos = [];
-  PENDIENTES_SECCIONES_.forEach(function (s) {
-    var deEsta = items.filter(function (x) { return x.sec === s[0]; });
-    if (!deEsta.length) return;
-    deEsta.sort(function (a, b) { return (a.fecha ? a.fecha.getTime() : 0) - (b.fecha ? b.fecha.getTime() : 0); });
-    var total = deEsta.reduce(function (t, x) { return t + (Number(x.importe) || 0); }, 0);
-    h.getRange(fila, 1, 1, ancho - 1).merge().setValue(s[1] + '  (' + deEsta.length + (total ? ' · ' + euros_(Math.round(total * 100) / 100) : '') + ')')
-      .setFontWeight('bold').setFontColor('#fff').setBackground(s[2]);
-    fila++;
-    h.getRange(fila, 1, 1, ancho).setValues([PENDIENTES_CAB_]).setFontWeight('bold').setBackground('#f1efe6');
-    fila++;
-    var filas = deEsta.map(function (x) { return [s[1].split(' (')[0], x.prov, x.fecha, x.num, x.importe, x.que, '', '', x.clave]; });
-    h.getRange(fila, 1, filas.length, ancho).setValues(filas);
-    h.getRange(fila, 7, filas.length, 1).setFormulas(deEsta.map(function (x) { return [x.url ? '=HYPERLINK("' + x.url + '";"Ver")' : '']; }));
-    h.getRange(fila, 3, filas.length, 1).setNumberFormat('dd/MM/yyyy');
-    h.getRange(fila, 5, filas.length, 1).setNumberFormat('#,##0.00 €');
-    deEsta.forEach(function (x, i) {
-      var c = h.getRange(fila + i, PENDIENTES_COL_HECHO_);
-      if (x.clave) c.insertCheckboxes(); else c.setValue('sale sola').setFontColor('#aaa');
-    });
-    fila += filas.length + 1;
+  var cab = PENDIENTES_FILA_CAB_;
+  h.getRange(cab, 1, 1, ancho).setValues([PENDIENTES_CAB_]).setFontWeight('bold').setBackground('#2f4f3a').setFontColor('#fff');
+  items.sort(function (a, b) {
+    return (orden[a.sec] - orden[b.sec]) || ((a.fecha ? a.fecha.getTime() : 0) - (b.fecha ? b.fecha.getTime() : 0));
   });
-  h.setFrozenRows(0);
-  h.setColumnWidth(1, 170); h.setColumnWidth(2, 200); h.setColumnWidth(3, 90); h.setColumnWidth(4, 120);
-  h.setColumnWidth(5, 90); h.setColumnWidth(6, 520); h.setColumnWidth(7, 50); h.setColumnWidth(8, 70);
-  h.getRange(1, 6, h.getMaxRows(), 1).setWrap(true);
+  var n = items.length;
+  if (n) {
+    var ini = cab + 1;
+    h.getRange(ini, 1, n, ancho).setValues(items.map(function (x) {
+      return [x.mes || '(sin fecha)', titulo[x.sec], x.prov, x.fecha, x.num, x.importe, x.que, '', x.clave ? false : 'sale sola', x.clave];
+    }));
+    h.getRange(ini, 8, n, 1).setFormulas(items.map(function (x) { return [x.url ? '=HYPERLINK("' + x.url + '";"Ver")' : '']; }));
+    h.getRange(ini, 4, n, 1).setNumberFormat('dd/MM/yyyy');
+    h.getRange(ini, 6, n, 1).setNumberFormat('#,##0.00 €');
+    h.getRange(ini, 2, n, 1).setBackgrounds(items.map(function (x) { return [color[x.sec]]; })).setFontColor('#fff').setFontWeight('bold');
+    h.getRange(ini, 9, n, 1).setFontColor('#aaa');
+    // Casillas solo donde hay clave (de una vez las filas seguidas).
+    var k = 0;
+    while (k < n) {
+      if (!items[k].clave) { k++; continue; }
+      var desde = k;
+      while (k < n && items[k].clave) k++;
+      h.getRange(ini + desde, 9, k - desde, 1).insertCheckboxes();
+    }
+  }
+  h.getRange(cab, 1, Math.max(n, 1) + 1, ancho - 1).createFilter();
+  h.setFrozenRows(cab);
+  h.setColumnWidth(1, 130); h.setColumnWidth(2, 190); h.setColumnWidth(3, 190); h.setColumnWidth(4, 90); h.setColumnWidth(5, 120);
+  h.setColumnWidth(6, 90); h.setColumnWidth(7, 480); h.setColumnWidth(8, 50); h.setColumnWidth(9, 75);
+  h.getRange(cab, 7, Math.max(n, 1) + 1, 1).setWrap(true);
   h.hideColumns(PENDIENTES_COL_CLAVE_);
 }
 
