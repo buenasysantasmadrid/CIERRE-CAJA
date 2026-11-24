@@ -41,7 +41,10 @@ function actualizarDocumentosAlbaranes() {
 function asegurarActivadorDocumentos_() {
   var hay = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'actualizarDocumentosAlbaranes'; });
   if (!hay) ScriptApp.newTrigger('actualizarDocumentosAlbaranes').timeBased().everyHours(2).create();
-  return !hay;
+  // PENDIENTES va aparte (las dos juntas pasan de los 6 minutos de Google).
+  var hayP = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'actualizarPendientes'; });
+  if (!hayP) ScriptApp.newTrigger('actualizarPendientes').timeBased().everyHours(2).create();
+  return !hay || !hayP;
 }
 
 // Los PDF del año en Drive, con la clave de su número (nombre sin la fecha,
@@ -113,6 +116,8 @@ function documentosAlbaranes_(anio) {
   var id = buscarEnIndice_('ALBARANES', String(anio));
   if (!id) return { ok: false, error: 'No hay ALBARANES ' + anio + ' en el Índice' };
   var ss = SpreadsheetApp.openById(id);
+  var tratamientos = '';
+  if (Number(anio) === new Date().getFullYear()) { try { tratamientos = actualizarTratamientos_(ss); } catch (err) { tratamientos = 'error: ' + err; } }
   var docs = indiceDocsDrive_(anio);
   var hoy = new Date(), mesHoy = hoy.getFullYear() === Number(anio) ? hoy.getMonth() : 12;
   // Primer mes con PDF en Drive: antes, lo de Drive no dice nada.
@@ -158,6 +163,9 @@ function documentosAlbaranes_(anio) {
           colJ[i][0] = r.tipo;
           cuenta[r.tipo]++;
           if (r.tipo !== 'ALBARÁN') continue;
+          // "Cómo trabaja cada proveedor": si no llega factura, no falta.
+          var trat = TRATAMIENTOS_[clave];
+          if (trat && (trat.f === 'NO_LLEGA' || trat.c === 'DEFINITIVA')) continue;
           if (r.mensual) { albaranesMes.push(f); continue; }
           porMes[mes + 1] = (porMes[mes + 1] || 0) + 1;
           faltan.push([nombre + (f.detalle ? ' — ' + f.detalle : ''), f.fecha || '', f.numero, f.importe, f.forma,
@@ -181,9 +189,7 @@ function documentosAlbaranes_(anio) {
   });
 
   escribirFaltaFactura_(ss, faltan, mensuales);
-  var pendientes = '';
-  if (Number(anio) === new Date().getFullYear()) { try { pendientes = escribirPendientes_(ss, anio, faltan, mensuales); } catch (err) { pendientes = 'error: ' + err; } }
-  return { ok: true, anio: anio, pendientes: pendientes, cuenta: cuenta, faltan: faltan.length, mensualesSinFactura: mensuales.length, saltadas: saltadas, pdfsEnDrive: docs.length, desdeMes: mesInicio + 1, faltanPorMes: porMes, mensualesLista: mensuales.map(function (m) { return m[0] + ' ' + m[1]; }) };
+  return { ok: true, anio: anio, tratamientos: tratamientos, cuenta: cuenta, faltan: faltan.length, mensualesSinFactura: mensuales.length, saltadas: saltadas, pdfsEnDrive: docs.length, desdeMes: mesInicio + 1, faltanPorMes: porMes, mensualesLista: mensuales.map(function (m) { return m[0] + ' ' + m[1]; }) };
 }
 
 function escribirFaltaFactura_(ss, faltan, mensuales) {

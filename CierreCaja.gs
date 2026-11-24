@@ -1068,6 +1068,15 @@ function doGet(e) {
     if (parametros.activador === '1') resDoc.activadorNuevo = asegurarActivadorDocumentos_();
     return ContentService.createTextOutput(JSON.stringify(resDoc)).setMimeType(ContentService.MimeType.JSON);
   }
+  // ?pendientes=1: rehace la pestaña PENDIENTES de ALBARANES (Pendientes.gs).
+  if (esClaude && parametros.pendientes) {
+    return ContentService.createTextOutput(JSON.stringify(actualizarPendientes())).setMimeType(ContentService.MimeType.JSON);
+  }
+  // ?tratamientos=AAAA: pestaña "CÓMO TRABAJA CADA PROVEEDOR" (TratamientoProveedores.gs).
+  if (esClaude && parametros.tratamientos) {
+    var idTrat = buscarEnIndice_('ALBARANES', String(parametros.tratamientos));
+    return ContentService.createTextOutput(JSON.stringify(idTrat ? actualizarTratamientos_(SpreadsheetApp.openById(idTrat), parametros.rehacer === '1') : { ok: false })).setMimeType(ContentService.MimeType.JSON);
+  }
   // ?revisarPdfs=AAAA-MM&desde=0&cuantos=15 (&correo=1): ¿se leen bien los PDF? (CalidadFacturas.gs).
   if (esClaude && parametros.revisarPdfs) {
     return ContentService.createTextOutput(JSON.stringify(revisarCalidadPdfs_(parametros.revisarPdfs, parametros.desde, parametros.cuantos, parametros.correo === '1'))).setMimeType(ContentService.MimeType.JSON);
