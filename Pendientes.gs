@@ -171,60 +171,118 @@ function escribirPendientes_(ss, anio, faltan, mensuales) {
   return cuenta;
 }
 
+// 24/11/2026 (Luciana): por secciones, y arriba un desplegable "Ver mes"
+// (B3) que deja ver solo ese mes (esconde las demás filas). La columna K
+// (escondida) dice qué es cada fila: S|<sección>, C (títulos) o D (dato).
+var PENDIENTES_COL_MARCA_ = 11, PENDIENTES_CELDA_MES_ = 'B3', PENDIENTES_TODOS_ = 'Todos los meses';
+
 function pintarPendientes_(ss, items) {
   var h = ss.getSheetByName(PENDIENTES_PESTANA_) || ss.insertSheet(PENDIENTES_PESTANA_, 0);
+  var mesAntes = String(h.getRange(PENDIENTES_CELDA_MES_).getValue() || '');
   if (h.getFilter()) h.getFilter().remove();
   h.getRange(1, 1, h.getMaxRows(), h.getMaxColumns()).breakApart().clearDataValidations();
   h.clear();
-  h.showColumns(1, h.getMaxColumns()); // la versión anterior escondía otra columna
-  var ancho = PENDIENTES_CAB_.length;
-  var orden = {}, color = {}, titulo = {};
-  PENDIENTES_SECCIONES_.forEach(function (s, i) { orden[s[0]] = i; color[s[0]] = s[2]; titulo[s[0]] = s[1].split(' (')[0]; });
-  var cuenta = {};
-  items.forEach(function (x) { cuenta[x.sec] = (cuenta[x.sec] || 0) + 1; });
+  h.showColumns(1, h.getMaxColumns());
+  h.showRows(1, h.getMaxRows());
+  h.setFrozenRows(0);
+  var ancho = PENDIENTES_CAB_.length; // A–J
+  var orden = {}, titulo = {};
+  PENDIENTES_SECCIONES_.forEach(function (s, i) { orden[s[0]] = i; titulo[s[0]] = s[1]; });
+
   h.getRange(1, 1).setValue('Pendientes de facturas y albaranes').setFontWeight('bold').setFontSize(14);
   h.getRange(2, 1).setValue('Actualizado el ' + Utilities.formatDate(new Date(), 'Europe/Madrid', 'dd/MM/yyyy HH:mm') +
-    ' (se rehace solo cada 2 horas). Para ver un mes o un tipo: el botón de filtro de la columna Mes o Qué pasa. Lo que se soluciona sale solo; lo que tiene casilla "Ya está": marcarla cuando esté arreglado y desaparece.').setFontColor('#666');
-  var resumen = PENDIENTES_SECCIONES_.filter(function (s) { return cuenta[s[0]]; }).map(function (s) { return titulo[s[0]] + ': ' + cuenta[s[0]]; });
-  h.getRange(3, 1).setValue(resumen.length ? resumen.join(' · ') : 'No hay nada pendiente. 👍').setFontWeight('bold');
+    ' (se rehace solo cada 2 horas). Lo que se soluciona sale solo; lo que tiene casilla "Ya está": marcarla cuando esté arreglado y desaparece.').setFontColor('#666');
+  var meses = {};
+  items.forEach(function (x) { meses[x.mes || '(sin fecha)'] = true; });
+  var lista = [PENDIENTES_TODOS_].concat(Object.keys(meses).sort().reverse());
+  h.getRange('A3').setValue('Ver mes:').setFontWeight('bold').setHorizontalAlignment('right');
+  h.getRange(PENDIENTES_CELDA_MES_).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(lista, true).setAllowInvalid(false).build())
+    .setValue(lista.indexOf(mesAntes) > -1 ? mesAntes : PENDIENTES_TODOS_)
+    .setFontWeight('bold').setBackground('#fff2cc').setBorder(true, true, true, true, false, false);
 
-  var cab = PENDIENTES_FILA_CAB_;
-  h.getRange(cab, 1, 1, ancho).setValues([PENDIENTES_CAB_]).setFontWeight('bold').setBackground('#2f4f3a').setFontColor('#fff');
   items.sort(function (a, b) {
     return (orden[a.sec] - orden[b.sec]) || ((a.fecha ? a.fecha.getTime() : 0) - (b.fecha ? b.fecha.getTime() : 0));
   });
-  var n = items.length;
-  if (n) {
-    var ini = cab + 1;
-    h.getRange(ini, 1, n, ancho).setValues(items.map(function (x) {
-      return [x.mes || '(sin fecha)', titulo[x.sec], x.prov, x.fecha, x.num, x.importe, x.que, '', x.clave ? false : 'sale sola', x.clave];
+  var fila = 6;
+  PENDIENTES_SECCIONES_.forEach(function (s) {
+    var deEsta = items.filter(function (x) { return x.sec === s[0]; });
+    if (!deEsta.length) return;
+    h.getRange(fila, 1, 1, PENDIENTES_COL_HECHO_).merge().setFontWeight('bold').setFontColor('#fff').setBackground(s[2]);
+    h.getRange(fila, PENDIENTES_COL_MARCA_).setValue('S|' + s[0]);
+    fila++;
+    h.getRange(fila, 1, 1, ancho).setValues([PENDIENTES_CAB_]).setFontWeight('bold').setBackground('#f1efe6');
+    h.getRange(fila, PENDIENTES_COL_MARCA_).setValue('C|' + s[0]);
+    fila++;
+    var n = deEsta.length;
+    h.getRange(fila, 1, n, ancho).setValues(deEsta.map(function (x) {
+      return [x.mes || '(sin fecha)', s[1].split(' (')[0], x.prov, x.fecha, x.num, x.importe, x.que, '', x.clave ? false : 'sale sola', x.clave];
     }));
-    h.getRange(ini, 8, n, 1).setFormulas(items.map(function (x) { return [x.url ? '=HYPERLINK("' + x.url + '";"Ver")' : '']; }));
-    h.getRange(ini, 4, n, 1).setNumberFormat('dd/MM/yyyy');
-    h.getRange(ini, 6, n, 1).setNumberFormat('#,##0.00 €');
-    h.getRange(ini, 2, n, 1).setBackgrounds(items.map(function (x) { return [color[x.sec]]; })).setFontColor('#fff').setFontWeight('bold');
-    h.getRange(ini, 9, n, 1).setFontColor('#aaa');
-    // Casillas solo donde hay clave (de una vez las filas seguidas).
+    h.getRange(fila, PENDIENTES_COL_MARCA_, n, 1).setValue('D|' + s[0]);
+    h.getRange(fila, 8, n, 1).setFormulas(deEsta.map(function (x) { return [x.url ? '=HYPERLINK("' + x.url + '";"Ver")' : '']; }));
+    h.getRange(fila, 4, n, 1).setNumberFormat('dd/MM/yyyy');
+    h.getRange(fila, 6, n, 1).setNumberFormat('#,##0.00 €');
+    h.getRange(fila, 9, n, 1).setFontColor('#aaa');
     var k = 0;
     while (k < n) {
-      if (!items[k].clave) { k++; continue; }
+      if (!deEsta[k].clave) { k++; continue; }
       var desde = k;
-      while (k < n && items[k].clave) k++;
-      h.getRange(ini + desde, 9, k - desde, 1).insertCheckboxes();
+      while (k < n && deEsta[k].clave) k++;
+      h.getRange(fila + desde, 9, k - desde, 1).insertCheckboxes();
     }
-  }
-  h.getRange(cab, 1, Math.max(n, 1) + 1, ancho - 1).createFilter();
-  h.setFrozenRows(cab);
+    fila += n + 1;
+  });
   h.setColumnWidth(1, 130); h.setColumnWidth(2, 190); h.setColumnWidth(3, 190); h.setColumnWidth(4, 90); h.setColumnWidth(5, 120);
   h.setColumnWidth(6, 90); h.setColumnWidth(7, 480); h.setColumnWidth(8, 50); h.setColumnWidth(9, 75);
-  h.getRange(cab, 7, Math.max(n, 1) + 1, 1).setWrap(true);
-  h.hideColumns(PENDIENTES_COL_CLAVE_);
+  if (fila > 6) h.getRange(6, 7, fila - 6, 1).setWrap(true);
+  h.hideColumns(PENDIENTES_COL_CLAVE_, 2);
+  h.setFrozenRows(4);
+  aplicarMesPendientes_(h);
+}
+
+// Deja ver solo el mes elegido en B3 (o todo), con los títulos de cada
+// sección y el resumen de arriba contando solo ese mes.
+function aplicarMesPendientes_(h) {
+  var mes = String(h.getRange(PENDIENTES_CELDA_MES_).getValue() || PENDIENTES_TODOS_);
+  var todos = mes === PENDIENTES_TODOS_;
+  var ultima = h.getLastRow();
+  var titulo = {};
+  PENDIENTES_SECCIONES_.forEach(function (s) { titulo[s[0]] = s[1]; });
+  if (ultima < 6) { h.getRange('A4').setValue('No hay nada pendiente. 👍').setFontWeight('bold'); return; }
+  h.showRows(6, ultima - 5);
+  var v = h.getRange(6, 1, ultima - 5, PENDIENTES_COL_MARCA_).getValues();
+  var ver = v.map(function () { return true; });
+  var cuenta = {}, suma = {};
+  v.forEach(function (r, i) {
+    var m = String(r[PENDIENTES_COL_MARCA_ - 1] || '').split('|');
+    if (m[0] !== 'D') return;
+    var esta = todos || r[0] === mes;
+    ver[i] = esta;
+    if (esta) { cuenta[m[1]] = (cuenta[m[1]] || 0) + 1; suma[m[1]] = (suma[m[1]] || 0) + (Number(r[5]) || 0); }
+  });
+  v.forEach(function (r, i) {
+    var m = String(r[PENDIENTES_COL_MARCA_ - 1] || '').split('|');
+    if (m[0] === 'S' || m[0] === 'C') ver[i] = !!cuenta[m[1]];
+    if (m[0] === 'S' && cuenta[m[1]]) {
+      h.getRange(6 + i, 1).setValue(titulo[m[1]] + '  (' + cuenta[m[1]] + (suma[m[1]] ? ' · ' + euros_(Math.round(suma[m[1]] * 100) / 100) : '') + ')');
+    }
+    if (!m[0]) ver[i] = todos; // las filas en blanco entre secciones
+  });
+  var i = 0;
+  while (i < ver.length) {
+    if (ver[i]) { i++; continue; }
+    var desde = i;
+    while (i < ver.length && !ver[i]) i++;
+    h.hideRows(6 + desde, i - desde);
+  }
+  var resumen = PENDIENTES_SECCIONES_.filter(function (s) { return cuenta[s[0]]; }).map(function (s) { return s[1].split(' (')[0] + ': ' + cuenta[s[0]]; });
+  h.getRange('A4').setValue(resumen.length ? resumen.join(' · ') : 'Nada pendiente ' + (todos ? '' : 'en ' + mes.slice(8) + ' ') + '👍').setFontWeight('bold');
 }
 
 // Desde alEditarAlbaranes: casilla "Ya está" marcada → se guarda y la fila
 // se borra.
 function alEditarPendientes_(e) {
   var hoja = e.range.getSheet();
+  if (e.range.getA1Notation() === PENDIENTES_CELDA_MES_) { aplicarMesPendientes_(hoja); return; }
   if (e.range.getColumn() !== PENDIENTES_COL_HECHO_ || e.range.getNumRows() !== 1) return;
   if (hoja.getRange(e.range.getRow(), PENDIENTES_COL_HECHO_).getValue() !== true) return;
   var clave = String(hoja.getRange(e.range.getRow(), PENDIENTES_COL_CLAVE_).getValue() || '');
