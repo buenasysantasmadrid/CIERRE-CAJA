@@ -36,6 +36,7 @@ var PENDIENTES_SECCIONES_ = [
   ['varios', 'Sin proveedor (¿a qué proveedor va?)', '#b7950b'],
   ['mensual', 'Falta la factura del mes', '#16a085'],
   ['albaran', 'Albaranes que esperan su factura', '#16a085'],
+  ['habitual', '¿Falta alguna factura? (suele llegar cada mes)', '#b03a2e'],
   ['sinpdf', 'Facturas sin PDF en Drive', '#7f8c8d'],
   ['mal', 'PDF que se ven mal (volver a escanear)', '#7f8c8d'],
   ['sinpagar', 'Falta pagar', '#2471a3'],
@@ -49,6 +50,42 @@ function leerHechosPendientes_() {
 function idDeUrlDrive_(url) {
   var m = /\/d\/([\w-]{20,})/.exec(String(url || '')) || /[?&]id=([\w-]{20,})/.exec(String(url || ''));
   return m ? m[1] : '';
+}
+
+// Lo que corre cada 2 horas (activador aparte de actualizarDocumentosAlbaranes:
+// juntas pasan de los 6 minutos). Los albaranes sin factura los lee de la
+// pestaña FALTA FACTURA, que hace documentosAlbaranes_.
+function actualizarPendientes() {
+  var anio = new Date().getFullYear();
+  var id = buscarEnIndice_('ALBARANES', String(anio));
+  if (!id) return { ok: false, error: 'No hay ALBARANES ' + anio };
+  var ss = SpreadsheetApp.openById(id);
+  var ff = leerFaltaFactura_(ss);
+  return { ok: true, pendientes: escribirPendientes_(ss, anio, ff.faltan, ff.mensuales) };
+}
+
+// Las dos tablas de la pestaña FALTA FACTURA (escribirFaltaFactura_), en el
+// mismo formato que documentosAlbaranes_.
+function leerFaltaFactura_(ss) {
+  var r = { faltan: [], mensuales: [] };
+  var h = ss.getSheetByName(FALTA_FACTURA_PESTANA_);
+  if (!h || h.getLastRow() < 5) return r;
+  var rango = h.getRange(1, 1, h.getLastRow(), 7);
+  var v = rango.getValues(), fo = rango.getFormulas();
+  var parte = '';
+  for (var i = 0; i < v.length; i++) {
+    var a = String(v[i][0] || '');
+    if (a === 'Proveedor' && v[i][1] === 'Fecha albarán') { parte = 'faltan'; continue; }
+    if (a === 'Proveedor' && v[i][1] === 'Mes') { parte = 'mensual'; continue; }
+    if (!a || /^TOTAL \(/.test(a) || /^(No hay ninguno|Ninguna)/.test(a)) { if (/^TOTAL/.test(a)) parte = ''; continue; }
+    if (parte === 'faltan') {
+      var url = (/HYPERLINK\("([^"]+)"/i.exec(fo[i][6] || '') || [])[1] || '';
+      r.faltan.push([a, v[i][1], v[i][2], v[i][3], v[i][4], v[i][5], url]);
+    } else if (parte === 'mensual') {
+      r.mensuales.push([a, v[i][1], v[i][2], v[i][3]]);
+    }
+  }
+  return r;
 }
 
 // faltan / mensuales: los de documentosAlbaranes_ (FALTA FACTURA).
@@ -114,6 +151,19 @@ function escribirPendientes_(ss, anio, faltan, mensuales) {
   (faltan || []).forEach(function (f) {
     poner('albaran', f[0], f[1], f[2], f[3], (f[4] ? f[4].toLowerCase() + ' · ' : '') + (f[5] !== '' ? 'esperando hace ' + f[5] + ' días' : ''), f[6]);
   });
+
+  // 3b. Facturas que suelen llegar cada mes y el mes pasado no llegó
+  // (FacturasQueFaltan.gs; desde el día 5, para darles tiempo).
+  try {
+    if (hoy.getDate() >= 5) {
+      var mp = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+      facturasQueFaltan_(mp.getFullYear(), mp.getMonth()).forEach(function (x) {
+        if (!/^No hay nada cargado/.test(x.que)) return; // lo demás ya sale en otras secciones
+        poner('habitual', x.proveedor, '', '', '', 'Suele llegar cada mes y en ' + PENDIENTES_MESES_[mp.getMonth()] + ' no hay nada. ' + x.que.replace('No hay nada cargado. ', ''), '',
+          'habitual|' + mp.getFullYear() + '-' + mp.getMonth() + '|' + normalizarClave_(x.proveedor), textoMesPendientes_(mp.getFullYear(), mp.getMonth()));
+      });
+    }
+  } catch (err) { log('habituales', err); }
 
   // 4. Repetidas y falta pagar.
   try {

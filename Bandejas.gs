@@ -422,6 +422,13 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista, bandeja) {
     }
   }
 
+  // "Cómo trabaja cada proveedor" (TratamientoProveedores.gs): la factura
+  // llega sin que se haya cargado el gasto → se carga enseguida.
+  var trat = deLista ? tratamientoDe_(deLista) : null;
+  if (tipo === 'auto' && trat && trat.f === 'SIN_GASTO' && BANDEJA_PROVEEDORES_GENERICOS_.indexOf(normalizarClave_(deLista)) === -1 && pestanaAlbaranesParaProveedor_(ss, deLista)) {
+    return cargarFacturaSinAlbaran_(ss, archivo, raiz, deLista, cual0, fecha, numero, importe, iva, forma);
+  }
+
   if (tipo === 'auto') {
     var servicio = !deLista || BANDEJA_PROVEEDORES_GENERICOS_.indexOf(normalizarClave_(deLista)) > -1 || !pestanaAlbaranesParaProveedor_(ss, deLista);
     var esDia = / DIA /.test(' ' + normalizarClave_(proveedor).replace(/[^A-Z]+/g, ' ') + ' ');
@@ -449,15 +456,7 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista, bandeja) {
       // esté pagada; el banco la marca cuando se pague). Si la factura dice
       // que se pagó con tarjeta (compra que no pasó por el local), ya está
       // pagada: TARJETA/TRANSFERENCIA.
-      else {
-        var resSin = escribirTransferenciaEnAlbaranes_(ss, deLista || proveedor, '', fecha, numero, importe, isNaN(iva) ? null : iva, 'pdf-' + archivo.getId(), forma === 'tarjeta' ? 'tarjeta' : true);
-        return {
-          hecha: cual0 + ': ' + resSin.texto, problema: '',
-          proveedor: proveedor, importe: importe,
-          avisos: [],
-          enlace: moverFacturaACarpetaProveedor_(archivo, raiz, fecha, deLista || proveedor, '', numero)
-        };
-      }
+      else return cargarFacturaSinAlbaran_(ss, archivo, raiz, deLista || proveedor, cual0, fecha, numero, importe, iva, forma);
     } else if (forma === 'efectivo') {
       return aRevisar_(archivo, bandeja, cual0, 'no es de un proveedor con albaranes y la factura dice que se pagó en efectivo. Cargarla a mano');
     } else {
@@ -502,6 +501,18 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista, bandeja) {
     problema: resultado.problema ? cual + ': ' + resultado.problema : '',
     proveedor: detalle || proveedor, importe: importe, avisos: avisos,
     enlace: enlace
+  };
+}
+
+// Factura sin albarán ni foto en la caja: a su pestaña como NO PAGADO; si
+// dice tarjeta o domiciliación, ya está pagada (TARJETA/TRANSFERENCIA).
+function cargarFacturaSinAlbaran_(ss, archivo, raiz, proveedor, cual, fecha, numero, importe, iva, forma) {
+  var pagada = forma === 'tarjeta' || forma === 'domiciliacion';
+  var res = escribirTransferenciaEnAlbaranes_(ss, proveedor, '', fecha, numero, importe, isNaN(iva) ? null : iva, 'pdf-' + archivo.getId(), pagada ? 'tarjeta' : true);
+  return {
+    hecha: cual + ': ' + res.texto, problema: '',
+    proveedor: proveedor, importe: importe, avisos: [],
+    enlace: moverFacturaACarpetaProveedor_(archivo, raiz, fecha, proveedor, '', numero)
   };
 }
 
@@ -746,8 +757,8 @@ function escribirTransferenciaEnAlbaranes_(ss, proveedor, detalle, fecha, numero
   }
   try { refrescarInformeMesSiToca_(ss, [mesIndex]); } catch (err) { Logger.log('INFORME MES: ' + err); }
   try { actualizarProveedoresContabilidad_(fecha.slice(0, 4)); } catch (err) { Logger.log('PROVEEDORES Contabilidad: ' + err); }
-  if (noPagado === 'tarjeta') return { texto: 'no tenía albarán ni foto en la caja: cargada como factura en ALBARANES (pestaña ' + hoja.getName() + '), pagada con tarjeta' };
-  if (noPagado) return { texto: 'no tenía albarán ni foto en la caja: cargada como factura en ALBARANES (pestaña ' + hoja.getName() + ') como NO PAGADO' };
+  if (noPagado === 'tarjeta') return { texto: 'cargada como factura en ALBARANES (pestaña ' + hoja.getName() + '), ya pagada (tarjeta o domiciliación)' };
+  if (noPagado) return { texto: 'cargada como factura en ALBARANES (pestaña ' + hoja.getName() + ') como NO PAGADO' };
   return { texto: 'cargada en ALBARANES (pestaña ' + hoja.getName() + '), pagada por transferencia el ' + fechaCorta_(fecha) };
 }
 
