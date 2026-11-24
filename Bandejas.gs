@@ -139,8 +139,22 @@ function procesarBandejasFacturas() {
       if (!bandeja) return;
       if (b[1] === 'auto' || b[1] === 'externa') { carpetaHija_(bandeja, BANDEJA_NO_LEIDAS_); carpetaHija_(bandeja, BANDEJA_REVISAR_); } // que se vean desde el principio
       var archivos = bandeja.getFiles();
-      while (archivos.hasNext() && Date.now() - inicio < BANDEJA_TIEMPO_MAX_MS_) {
-        var archivo = archivos.next();
+      // Y las que esperan en "⚠️ Revisar" a que se cargue su foto o albarán
+      // en la caja (7 días como mucho; después se quedan ahí para hacerlo a mano).
+      var esperan = [];
+      if (b[1] === 'auto') {
+        var enRevisar = carpetaHija_(bandeja, BANDEJA_REVISAR_).getFiles();
+        while (enRevisar.hasNext()) {
+          var e = enRevisar.next(), le = leerEsperando_(e);
+          if (!le) continue;
+          if (Date.now() - new Date(le.desde).getTime() > ESPERANDO_DIAS_ * 86400000) { e.setDescription(''); continue; }
+          esperan.push(e);
+        }
+      }
+      var siguiente = function () { return archivos.hasNext() ? archivos.next() : esperan.shift(); };
+      var archivo;
+      while ((archivos.hasNext() || esperan.length) && Date.now() - inicio < BANDEJA_TIEMPO_MAX_MS_) {
+        archivo = siguiente();
         var r;
         try {
           r = procesarFacturaDeBandeja_(archivo, b[1], raiz, lista, bandeja);
@@ -165,6 +179,45 @@ function procesarBandejasFacturas() {
   } finally {
     cache.remove('bandejas_corriendo');
   }
+}
+
+// Facturas en "⚠️ Revisar" que esperan a que su foto o su albarán se cargue
+// en la caja: en la descripción llevan "esperando: {desde, r}" (r = lo leído).
+var ESPERANDO_ = 'esperando: ';
+var ESPERANDO_DIAS_ = 7;
+function leerEsperando_(archivo) {
+  var d = String(archivo.getDescription() || '');
+  if (d.indexOf(ESPERANDO_) !== 0) return null;
+  try { return JSON.parse(d.slice(ESPERANDO_.length)); } catch (e) { return null; }
+}
+
+// ¿Ya está en ALBARANES una fila con este mismo nº de factura (la foto de la
+// factura cargada en la caja)? Si el PDF de esa fila se escaneó como
+// albarán, no: entonces es una factura de albarán normal.
+function facturaYaCargada_(ss, raiz, proveedor, numero) {
+  var k = claveNumeroFactura_(numero);
+  if (k.length < 4 || !proveedor) return null;
+  var hoja = pestanaAlbaranesParaProveedor_(ss, proveedor);
+  if (!hoja) return null;
+  var filas = filasDelAnioAlbaranes_(hoja);
+  var f = filas.filter(function (x) { return claveNumeroFactura_(x.numero) === k; })[0];
+  if (!f) return null;
+  var carpeta = sinCaracteresRaros_(proveedor), dirFoto = null;
+  if (f.fecha) {
+    var fe = Utilities.formatDate(f.fecha, 'Europe/Madrid', 'yyyy-MM-dd');
+    var itA = raiz.getFoldersByName(fe.slice(0, 4)), itM = itA.hasNext() ? itA.next().getFoldersByName(fe.slice(5, 7)) : null;
+    var itP = itM && itM.hasNext() ? itM.next().getFoldersByName(carpeta) : null;
+    if (itP && itP.hasNext()) {
+      dirFoto = itP.next();
+      var fs = dirFoto.getFiles();
+      while (fs.hasNext()) {
+        var a = fs.next();
+        var nombre = a.getName().replace(/\.[a-z0-9]{2,4}$/i, '').replace(/^\d{4}-\d{2}-\d{2}\s*/, '');
+        if (claveNumeroFactura_(nombre).endsWith(k) && String(a.getDescription() || '').toLowerCase() === DOC_ALBARAN_) return null;
+      }
+    }
+  }
+  return { pestana: hoja.getName(), importe: f.importe, carpeta: carpeta, dirFoto: dirFoto };
 }
 
 // Un fallo que puede ser pasajero (Claude saturado, Google lento): se
@@ -254,9 +307,19 @@ function guardarFacturaMensual_(archivo, raiz, ss, proveedor, fecha, numero, imp
 }
 
 // "Facturas nuevas" con dudas: no se carga nada; queda en "⚠️ Revisar".
-function aRevisar_(archivo, bandeja, cual, motivo) {
-  archivo.setDescription('');
-  archivo.moveTo(carpetaHija_(bandeja, BANDEJA_REVISAR_));
+function aRevisar_(archivo, bandeja, cual, motivo, lecturaParaEsperar) {
+  if (lecturaParaEsperar) {
+    // Se vuelve a probar cada hora (procesarBandejasFacturas) 7 días. Solo
+    // se avisa la primera vez.
+    var antes = leerEsperando_(archivo);
+    var desde = antes ? antes.desde : new Date().toISOString();
+    archivo.setDescription(ESPERANDO_ + JSON.stringify({ desde: desde, r: lecturaParaEsperar }));
+    archivo.moveTo(carpetaHija_(bandeja, BANDEJA_REVISAR_));
+    if (antes) return {};
+  } else {
+    archivo.setDescription('');
+    archivo.moveTo(carpetaHija_(bandeja, BANDEJA_REVISAR_));
+  }
   return {
     problema: cual + ': ' + motivo + '. Quedó en "' + BANDEJA_REVISAR_ + '", sin cargar.',
     proveedor: cual, avisos: [{ tipo: 'fallo', que: 'No sé si es de albarán o de transferencia: está en "' + BANDEJA_REVISAR_ + '", sin cargar' }],
@@ -270,16 +333,22 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista, bandeja) {
   if (!esPdf && !/^image\/(jpeg|png|webp|gif)$/.test(mime)) return noSePudoLeer_(archivo, bandeja, 'no es un PDF ni una foto');
   if (archivo.getSize() > 25 * 1024 * 1024) return noSePudoLeer_(archivo, bandeja, 'es demasiado grande para leerla');
 
-  var b64 = Utilities.base64Encode(archivo.getBlob().getBytes());
-  var hoja = esPdf
-    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
-    : { type: 'image', source: { type: 'base64', media_type: mime, data: b64 } };
-  var r = pedirJsonAClaude_([hoja, {
-    type: 'text', text: INSTRUCCIONES_FACTURA.replace('Esta es la foto de', 'Este es el documento de').replace(/\nLos importes con punto/, INSTRUCCIONES_FORMA_PAGO_ + '\nLos importes con punto') +
-      '\n\nProveedores habituales:\n' + (lista.join('\n') || '(no hay lista)')
-  }], esquemaFacturaBandeja_());
-  if (!r || r.ok === false) throw new Error('Claude no pudo leerla: ' + ((r && r.error) || 'sin respuesta'));
-  corregirTotalFactura_(r);
+  // Una que está esperando a que se cargue en la caja (ver aRevisar_) ya se
+  // leyó: no se vuelve a pagar a Claude.
+  var esperando = leerEsperando_(archivo);
+  var r = esperando && esperando.r;
+  if (!r) {
+    var b64 = Utilities.base64Encode(archivo.getBlob().getBytes());
+    var hoja = esPdf
+      ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
+      : { type: 'image', source: { type: 'base64', media_type: mime, data: b64 } };
+    r = pedirJsonAClaude_([hoja, {
+      type: 'text', text: INSTRUCCIONES_FACTURA.replace('Esta es la foto de', 'Este es el documento de').replace(/\nLos importes con punto/, INSTRUCCIONES_FORMA_PAGO_ + '\nLos importes con punto') +
+        '\n\nProveedores habituales:\n' + (lista.join('\n') || '(no hay lista)')
+    }], esquemaFacturaBandeja_());
+    if (!r || r.ok === false) throw new Error('Claude no pudo leerla: ' + ((r && r.error) || 'sin respuesta'));
+    corregirTotalFactura_(r);
+  }
 
   var fecha = String(r.fecha || '');
   var importe = parseFloat(String(r.importe_total || '').replace(',', '.')) || 0;
@@ -331,18 +400,48 @@ function procesarFacturaDeBandeja_(archivo, tipo, raiz, lista, bandeja) {
     return guardarFacturaMensual_(archivo, raiz, ss, deLista, fecha, numero, importe, r.referencias || [], isNaN(iva) ? null : iva, isNaN(baseLeida) ? null : baseLeida);
   }
 
+  // 24/11/2026 (Luciana): la factura ya estaba cargada en la caja con la
+  // FOTO de la factura (Envapro y otros que no mandan albarán): no se busca
+  // albarán, solo se cambia la foto por el PDF del email.
+  if (tipo === 'auto' || tipo === 'albaran') {
+    var ya = facturaYaCargada_(ss, raiz, deLista || leido, numero);
+    if (ya) {
+      var enlaceYa = moverFacturaACarpetaProveedor_(archivo, raiz, fecha, ya.carpeta, '', numero);
+      if (ya.dirFoto) quitarFotosDeLaMismaFactura_(ya.dirFoto, archivo, numero);
+      var difYa = Math.abs(ya.importe - importe) > 0.02;
+      return {
+        hecha: cual0 + ': ya estaba cargada en la caja con la foto; la foto se cambió por el PDF del email',
+        problema: difYa ? cual0 + ': en ALBARANES (' + ya.pestana + ') pone ' + euros_(ya.importe) + ' y la factura del email dice ' + euros_(importe) + '. Revisar cuál está bien.' : '',
+        proveedor: proveedor, importe: importe,
+        avisos: difYa ? [{ tipo: 'diferencia', que: 'En la caja pone ' + euros_(ya.importe) + ' y la factura del email dice ' + euros_(importe) }] : [],
+        enlace: enlaceYa
+      };
+    }
+  }
+
   if (tipo === 'auto') {
     var servicio = !deLista || BANDEJA_PROVEEDORES_GENERICOS_.indexOf(normalizarClave_(deLista)) > -1 || !pestanaAlbaranesParaProveedor_(ss, deLista);
     var esDia = / DIA /.test(' ' + normalizarClave_(proveedor).replace(/[^A-Z]+/g, ' ') + ' ');
     if (!servicio || esDia) {
       resultado = pasarAlbaranesAFactura_(ss, proveedor, fecha, numero, importe, isNaN(iva) ? null : iva, r.referencias || []);
+      // 24/11/2026 (Luciana): una factura de Dia sin su ticket en la caja es
+      // de FC VYR (a nuestro nombre, pero no es gasto del restaurante).
+      if (esDia && resultado.noEncontrado) {
+        var resDia = escribirTransferenciaEnAlbaranes_(ss, ALBARANES_PESTANA_FC_VYR_, 'Dia', fecha, numero, importe, isNaN(iva) ? null : iva, 'pdf-' + archivo.getId());
+        var cualDia = 'FC VYR — Dia' + (numero ? ' nº ' + numero : '') + ' del ' + fechaCorta_(fecha) + ', ' + euros_(importe);
+        return {
+          hecha: cualDia + ' (no tiene ticket en la caja): ' + resDia.texto, problema: '',
+          proveedor: 'Dia', importe: importe, avisos: [],
+          enlace: moverFacturaACarpetaProveedor_(archivo, raiz, fecha, 'FC VYR', 'Dia', numero)
+        };
+      }
       if (!resultado.noEncontrado && !resultado.sinPestana) tipo = 'albaran';
       // Proveedor con albaranes y sin el albarán en la caja: no se carga
       // nunca sola (antes, si decía transferencia, se cargaba como ya
       // pagada; que llegue la factura no quiere decir que esté pagada).
       else if (porBanco && resultado.sinPestana) { tipo = 'transferencia'; resultado = null; }
-      else return aRevisar_(archivo, bandeja, cual0, 'no encontré su albarán en la caja' + (porBanco ? ' (la factura dice que se paga por transferencia, pero no se carga sola: que llegue no quiere decir que esté pagada)' : '') + '. ' +
-        'Si es de un albarán: cargar el albarán en la caja y volver a poner la factura en "' + BANDEJA_UNICA_ + '". Si no hay albarán: cargarla a mano en la caja (como "No pagado" si todavía no se pagó)');
+      else return aRevisar_(archivo, bandeja, cual0, 'no encontré en la caja ni su albarán ni la foto de esta factura' + (porBanco ? ' (la factura dice que se paga por transferencia, pero no se carga sola: que llegue no quiere decir que esté pagada)' : '') + '. ' +
+        'La vuelvo a probar sola cada hora durante 7 días, por si se carga después en la caja. Si no hay albarán ni foto: cargarla a mano en la caja (como "No pagado" si todavía no se pagó)', r);
     } else if (forma === 'efectivo') {
       return aRevisar_(archivo, bandeja, cual0, 'no es de un proveedor con albaranes y la factura dice que se pagó en efectivo. Cargarla a mano');
     } else {
