@@ -1360,7 +1360,9 @@ function actualizarPromediosTotalesAlbaranesDesdeMenu() {
 // pone al día (como mucho cada 5 minutos, para no hacer lentos los
 // guardados).
 var INFORME_MES_PESTANA_ = 'INFORME MES';
-var INFORME_MES_FUERA_ = ['EXTRAS', 'NOO', 'GLOVO'];
+// GLOVO sí entra (25/11/2026, Luciana): su factura es la comisión de Glovo, un
+// gasto como un servicio (los pedidos que nos pagan son ingreso, van aparte).
+var INFORME_MES_FUERA_ = ['EXTRAS', 'NOO'];
 var INFORME_MES_PRIMERA_FILA_ = 5;
 // Dan una factura a fin de mes con todos sus albaranes (como se llaman sus
 // pestañas, en mayúsculas y sin tildes).
