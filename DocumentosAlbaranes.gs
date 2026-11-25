@@ -172,9 +172,14 @@ function documentosAlbaranes_(anio) {
             f.fecha ? Math.floor((hoy - f.fecha) / 86400000) : '', r.url || (docDeFila_(docs, f.numero, f.fecha) || {}).url || '']);
         }
         // Factura mensual: el mes ya terminado sin la factura del mes en Drive.
-        if (albaranesMes.length && mes < mesHoy && mes >= mesInicio) {
-          var mm = ('0' + (mes + 1)).slice(-2);
-          var hay = docs.some(function (d) { return d.carpeta === clave && d.desc === 'factura' && d.fecha.slice(0, 7) === anio + '-' + mm; });
+        // Cada 3 meses (FACTURA_TRIMESTRAL_): solo al acabar el trimestre, y
+        // vale una factura de cualquiera de sus tres meses.
+        var trimestral = esTrimestral_(clave);
+        if (albaranesMes.length && mes < mesHoy && mes >= mesInicio && (!trimestral || mes % 3 === 2)) {
+          var mesesVale = trimestral ? [mes - 2, mes - 1, mes] : [mes];
+          var hay = docs.some(function (d) {
+            return d.carpeta === clave && d.desc === 'factura' && mesesVale.some(function (m) { return d.fecha.slice(0, 7) === anio + '-' + ('0' + (m + 1)).slice(-2); });
+          });
           if (!hay) {
             var total = Math.round(albaranesMes.reduce(function (s, x) { return s + x.importe; }, 0) * 100) / 100;
             mensuales.push([nombre, FALTAN_NOMBRES_MES_[mes], albaranesMes.length, total]);

@@ -34,6 +34,7 @@ var TRAT_CAJA_ = {
 };
 var TRAT_FACTURA_ = {
   MENSUAL: 'A fin de mes, una factura con todos los albaranes',
+  TRIMESTRAL: 'Cada 3 meses, una factura con todos los albaranes',
   POR_ALBARAN: 'Poco a poco, una factura por cada albarán',
   DE_FACTURA: 'Llega la factura de la factura',
   SIN_GASTO: 'Llega la factura sin que se haya cargado el gasto',
@@ -47,11 +48,13 @@ var TRATAMIENTOS_ = (function () {
     if (!t || !Object.keys(t).length) return {};
     var mensual = [], porAlbaran = [];
     Object.keys(t).forEach(function (k) {
-      if (t[k].f === 'MENSUAL') mensual.push(k);
+      if (t[k].f === 'MENSUAL' || t[k].f === 'TRIMESTRAL') mensual.push(k);
       if (t[k].f === 'POR_ALBARAN' && (t[k].c === 'ALBARAN' || t[k].c === 'GASTO') && BANDEJA_PROVEEDORES_GENERICOS_.indexOf(k) === -1) porAlbaran.push(k);
     });
     INFORME_MES_FACTURA_MENSUAL_.length = 0;
     mensual.forEach(function (k) { INFORME_MES_FACTURA_MENSUAL_.push(k); });
+    FACTURA_TRIMESTRAL_.length = 0;
+    Object.keys(t).forEach(function (k) { if (t[k].f === 'TRIMESTRAL') FACTURA_TRIMESTRAL_.push(k); });
     FALTAN_ALBARAN_LUEGO_FACTURA_.length = 0;
     porAlbaran.forEach(function (k) { FALTAN_ALBARAN_LUEGO_FACTURA_.push(k); });
     return t;
@@ -73,6 +76,7 @@ function textoTratamiento_(c, f) {
     MENSUAL: 'A fin de mes llega UNA factura con todos los albaranes: guardo el PDF como la factura del mes y comparo su total con la suma de los albaranes (si no coincide, sale en PENDIENTES). Si a principios del mes siguiente no llegó, sale en PENDIENTES.',
     POR_ALBARAN: 'Después va llegando la factura de cada albarán: la busco por importe y fecha y el albarán pasa a factura. Los albaranes que siguen sin factura salen en PENDIENTES.',
     DE_FACTURA: 'Después llega por email la misma factura escaneada: cambio la foto por el PDF del email y no la cargo dos veces.',
+    TRIMESTRAL: 'Cada 3 meses llega UNA factura con todos los albaranes del trimestre: guardo el PDF como la factura y no la espero hasta que acaba el trimestre (marzo, junio, septiembre, diciembre). Si a principios del mes siguiente no llegó, sale en PENDIENTES.',
     SIN_GASTO: 'La factura llega sin que haya nada en la caja: la cargo enseguida en su pestaña (como NO PAGADO; si la factura dice tarjeta o domiciliación, como pagada). Si un mes no llega cuando suele llegar, sale en PENDIENTES.',
     NO_LLEGA: 'No llega ninguna factura: no la espero y nunca sale como "falta factura".'
   }[f] || '';
@@ -220,6 +224,9 @@ function ponerTratamientos_(ss, texto) {
     if (x.length === 3 && TRAT_CAJA_[x[1]] && TRAT_FACTURA_[x[2]]) pedidos[normalizarClave_(x[0])] = { c: x[1], f: x[2] };
   });
   var n = Math.max(1, h.getLastRow() - TRAT_FILA_CAB_);
+  // El desplegable de la columna C, con las opciones de ahora (por si hay nuevas).
+  h.getRange(TRAT_FILA_CAB_ + 1, 3, n, 1).setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList(Object.keys(TRAT_FACTURA_).map(function (k) { return TRAT_FACTURA_[k]; }), true).setAllowInvalid(false).build());
   var datos = h.getRange(TRAT_FILA_CAB_ + 1, 1, n, 5).getValues();
   var hechos = [];
   datos.forEach(function (v, i) {
