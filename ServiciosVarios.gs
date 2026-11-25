@@ -12,7 +12,7 @@
 var SERVICIOS_CONOCIDOS_ = [
   ['Carsan', ['carsan']], ['GSC', ['gsc', 'grupo de software', 'software y consulting', 'software consulting']], ['Prosegur', ['prosegur']],
   ['Logos Energía', ['logos energia', 'logos energy', 'logos']], ['Love Energy', ['love energy', 'love energia', 'love']],
-  ['Endered', ['endered', 'edenred']], ['O2', ['o2']], ['Pluxee', ['pluxee', 'pluxe']], ['Up', ['up']],
+  ['Endered', ['endered', 'edenred']], ['Mapfre', ['mapfre']], ['O2', ['o2']], ['Pluxee', ['pluxee', 'pluxe']], ['Up', ['up']],
   ['AGEDI-AIE', ['agedi']],
   ['SGAE', ['sgae', 'sociedad general de autores', 'sociedad general de autories', 'autores y editores']],
   [null, ['zhjang', 'zhang', 'zhiang']]

@@ -28,6 +28,8 @@
 var ALBARANES_COL_DOC_ = 10; // J
 var ALBARANES_ENC_DOC_ = 'DOCUMENTO';
 var FALTA_FACTURA_PESTANA_ = 'FALTA FACTURA';
+// Desde qué mes se espera la factura mensual de cada proveedor (antes, no).
+var MENSUAL_DESDE_ = { 'IBEROLACTAL': '2026-11' };
 ALBARANES_PESTANAS_EXCLUIDAS_.push(FALTA_FACTURA_PESTANA_);
 
 function actualizarDocumentosAlbaranes() {
@@ -175,6 +177,10 @@ function documentosAlbaranes_(anio) {
         // Cada 3 meses (FACTURA_TRIMESTRAL_): solo al acabar el trimestre, y
         // vale una factura de cualquiera de sus tres meses.
         var trimestral = esTrimestral_(clave);
+        // Factura mensual desde que se eligió así (Iberolactal: antes de
+        // noviembre de 2026 no hay factura en el sistema; 25/11/2026).
+        var desdeMensual = MENSUAL_DESDE_[clave];
+        if (desdeMensual && anio + '-' + ('0' + (mes + 1)).slice(-2) < desdeMensual) albaranesMes = [];
         if (albaranesMes.length && mes < mesHoy && mes >= mesInicio && (!trimestral || mes % 3 === 2)) {
           var mesesVale = trimestral ? [mes - 2, mes - 1, mes] : [mes];
           var hay = docs.some(function (d) {
