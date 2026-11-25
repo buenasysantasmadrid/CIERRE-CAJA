@@ -1907,6 +1907,7 @@
 
   // ---------- pregunta Sí/No (ventana propia, más clara que confirm) ----------
   var ivaVacioConfirmado = false;
+  var importeCeroConfirmado = false; // gasto a 0 € (albarán sin precio) ya confirmado
   function preguntar(texto, siTxt, noTxt, onSi, onNo){
     var ov = document.getElementById('preguntaOverlay');
     ov.classList.remove('pequena'); // la versión chica es solo para la de Glovo
@@ -2002,7 +2003,7 @@
     scanImageBase64 = null; scanMediaType = null;
     cambioState = { modo:null, denom:null, subModo:null, cantidad:null };
     empanadaPago = null;
-    ivaVacioConfirmado = false;
+    ivaVacioConfirmado = false; importeCeroConfirmado = false;
     if(volverAHoyAlCerrar){
       volverAHoyAlCerrar = false;
       volverACajaDeHoy();
@@ -4003,7 +4004,21 @@
     var data = collectForm();
     if(currentTipo === 'gasto' && esProveedorSinFactura(data.proveedor)){ data.factura = ''; data.iva = ''; }
     var importe = num(data.importe);
-    if(!importe){ toast('Ingresá un importe válido'); return; }
+    // Albarán sin precio (Viñals Wine lo manda a 0 € y el importe llega en la
+    // factura): un gasto puede ir a 0 si se escribió 0 y se confirma.
+    var importeCero = currentTipo === 'gasto' && importe === 0 && String(data.importe || '').trim() !== '';
+    if(!importe && !importeCero){ toast('Ingresá un importe válido'); return; }
+    if(importeCero && !importeCeroConfirmado){
+      preguntar('¿El albarán viene a 0 €? El importe llegará con la factura.', 'Sí, guardar a 0 €', 'No, pongo el importe', function(){
+        importeCeroConfirmado = true;
+        document.getElementById('modalGuardar').click();
+      }, function(){
+        var impEl = document.querySelector('#formFields [data-field="importe"]');
+        if(impEl) impEl.focus();
+      });
+      return;
+    }
+    importeCeroConfirmado = false;
     if(currentTipo === 'empanadas' && !(data.proveedor||'').trim()){ toast('Elige el cliente'); return; }
     if(currentTipo === 'empanadas' && data.proveedor !== 'OTRO') data.info = ''; // las observaciones son solo para "OTRO"
 
