@@ -25,7 +25,8 @@ var VARIOS_CONOCIDOS_ = [
   ['Realisaprint', ['realisaprint']],
   ['Yiwu Xiaoheng', ['yiwu xiaoheng', 'xiaoheng']],
   ['Controlplaga', ['controlplaga', 'control plaga', 'albores']],
-  ['Anthropic', ['anthropic']]
+  ['Anthropic', ['anthropic']],
+  ['Tradineur', ['tradineur']] // 25/11/2026, Luciana: VARIOS
 ];
 
 // A dónde va una factura de SERVICIOS que estaba mal puesta (o null si se queda).

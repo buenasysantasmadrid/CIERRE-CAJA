@@ -359,7 +359,11 @@ function filaAlbaran_(m, fechaISO, mapa, fechaCajaISO) {
   if (mapa.importe != null) fila[mapa.importe] = Number(m.importe) || 0;
   if (mapa.iva != null && m.iva != null && m.iva !== '') fila[mapa.iva] = Number(m.iva) || 0;
 
-  if (mapa.factura != null) fila[mapa.factura] = m.factura || '';
+  // Un nº como "1/4378" o "12-05" la hoja lo convierte en fecha (Carsan,
+  // 25/11/2026): con el apóstrofo delante se queda como texto.
+  var numFactura = String(m.factura || '');
+  if (/^\d{1,4}[\/.-]\d{1,4}([\/.-]\d{1,4})?$/.test(numFactura)) numFactura = "'" + numFactura;
+  if (mapa.factura != null) fila[mapa.factura] = numFactura;
   else if (m.factura) textoObs = ['Fact. ' + m.factura, textoObs].filter(String).join(' · ');
 
   if (mapa.info != null) {
