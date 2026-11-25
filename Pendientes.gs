@@ -215,8 +215,16 @@ function escribirPendientes_(ss, anio, faltan, mensuales) {
       try { malos = JSON.parse(props[k]); } catch (e) { return; }
       malos.forEach(function (m) {
         var id = idDeUrlDrive_(m.url);
-        try { if (!id || DriveApp.getFileById(id).isTrashed()) return; } catch (e) { return; }
+        var archivo;
+        try { archivo = id && DriveApp.getFileById(id); if (!archivo || archivo.isTrashed()) return; } catch (e) { return; }
         var partes = String(m.nombre).split(' / ');
+        // Solo importan las facturas que van a los contables (25/11/2026,
+        // Luciana): un albarán, o la foto de una factura que después llega por
+        // email (Envapro, Frutapro), da igual que se vea mal.
+        var desc = String(archivo.getDescription() || '').split('\n')[0];
+        if (desc === DOC_ALBARAN_) return;
+        var trat = partes.length > 1 ? tratamientoDe_(partes[0]) : null;
+        if (trat && trat.c === 'FACTURA' && trat.f === 'DE_FACTURA') return;
         poner('mal', partes.length > 1 ? partes[0] : '', (/\d{4}-\d{2}-\d{2}/.exec(m.nombre) || [''])[0], '', '', m.problema, m.url, 'mal|' + id);
       });
     });
