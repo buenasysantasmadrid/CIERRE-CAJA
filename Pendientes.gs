@@ -19,6 +19,7 @@
 // ============================================================================
 
 var PENDIENTES_PESTANA_ = 'PENDIENTES';
+var PENDIENTES_BANCO_ID_ = '1bXCNK2EkdRWApdKOvDZ82k8ramjkWjfesAkuq1b3N_E'; // hoja "BANCO Buenas y Santas"
 ALBARANES_PESTANAS_EXCLUIDAS_.push(PENDIENTES_PESTANA_);
 var PENDIENTES_HECHOS_ = 'pendientes_hechos';
 // Una sola tabla con filtro (24/11/2026, Luciana: poder mirar por meses).
@@ -40,6 +41,7 @@ var PENDIENTES_SECCIONES_ = [
   ['sinpdf', 'Facturas sin PDF en Drive', '#7f8c8d'],
   ['mal', 'PDF que se ven mal (volver a escanear)', '#7f8c8d'],
   ['sinpagar', 'Falta pagar', '#2471a3'],
+  ['banco', 'Pagado por banco y sin factura', '#1a5276'],
   ['error', 'Errores de la app (última semana)', '#c0392b']
 ];
 
@@ -192,6 +194,23 @@ function escribirPendientes_(ss, anio, faltan, mensuales) {
         'Esperando la factura del ' + (esTrimestral_(normalizarClave_(j.pestana)) ? 'trimestre' : 'mes') + ' para pagar (' + j.n + ' albarán' + (j.n === 1 ? '' : 'es') + ' de ' + PENDIENTES_MESES_[j.fecha.getMonth()] + '). No es un problema.');
     });
   } catch (err) { log('repetidas / sin pagar', err); }
+
+  // 4b. Pagos del banco sin su factura en ALBARANES (hoja BANCO, pestaña
+  // MOVIMIENTOS, columna "Cruce con facturas"; 25/11/2026, Luciana). La hoja
+  // es de buenasysantasmadrid y tiene que estar compartida con lfisbein.
+  try {
+    var hb = SpreadsheetApp.openById(PENDIENTES_BANCO_ID_).getSheetByName('MOVIMIENTOS');
+    if (hb && hb.getLastRow() > 1) {
+      hb.getRange(2, 1, hb.getLastRow() - 1, 13).getValues().forEach(function (v) {
+        var fecha = v[0], importe = Number(v[5]) || 0, cruce = String(v[9] || '');
+        if (!(fecha instanceof Date) || fecha.getFullYear() !== Number(anio) || importe >= 0) return;
+        if (!/^(Sin factura|No encuentro)/.test(cruce)) return;
+        var clave = 'banco|' + Utilities.formatDate(fecha, 'Europe/Madrid', 'yyyy-MM-dd') + '|' + importe.toFixed(2) + '|' + String(v[4] || '').slice(0, 25);
+        poner('banco', v[8] || String(v[4] || v[3] || '').slice(0, 40), fecha, '', -importe,
+          'Pagado por ' + (v[12] || 'banco') + ': "' + String(v[4] || v[3] || '').slice(0, 80) + '". ' + cruce + '. Pedir la factura (o marcar "Ya está" si no hace falta).', '', clave);
+      });
+    }
+  } catch (err) { log('banco sin factura', err); }
 
   // 5. Facturas sin PDF (este mes y el anterior, hasta hace 3 días).
   try {
