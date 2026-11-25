@@ -213,7 +213,7 @@ var ALBARANES_ALIAS_ = [['DISBESA CAFE', 'DELTA CAFE']];
 var ALBARANES_BUSCAR_JUNTOS_ = [['DISBESA', 'DISBESA CAFE']];
 
 // Lo cargado como "Vino" va a WINEUP (desde el 23/11/2026 Vino ya no está en el desplegable).
-var ALBARANES_REDIRIGIR_ = { 'VINO': 'WINEUP' };
+var ALBARANES_REDIRIGIR_ = { 'VINO': 'WINEUP', 'GABARRERA': 'BAILANDERA' }; // Gabarrera = Bailandera (25/11/2026)
 
 function pestanaAlbaranesParaProveedor_(ss, proveedor) {
   var buscado = normalizarClave_(proveedor);

@@ -207,3 +207,32 @@ function alEditarTratamientos_(e) {
     .map(function (v) { return { nombre: v[0], c: codigoDe_(TRAT_CAJA_, v[1]), f: codigoDe_(TRAT_FACTURA_, v[2]) }; });
   guardarTratamientos_(lista);
 }
+
+// Solo Claude (GET ?tratamientos=AAAA&poner=CLAVE:C:F,CLAVE:C:F): pone lo que
+// Luciana le dijo por el chat (códigos de TRAT_CAJA_ y TRAT_FACTURA_) en las
+// filas de esos proveedores, como si lo hubiera elegido ella.
+function ponerTratamientos_(ss, texto) {
+  var h = ss.getSheetByName(TRAT_PESTANA_);
+  if (!h) return { ok: false, error: 'no está la pestaña' };
+  var pedidos = {};
+  String(texto).split(',').forEach(function (p) {
+    var x = p.split(':');
+    if (x.length === 3 && TRAT_CAJA_[x[1]] && TRAT_FACTURA_[x[2]]) pedidos[normalizarClave_(x[0])] = { c: x[1], f: x[2] };
+  });
+  var n = Math.max(1, h.getLastRow() - TRAT_FILA_CAB_);
+  var datos = h.getRange(TRAT_FILA_CAB_ + 1, 1, n, 5).getValues();
+  var hechos = [];
+  datos.forEach(function (v, i) {
+    var p = pedidos[normalizarClave_(v[0])];
+    if (!p) return;
+    h.getRange(TRAT_FILA_CAB_ + 1 + i, 2, 1, 4).setValues([[TRAT_CAJA_[p.c], TRAT_FACTURA_[p.f], textoTratamiento_(p.c, p.f), 'Luciana (por chat)']]);
+    h.getRange(TRAT_FILA_CAB_ + 1 + i, 1, 1, 5).setBackground(null);
+    hechos.push(v[0]);
+    delete pedidos[normalizarClave_(v[0])];
+  });
+  var lista = h.getRange(TRAT_FILA_CAB_ + 1, 1, n, 3).getValues()
+    .filter(function (v) { return v[0]; })
+    .map(function (v) { return { nombre: v[0], c: codigoDe_(TRAT_CAJA_, v[1]), f: codigoDe_(TRAT_FACTURA_, v[2]) }; });
+  guardarTratamientos_(lista);
+  return { ok: true, puestos: hechos, noEncontrados: Object.keys(pedidos) };
+}

@@ -1075,6 +1075,7 @@ function doGet(e) {
   // ?tratamientos=AAAA: pestaña "CÓMO TRABAJA CADA PROVEEDOR" (TratamientoProveedores.gs).
   if (esClaude && parametros.tratamientos) {
     var idTrat = buscarEnIndice_('ALBARANES', String(parametros.tratamientos));
+    if (idTrat && parametros.poner) return ContentService.createTextOutput(JSON.stringify(ponerTratamientos_(SpreadsheetApp.openById(idTrat), parametros.poner))).setMimeType(ContentService.MimeType.JSON);
     return ContentService.createTextOutput(JSON.stringify(idTrat ? actualizarTratamientos_(SpreadsheetApp.openById(idTrat), parametros.rehacer === '1') : { ok: false })).setMimeType(ContentService.MimeType.JSON);
   }
   // ?revisarPdfs=AAAA-MM&desde=0&cuantos=15 (&correo=1): ¿se leen bien los PDF? (CalidadFacturas.gs).
