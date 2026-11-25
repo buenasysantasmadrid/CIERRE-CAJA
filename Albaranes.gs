@@ -1367,6 +1367,11 @@ var INFORME_MES_PRIMERA_FILA_ = 5;
 // Dan una factura a fin de mes con todos sus albaranes (como se llaman sus
 // pestañas, en mayúsculas y sin tildes).
 var INFORME_MES_FACTURA_MENSUAL_ = ['POLLERIA', 'LA JAULA', 'MERCANDALUCIA', 'LAS 3B'];
+// De esos, los que mandan la factura cada 3 meses (La Jaula, 25/11/2026): se
+// la espera al terminar marzo, junio, septiembre y diciembre, y vale para los
+// tres meses. Lo rellena TratamientoProveedores.gs (f = TRIMESTRAL).
+var FACTURA_TRIMESTRAL_ = [];
+function esTrimestral_(clave) { return FACTURA_TRIMESTRAL_.indexOf(clave) > -1; }
 
 // PDF escaneados como factura (descripción "factura", ver Precios.gs) en
 // Facturas proveedores/AAAA/MM/<proveedor> de los proveedores con factura
@@ -1594,7 +1599,7 @@ function generarInformeMes_(ss, hoja) {
         var deFactura = importesFacturasMensuales_(pdfs) || suma;
         filas.push([pdfs[0].fecha, nombre + ' — factura del mes (' + albaranesMes.length + ' albaranes)', pdfs.map(function (p) { return p.numero; }).join(', '), deFactura[0], deFactura[1], deFactura[2]]);
       } else {
-        mensuales.push(['', nombre + ' — ' + albaranesMes.length + ' albaranes del mes', 'FALTA LA FACTURA DEL MES', suma[0], suma[1], suma[2]]);
+        mensuales.push(['', nombre + ' — ' + albaranesMes.length + ' albaranes del mes', esTrimestral_(normalizarClave_(nombre)) ? 'FACTURA CADA 3 MESES (llega al acabar el trimestre)' : 'FALTA LA FACTURA DEL MES', suma[0], suma[1], suma[2]]);
       }
     }
     if (!filas.length) return;

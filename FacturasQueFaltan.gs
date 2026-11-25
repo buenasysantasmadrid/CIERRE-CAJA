@@ -115,6 +115,11 @@ function facturasQueFaltan_(anio, mes) {
   INFORME_MES_FACTURA_MENSUAL_.forEach(function (clave) {
     var x = actual[clave];
     if (!x || (pdfs[clave] || []).length) return;
+    // Cada 3 meses: solo al acabar el trimestre, y vale la de cualquiera de sus meses.
+    if (esTrimestral_(clave)) {
+      if (mes % 3 !== 2) return;
+      if ((facturasMensualesEnDrive_(anio, mes - 1)[clave] || []).length || (facturasMensualesEnDrive_(anio, mes - 2)[clave] || []).length) return;
+    }
     faltan.push({ proveedor: x.nombre, que: 'Falta la factura del mes (' + x.n + ' albaranes, ' + euros_(Math.round(x.total * 100) / 100) + ')' });
   });
 
