@@ -249,6 +249,9 @@ function pintarPendientes_(ss, items) {
   h.getRange(PENDIENTES_CELDA_MES_).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(lista, true).setAllowInvalid(false).build())
     .setValue(lista.indexOf(mesAntes) > -1 ? mesAntes : PENDIENTES_TODOS_)
     .setFontWeight('bold').setBackground('#fff2cc').setBorder(true, true, true, true, false, false);
+  // Casilla para rehacerla a mano sin esperar las 2 horas (25/11/2026, Luciana).
+  h.getRange(PENDIENTES_ETIQUETA_ACTUALIZAR_).setValue('Actualizar ahora:').setFontWeight('bold').setHorizontalAlignment('right');
+  h.getRange(PENDIENTES_CELDA_ACTUALIZAR_).insertCheckboxes().setValue(false).setBackground('#fff2cc');
 
   items.sort(function (a, b) {
     return (orden[a.sec] - orden[b.sec]) || ((a.fecha ? a.fecha.getTime() : 0) - (b.fecha ? b.fecha.getTime() : 0));
@@ -333,6 +336,12 @@ function aplicarMesPendientes_(h) {
 function alEditarPendientes_(e) {
   var hoja = e.range.getSheet();
   if (e.range.getA1Notation() === PENDIENTES_CELDA_MES_) { aplicarMesPendientes_(hoja); return; }
+  if (e.range.getA1Notation() === PENDIENTES_CELDA_ACTUALIZAR_) {
+    if (hoja.getRange(PENDIENTES_CELDA_ACTUALIZAR_).getValue() !== true) return;
+    hoja.getRange('A4').setValue('⏳ Actualizando… tarda unos minutos (la pestaña se rehace sola al terminar).').setFontWeight('bold');
+    pedirActualizarPendientes_('actualizarPendientesAMano1');
+    return;
+  }
   if (e.range.getColumn() !== PENDIENTES_COL_HECHO_ || e.range.getNumRows() !== 1) return;
   if (hoja.getRange(e.range.getRow(), PENDIENTES_COL_HECHO_).getValue() !== true) return;
   var clave = String(hoja.getRange(e.range.getRow(), PENDIENTES_COL_CLAVE_).getValue() || '');
@@ -350,4 +359,26 @@ function alEditarPendientes_(e) {
     lock.releaseLock();
   }
   hoja.deleteRow(e.range.getRow());
+}
+
+
+// ---------- Actualizar a mano (casilla E3) ----------
+// Primero FALTA FACTURA (documentosAlbaranes_) y después PENDIENTES, en dos
+// ejecuciones seguidas: juntas pueden pasar de los 6 minutos.
+var PENDIENTES_ETIQUETA_ACTUALIZAR_ = 'D3', PENDIENTES_CELDA_ACTUALIZAR_ = 'E3';
+function pedirActualizarPendientes_(funcion) {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === funcion) ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger(funcion).timeBased().after(1000).create();
+}
+function borrarActivador_(funcion) {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === funcion) ScriptApp.deleteTrigger(t); });
+}
+function actualizarPendientesAMano1() {
+  borrarActivador_('actualizarPendientesAMano1');
+  try { actualizarDocumentosAlbaranes(); } catch (e) { Logger.log(e); }
+  pedirActualizarPendientes_('actualizarPendientesAMano2');
+}
+function actualizarPendientesAMano2() {
+  borrarActivador_('actualizarPendientesAMano2');
+  actualizarPendientes();
 }
