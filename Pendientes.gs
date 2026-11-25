@@ -206,6 +206,10 @@ function escribirPendientes_(ss, anio, faltan, mensuales) {
         var fecha = v[0], importe = Number(v[5]) || 0, cruce = String(v[9] || '');
         if (!(fecha instanceof Date) || fecha.getFullYear() !== Number(anio) || importe >= 0) return;
         if (!/^(Sin factura|No encuentro)/.test(cruce)) return;
+        // Se espera a que llegue la factura (25/11/2026, Luciana): 3 días desde
+        // el pago; Pidebio factura cada quincena (días 5 y 20), 20 días.
+        var espera = /PIDEBIO/.test(normalizarClave_(v[8] + ' ' + v[4])) ? 20 : 3;
+        if (hoy.getTime() - fecha.getTime() < espera * 86400000) return;
         var clave = 'banco|' + Utilities.formatDate(fecha, 'Europe/Madrid', 'yyyy-MM-dd') + '|' + importe.toFixed(2) + '|' + String(v[4] || '').slice(0, 25);
         poner('banco', v[8] || String(v[4] || v[3] || '').slice(0, 40), fecha, '', -importe,
           'Pagado por ' + (v[12] || 'banco') + ': "' + String(v[4] || v[3] || '').slice(0, 80) + '". ' + cruce + '. Pedir la factura (o marcar "Ya está" si no hace falta).', '', clave);
