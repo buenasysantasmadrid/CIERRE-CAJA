@@ -1010,14 +1010,16 @@
   var MONEDAS = [2,1,0.5,0.2,0.1,0.05];
   var ROLL_VALUE = {2:50, 1:25, 0.5:20, 0.2:8, 0.1:4, 0.05:2.5};
 
+  // Orden (25/11/2026, Luciana): Extras y Varios arriba, el resto por orden
+  // alfabético. Glovo sigue en la lista (para reconocer sus facturas y los
+  // movimientos viejos) pero no sale en el desplegable: ver PROVEEDORES_OCULTOS.
   var PROVEEDORES_CONOCIDOS = [
-    "Varios","Frutapro","Mercandalucia","Polleria","Super","Las 3B","Dia Carne","Extras",
-    "cbg","Atlanta","cream de luxe","Disbesa","Duo Harinero","Envapro",
-    "Franco Arg","Gamo","Hughes","Iberolactal","La Jaula","Los Fuenteños","Mercadona","Monbake",
-    "Disbesa Cafe","Wineup","Bailandera", // "Vino" quitado el 23/11/2026: lo de vinos va a Wineup
-    "Glovo", // factura a favor (lo que nos paga Glovo): ver FACTURA_A_FAVOR
-    "Servicios" // siempre el último del desplegable
+    "Extras","Varios",
+    "Atlanta","Bailandera","cbg","cream de luxe","Dia Carne","Disbesa","Disbesa Cafe","Duo Harinero",
+    "Envapro","Franco Arg","Frutapro","Gamo","Glovo","Hughes","Iberolactal","La Jaula","Las 3B",
+    "Los Fuenteños","Mercadona","Mercandalucia","Monbake","Polleria","Servicios","Super","Wineup"
   ];
+  var PROVEEDORES_OCULTOS = ['Glovo']; // no se ofrecen al cargar un gasto (Glovo llega por email a su pestaña)
 
   // Proveedores que cambiaron de nombre: los movimientos viejos se muestran
   // con el nombre nuevo (en ALBARANES van a la misma pestaña, ver
@@ -3948,7 +3950,9 @@
     var detalleEfectivo = esLegado ? selected : detalle;
 
     var opts = '<option value="">Elegir proveedor…</option>';
-    opts += PROVEEDORES_CONOCIDOS.map(function(p){
+    opts += PROVEEDORES_CONOCIDOS.filter(function(p){
+      return PROVEEDORES_OCULTOS.indexOf(p) === -1 || p === valorEfectivo;
+    }).map(function(p){
       return '<option value="'+escapeHtml(p)+'" '+(p===valorEfectivo?'selected':'')+'>'+escapeHtml(p)+'</option>';
     }).join('');
     var mostrarTexto = PROVEEDORES_CON_DETALLE_LIBRE.indexOf(valorEfectivo) > -1;
