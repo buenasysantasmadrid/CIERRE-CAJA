@@ -143,6 +143,7 @@ function escribirPendientes_(ss, anio, faltan, mensuales) {
     var tipo = f[1], que = String(f[4] || '');
     if (['fallo', 'diferencia', 'varios'].indexOf(tipo) === -1) return;
     if (tipo === 'varios' && que.indexOf('¿') === -1) return; // solo las que preguntan algo
+    if (tipo === 'varios' && (variosConocido_(f[2]) || servicioConocido_(f[2]))) return; // ya contestado (ServiciosVarios.gs)
     if (tipo === 'fallo' && (que.indexOf(BANDEJA_REVISAR_) > -1 || que.indexOf(BANDEJA_NO_LEIDAS_) > -1 || que.indexOf('No sé si es de albarán') > -1)) return;
     var clave = tipo + '|' + Utilities.formatDate(f[0], 'Europe/Madrid', 'yyyyMMddHHmmss') + '|' + String(f[2]).slice(0, 40);
     poner(tipo, f[2], f[0], '', f[3], que, f[5], clave);
@@ -244,6 +245,9 @@ function escribirPendientes_(ss, anio, faltan, mensuales) {
         if (desc === DOC_ALBARAN_) return;
         var trat = partes.length > 1 ? tratamientoDe_(partes[0]) : null;
         if (trat && trat.c === 'FACTURA' && trat.f === 'DE_FACTURA') return;
+        // Proveedor que en la caja trae albarán o ticket (Mercandalucía, Super…):
+        // lo de la caja es el albarán; la factura buena llega aparte.
+        if (trat && (trat.c === 'ALBARAN' || trat.c === 'GASTO') && desc !== 'factura') return;
         poner('mal', partes.length > 1 ? partes[0] : '', (/\d{4}-\d{2}-\d{2}/.exec(m.nombre) || [''])[0], '', '', m.problema, m.url, 'mal|' + id);
       });
     });
