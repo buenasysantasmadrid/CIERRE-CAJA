@@ -1911,6 +1911,7 @@
   // ---------- pregunta Sí/No (ventana propia, más clara que confirm) ----------
   var ivaVacioConfirmado = false;
   var importeCeroConfirmado = false; // gasto a 0 € (albarán sin precio) ya confirmado
+  var fechaLejanaConfirmada = false; // fecha de factura lejos de la caja, ya confirmada
   function preguntar(texto, siTxt, noTxt, onSi, onNo){
     var ov = document.getElementById('preguntaOverlay');
     ov.classList.remove('pequena'); // la versión chica es solo para la de Glovo
@@ -2006,7 +2007,7 @@
     scanImageBase64 = null; scanMediaType = null;
     cambioState = { modo:null, denom:null, subModo:null, cantidad:null };
     empanadaPago = null;
-    ivaVacioConfirmado = false; importeCeroConfirmado = false;
+    ivaVacioConfirmado = false; importeCeroConfirmado = false; fechaLejanaConfirmada = false;
     if(volverAHoyAlCerrar){
       volverAHoyAlCerrar = false;
       volverACajaDeHoy();
@@ -4047,6 +4048,26 @@
     }
     // Siempre hay que decir qué empleado carga el movimiento.
     if(!responsableFinal){ toast(data.responsable === 'Otros' ? 'Escribe el nombre del empleado' : 'Elige qué empleado lo carga'); return; }
+
+    // Fecha de la factura/albarán a más de 7 días de la caja (25/11/2026: un
+    // albarán de Frutapro del 13/11 se leyó como 01/11): se pregunta antes.
+    // Solo en gastos nuevos que no son el pago de algo de antes.
+    var pePago = pagoEdicion || {};
+    if(currentTipo === 'gasto' && !editingId && !pePago.pagado && !pePago.pagoFactura && data.fecha && state.fecha && !fechaLejanaConfirmada){
+      var diasDif = Math.round(Math.abs(new Date(data.fecha + 'T12:00:00') - new Date(state.fecha + 'T12:00:00')) / 86400000);
+      if(diasDif > 7){
+        var fc = function(iso){ var p = String(iso).split('-'); return p[2] + '/' + p[1]; };
+        preguntar('¿Seguro que la factura/albarán es del ' + fc(data.fecha) + '? La caja es del ' + fc(state.fecha) + ' (hay ' + diasDif + ' días de diferencia).', 'Sí, la fecha está bien', 'No, la corrijo', function(){
+          fechaLejanaConfirmada = true;
+          document.getElementById('modalGuardar').click();
+        }, function(){
+          var fEl = document.querySelector('#formFields [data-field="fecha"]');
+          if(fEl) fEl.focus();
+        });
+        return;
+      }
+    }
+    fechaLejanaConfirmada = false;
 
     // Proveedor sin IVA (vacío o 0): se permite, pero antes se pregunta. Si dice que sí
     // tiene IVA, no se guarda y se lo lleva al campo para que lo ponga.
