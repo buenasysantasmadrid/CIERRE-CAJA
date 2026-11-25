@@ -137,7 +137,7 @@ function pasarServiciosAVarios_(anio, probar) {
 // una pestaña de ALBARANES (para revisar), con el id completo.
 function listarPestanaAlbaranes_(anio, pestana, desdeMes) {
   var ss = SpreadsheetApp.openById(buscarEnIndice_('ALBARANES', String(anio)));
-  var hoja = pestanaAlbaranesParaProveedor_(ss, pestana);
+  var hoja = ss.getSheetByName(pestana) || pestanaAlbaranesParaProveedor_(ss, pestana); // por su nombre exacto primero (GABARRERA redirige a BAILANDERA)
   if (!hoja) return { ok: false, error: 'No hay pestaña ' + pestana, pestanas: ss.getSheets().map(function (h) { return h.getName(); }) };
   var filas = [];
   filasEncabezadoAlbaranes_(hoja).forEach(function (filaEnc, mes) {
