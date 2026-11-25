@@ -23,6 +23,7 @@
 var TRAT_PESTANA_ = 'CÓMO TRABAJA CADA PROVEEDOR';
 ALBARANES_PESTANAS_EXCLUIDAS_.push(TRAT_PESTANA_);
 var TRAT_PROP_ = 'tratamientos';
+var TRAT_QUITADOS_ = ['ALIMENTOS AUSTRALES', 'GABARRERA']; // ya no se usan (Gabarrera = Bailandera)
 var TRAT_FILA_CAB_ = 4;
 
 var TRAT_CAJA_ = {
@@ -119,19 +120,24 @@ function actualizarTratamientos_(ss, rehacer) {
       if (v[0]) filas[normalizarClave_(v[0])] = { nombre: v[0], c: codigoDe_(TRAT_CAJA_, v[1]), f: codigoDe_(TRAT_FACTURA_, v[2]), quien: v[4] };
     });
   }
+  // Proveedores que ya no se usan (25/11/2026, Luciana): su pestaña sigue en
+  // ALBARANES con lo viejo, pero no salen aquí.
+  var quitados = false;
+  TRAT_QUITADOS_.forEach(function (k) { if (filas[k]) { delete filas[k]; quitados = true; } });
   // Las pestañas de proveedor de la planilla (las que no están, se añaden).
   var docs = null;
   ss.getSheets().forEach(function (s) {
     var nombre = s.getName(), clave = normalizarClave_(nombre);
     if (ALBARANES_PESTANAS_EXCLUIDAS_.indexOf(nombre) > -1 || nombre === INFORME_MES_PESTANA_ || filas[clave]) return;
     if (/^(FALTA FACTURA|PENDIENTES|NOO|VINO)$/.test(clave)) return;
+    if (TRAT_QUITADOS_.indexOf(clave) > -1) return;
     if (!docs) docs = cuentaDocumentosPorPestana_(ss);
     var sup = suponerTratamiento_(clave, docs[nombre]);
     filas[clave] = { nombre: nombre, c: sup.c, f: sup.f, quien: sup.c ? 'Claude (suposición: revisar)' : 'Falta elegir' };
   });
   var lista = Object.keys(filas).sort().map(function (k) { return filas[k]; });
   // Sin proveedores nuevos: no se reescribe (por si Luciana la está mirando).
-  if (!nueva && !docs) { guardarTratamientos_(lista); return { ok: true, proveedores: lista.length, sinCambios: true }; }
+  if (!nueva && !docs && !quitados) { guardarTratamientos_(lista); return { ok: true, proveedores: lista.length, sinCambios: true }; }
 
   h.getRange(1, 1, h.getMaxRows(), h.getMaxColumns()).clearDataValidations();
   h.clear();
