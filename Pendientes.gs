@@ -172,8 +172,24 @@ function escribirPendientes_(ss, anio, faltan, mensuales) {
       poner('repetido', g[0].proveedor, g[0].fecha, g[0].numero, g[0].importe,
         'Está ' + g.length + ' veces: ' + g.map(function (x) { return 'pestaña ' + x.pestana + ' fila ' + x.fila + (x.caja ? ' (caja del ' + fechaCorta_(x.caja).slice(0, 5) + ')' : ' (a mano)'); }).join(', '));
     });
+    // Los de factura a fin de mes (o cada 3 meses: Iberolactal, Pollería...)
+    // se pagan todos juntos con la factura: una sola línea por mes
+    // (25/11/2026, Luciana: "es mucha info para una cosa que no es un problema").
+    var juntos = {};
     (rev.sinPagar || []).forEach(function (x) {
+      var f = x.fecha instanceof Date ? x.fecha : (/^\d{4}-\d{2}-\d{2}$/.test(String(x.fecha)) ? fechaComoDate_(x.fecha) : null);
+      if (f && INFORME_MES_FACTURA_MENSUAL_.indexOf(normalizarClave_(x.pestana)) > -1) {
+        var k = x.pestana + '|' + f.getFullYear() + '-' + f.getMonth();
+        var j = juntos[k] = juntos[k] || { prov: x.proveedor, pestana: x.pestana, fecha: f, n: 0, total: 0 };
+        j.n++; j.total += Number(x.importe) || 0;
+        return;
+      }
       poner('sinpagar', x.proveedor, x.fecha, x.numero, x.importe, 'NO PAGADO (pestaña ' + x.pestana + ', fila ' + x.fila + ')');
+    });
+    Object.keys(juntos).forEach(function (k) {
+      var j = juntos[k];
+      poner('sinpagar', j.prov, new Date(j.fecha.getFullYear(), j.fecha.getMonth(), 1), '', Math.round(j.total * 100) / 100,
+        'Esperando la factura del ' + (esTrimestral_(normalizarClave_(j.pestana)) ? 'trimestre' : 'mes') + ' para pagar (' + j.n + ' albarán' + (j.n === 1 ? '' : 'es') + ' de ' + PENDIENTES_MESES_[j.fecha.getMonth()] + '). No es un problema.');
     });
   } catch (err) { log('repetidas / sin pagar', err); }
 
