@@ -6,6 +6,16 @@ $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Env
 Set-Location (Split-Path -Parent $PSScriptRoot)
 $IMPLEMENTACION = 'AKfycbyrfOE73JqgjTXAEaLetRz8aJg1Ldb-Du4dsqGgW34H-zgwLSJMrAkSKApiTCoz6t7m_A'
 
+# 26/11/2026: otra sesión (otro ordenador) había publicado cambios y esta
+# copia, sin ellos, los quitó de la app al publicar. Si en GitHub hay algo que
+# aquí no está, no se publica: antes hay que hacer git pull.
+git fetch -q origin 2>$null
+$detras = (git rev-list --count 'HEAD..origin/main' 2>$null | Out-String).Trim()
+if ($detras -and $detras -ne '0') {
+  Write-Host ("En GitHub hay " + $detras + " cambios que esta copia no tiene (otra sesión). No se publica: primero git pull --rebase.") -ForegroundColor Red
+  exit 1
+}
+
 # La app corre como la cuenta que publica (executeAs USER_DEPLOYING): tiene que
 # ser lfisbein, la dueña de las planillas. Con otra cuenta, Contabilidad y
 # Albaranes (protegidas para lfisbein) dejan de guardarse.
