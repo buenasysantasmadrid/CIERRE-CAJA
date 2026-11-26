@@ -429,6 +429,8 @@ function esServicioPrecios_(nombre) {
 // Activador cada 30 minutos: lee lo que falte hasta llegar a ~4,5 minutos.
 function leerPreciosPendientes() {
   var props = PropertiesService.getScriptProperties();
+  // Pausa (26/11/2026: Luciana vio un cobro de créditos de Claude). ?precios=pausar / reanudar.
+  if (props.getProperty('precios_pausa')) return { ok: true, pausado: true };
   var corriendo = Number(props.getProperty('precios_corriendo') || 0);
   if (corriendo && Date.now() - corriendo < 7 * 60 * 1000) return { ok: true, yaCorriendo: true };
   props.setProperty('precios_corriendo', String(Date.now()));
@@ -501,4 +503,13 @@ function quitarPreciosNoLeer_() {
   } finally {
     lock.releaseLock();
   }
+}
+
+// Pausar o reanudar la lectura automática de precios (cada lectura gasta créditos de Claude).
+function pausarPrecios_(pausar) {
+  var props = PropertiesService.getScriptProperties();
+  if (pausar) props.setProperty('precios_pausa', String(new Date())); else props.deleteProperty('precios_pausa');
+  var mapa = leerArchivosPrecios_();
+  var leidos = Object.keys(mapa).length;
+  return { ok: true, pausado: !!pausar, archivosLeidos: leidos, quedan: archivosSinPrecios_(mapa).length };
 }

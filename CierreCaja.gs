@@ -1076,6 +1076,8 @@ function doGet(e) {
   if (esClaude && parametros.precios) {
     var resPr = parametros.precios === 'instalar' ? { ok: true, activadorNuevo: asegurarActivadorPrecios_() }
       : parametros.precios === 'ver' ? preciosDudosos_()
+      : parametros.precios === 'pausar' ? pausarPrecios_(true)
+      : parametros.precios === 'reanudar' ? pausarPrecios_(false)
       : parametros.precios === 'quitarNoLeer' ? quitarPreciosNoLeer_()
       : parametros.precios === 'muestra' ? muestraPrecios_(parametros.n)
       : parametros.precios === 'releer' ? releerPreciosDudosos_()
