@@ -1076,6 +1076,7 @@ function doGet(e) {
   if (esClaude && parametros.precios) {
     var resPr = parametros.precios === 'instalar' ? { ok: true, activadorNuevo: asegurarActivadorPrecios_() }
       : parametros.precios === 'ver' ? preciosDudosos_()
+      : parametros.precios === 'quitarNoLeer' ? quitarPreciosNoLeer_()
       : parametros.precios === 'muestra' ? muestraPrecios_(parametros.n)
       : parametros.precios === 'releer' ? releerPreciosDudosos_()
       : parametros.precios === 'archivo' ? leerPreciosDeArchivo_(DriveApp.getFileById(String(parametros.id)), null)

@@ -35,7 +35,11 @@ var PRECIOS_CAB_ = ['Fecha', 'Proveedor', 'Documento', 'Nº', 'En la factura', '
 var PRECIOS_N_ = PRECIOS_CAB_.length;
 var PRECIOS_ARCH_CAB_ = ['Id archivo', 'Archivo', 'Carpeta', 'Resultado', 'Líneas', 'Dudosas', 'Intentos', 'Fecha'];
 var PRECIOS_DESDE_ = '2026-10';
-var PRECIOS_CARPETAS_NO_ = ['servicios', 'glovo'];
+// FC VYR (Pidebio, Madrid Rural, Dia de FC VYR) no se lee (26/11/2026, Luciana): no es compra del restaurante.
+var PRECIOS_CARPETAS_NO_ = ['servicios', 'glovo', 'fc vyr'];
+function esFcVyrPrecios_(proveedor, detalle) {
+  return PRECIOS_CARPETAS_NO_.indexOf(sinAcentos_(proveedor)) > -1 || !!proveedorFcVyr_(proveedor || '', detalle || '');
+}
 var PRECIOS_CAMBIO_GRANDE_ = 40; // % de cambio que se marca para revisar
 var PRECIOS_MAX_INTENTOS_ = 3;
 
@@ -136,6 +140,7 @@ function proveedorPedidosRecordado_(proveedor, detalle, nombres) {
 // numero, url, idArchivo, proveedorPedidos }. contenido: las hojas para Claude.
 function leerYGuardarPrecios_(contenido, meta) {
   var proveedor = String(meta.proveedor || '').trim() || 'Sin proveedor';
+  if (esFcVyrPrecios_(proveedor, meta.detalle)) return { ok: true, lineas: 0, dudosas: 0, sinProductos: true, noSeLee: 'FC VYR' };
   var cat = null, nombres = [], deCual = '';
   try {
     cat = catalogoPedidos_();
@@ -398,7 +403,7 @@ function archivosSinPrecios_(mapa) {
     var provs = itM.next().getFolders();
     while (provs.hasNext()) {
       var prov = provs.next(), nombreProv = prov.getName();
-      if (/^[📥⚠🗑]/.test(nombreProv) || PRECIOS_CARPETAS_NO_.indexOf(sinAcentos_(nombreProv)) > -1) continue;
+      if (/^[📥⚠🗑]/.test(nombreProv) || esFcVyrPrecios_(nombreProv, '')) continue;
       if (typeof SERVICIOS_CONOCIDOS_ !== 'undefined' && esServicioPrecios_(nombreProv)) continue;
       var fs = prov.getFiles();
       while (fs.hasNext()) {
@@ -477,4 +482,23 @@ function muestraPrecios_(n) {
   var h = SpreadsheetApp.openById(INDICE_SHEET_ID_).getSheetByName(PRECIOS_PESTANA_);
   if (!h || h.getLastRow() < 2) return [];
   return h.getRange(2, 1, Math.min(Number(n) || 60, h.getLastRow() - 1), 19).getDisplayValues();
+}
+
+// Quita de PRECIOS lo que no se tiene que leer (FC VYR), por si se leyó antes.
+function quitarPreciosNoLeer_() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var h = hojaPrecios_();
+    if (h.getLastRow() < 2) return { ok: true, quitadas: 0 };
+    var filas = h.getRange(2, 1, h.getLastRow() - 1, PRECIOS_N_).getValues();
+    var quedan = filas.filter(function (f) { var p = String(f[1]).split(' — '); return !esFcVyrPrecios_(p[0], p[1] || ''); });
+    if (quedan.length < filas.length) {
+      h.getRange(2, 1, filas.length, PRECIOS_N_).clearContent();
+      if (quedan.length) h.getRange(2, 1, quedan.length, PRECIOS_N_).setValues(quedan);
+    }
+    return { ok: true, quitadas: filas.length - quedan.length };
+  } finally {
+    lock.releaseLock();
+  }
 }
