@@ -150,8 +150,12 @@ function leerYGuardarPrecios_(contenido, meta) {
     if (deCual && !cat.proveedores[deCual].length) deCual = '';
   } catch (err) { deCual = ''; }
   var quien = proveedor + (meta.detalle ? ' (' + meta.detalle + ')' : '');
-  var r = pedirJsonAClaude_(contenido.concat([{ type: 'text', text: instruccionesPrecios_(quien, deCual, deCual ? cat.proveedores[deCual] : []) }]),
-    ESQUEMA_PRECIOS_, 'medium', MODELO_ESCANEO);
+  GASTO_MOTIVO_ = 'precios';
+  var r;
+  try {
+    r = pedirJsonAClaude_(contenido.concat([{ type: 'text', text: instruccionesPrecios_(quien, deCual, deCual ? cat.proveedores[deCual] : []) }]),
+      ESQUEMA_PRECIOS_, 'medium', MODELO_ESCANEO);
+  } finally { GASTO_MOTIVO_ = 'escaneo'; }
   if (!r.ok) return { ok: false, error: r.error };
 
   var fecha = /^\d{4}-\d{2}-\d{2}$/.test(String(meta.fecha || '')) ? meta.fecha

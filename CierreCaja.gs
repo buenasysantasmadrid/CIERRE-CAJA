@@ -1076,6 +1076,8 @@ function doGet(e) {
   if (esClaude && parametros.precios) {
     var resPr = parametros.precios === 'instalar' ? { ok: true, activadorNuevo: asegurarActivadorPrecios_() }
       : parametros.precios === 'ver' ? preciosDudosos_()
+      : parametros.precios === 'gasto' ? gastoClaude_()
+      : parametros.precios === 'medir' ? medirPrecios_(parametros.n)
       : parametros.precios === 'pausar' ? pausarPrecios_(true)
       : parametros.precios === 'reanudar' ? pausarPrecios_(false)
       : parametros.precios === 'quitarNoLeer' ? quitarPreciosNoLeer_()
@@ -3527,6 +3529,18 @@ function pedirJsonAClaude_(contenido, esquema, esfuerzo, modelo) {
     messages: [{ role: 'user', content: contenido }]
   };
 
+  // Medir sin gastar (?gasto=medir): se cuentan los tokens de lo que se mandaría y no se lee nada.
+  if (MEDIR_TOKENS_) {
+    var rc = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages/count_tokens', {
+      method: 'post', contentType: 'application/json',
+      headers: { 'x-api-key': clave, 'anthropic-version': '2023-06-01' },
+      payload: JSON.stringify({ model: cuerpo.model, messages: cuerpo.messages }), muteHttpExceptions: true
+    });
+    var jc = null; try { jc = JSON.parse(rc.getContentText()); } catch (e) {}
+    MEDIDO_ = jc && jc.input_tokens ? jc.input_tokens : 0;
+    return { ok: false, error: 'medido: ' + (MEDIDO_ || rc.getContentText().slice(0, 200)) };
+  }
+
   // Si Anthropic está saturado (429 / 529 / 5xx) se reintenta un par de veces.
   var resp, codigo, json;
   for (var intento = 0; intento < 3; intento++) {
@@ -3547,6 +3561,7 @@ function pedirJsonAClaude_(contenido, esquema, esfuerzo, modelo) {
     var msg = (json && json.error && json.error.message) || ('Error de la IA (' + codigo + ')');
     return { ok: false, error: msg };
   }
+  try { apuntarGastoClaude_(cuerpo.model, json.usage); } catch (eg) {}
   if (json.stop_reason === 'refusal') return { ok: false, error: 'La IA no quiso responder a esto' };
 
   var texto = (json.content || []).filter(function (b) { return b.type === 'text'; })
