@@ -1072,6 +1072,16 @@ function doGet(e) {
   if (esClaude && parametros.pendientes) {
     return ContentService.createTextOutput(JSON.stringify(actualizarPendientes())).setMimeType(ContentService.MimeType.JSON);
   }
+  // ?precios=leer | instalar | archivo&id=ID: precios de las facturas (PreciosLectura.gs).
+  if (esClaude && parametros.precios) {
+    var resPr = parametros.precios === 'instalar' ? { ok: true, activadorNuevo: asegurarActivadorPrecios_() }
+      : parametros.precios === 'ver' ? preciosDudosos_()
+      : parametros.precios === 'muestra' ? muestraPrecios_(parametros.n)
+      : parametros.precios === 'releer' ? releerPreciosDudosos_()
+      : parametros.precios === 'archivo' ? leerPreciosDeArchivo_(DriveApp.getFileById(String(parametros.id)), null)
+      : leerPreciosPendientes();
+    return ContentService.createTextOutput(JSON.stringify(resPr)).setMimeType(ContentService.MimeType.JSON);
+  }
   // ?tratamientos=AAAA: pestaña "CÓMO TRABAJA CADA PROVEEDOR" (TratamientoProveedores.gs).
   if (esClaude && parametros.tratamientos) {
     var idTrat = buscarEnIndice_('ALBARANES', String(parametros.tratamientos));

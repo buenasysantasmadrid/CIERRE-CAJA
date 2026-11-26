@@ -46,7 +46,8 @@ function asegurarActivadorDocumentos_() {
   // PENDIENTES va aparte (las dos juntas pasan de los 6 minutos de Google).
   var hayP = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'actualizarPendientes'; });
   if (!hayP) ScriptApp.newTrigger('actualizarPendientes').timeBased().everyHours(2).create();
-  return !hay || !hayP;
+  var hayPr = asegurarActivadorPrecios_();
+  return !hay || !hayP || hayPr;
 }
 
 // Los PDF del año en Drive, con la clave de su número (nombre sin la fecha,
