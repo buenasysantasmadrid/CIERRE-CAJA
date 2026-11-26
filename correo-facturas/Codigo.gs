@@ -18,7 +18,7 @@
 // ============================================================================
 
 var DIRECCION = 'buenasysantasmadrid+facturas@gmail.com';
-var REMITENTES = ['info@buenasysantas.es', 'luciana@buenasysantas.es', 'clara@buenasysantas.es', 'yamila@buenasysantas.es', 'lfisbein@gmail.com', 'yamilafisbein@gmail.com', 'efronclara@gmail.com'];
+var REMITENTES = ['info@buenasysantas.es', 'luciana@buenasysantas.es', 'clara@buenasysantas.es', 'yamila@buenasysantas.es', 'lfisbein@gmail.com', 'yamilafisbein@gmail.com', 'efronclara@gmail.com', 'buenasysantasmadrid@gmail.com'];
 var CARPETA_FACTURAS_ID = '15R08k4qgm84msoGqxpUnMtU7sLeczWCz'; // "Facturas proveedores"
 var BANDEJA = '📥 Facturas nuevas';
 var ETIQUETA_OK = 'Factura procesada';
@@ -79,6 +79,9 @@ function probarAppCaja_() {
 }
 
 function vigilarAppCaja() {
+  try { return vigilarAppCaja_(); } catch (err) { avisarError_('Vigilancia de la app de caja', err); }
+}
+function vigilarAppCaja_() {
   var props = PropertiesService.getScriptProperties();
   var r = probarAppCaja_();
   var fallos = Number(props.getProperty('appFallos') || 0);
@@ -105,6 +108,9 @@ function vigilarAppCaja() {
 }
 
 function traerFacturasDelCorreo() {
+  try { return traerFacturasDelCorreo_(); } catch (err) { avisarError_('Facturas por email', err); }
+}
+function traerFacturasDelCorreo_() {
   try { activadorCada10_(); } catch (err) { Logger.log('Activador: ' + err); }
   var salida = { traidas: [], ignorados: [], sinAdjunto: [] };
   var raiz = DriveApp.getFolderById(CARPETA_FACTURAS_ID);
@@ -153,4 +159,23 @@ function traerFacturasDelCorreo() {
       'Se reenviaron a ' + DIRECCION + ' pero no traían ningún PDF ni foto (puede que la factura venga como enlace: hay que descargarla y guardarla en "' + BANDEJA + '"):\n' + salida.sinAdjunto.join('\n'));
   }
   return salida;
+}
+
+// 26/11/2026 (Luciana): si algo falla, el email va a lfisbein, no a buenasysantasmadrid.
+// Los activadores son de esta cuenta (buenasysantasmadrid): si un error se escapa, Google
+// manda su aviso automático a esta cuenta. Por eso se atrapa aquí y se avisa a lfisbein,
+// como mucho una vez cada 6 horas por el mismo problema (los cortes de Google son frecuentes).
+function avisarError_(que, err) {
+  var texto = String(err && err.message || err);
+  Logger.log(que + ': ' + texto);
+  var props = PropertiesService.getScriptProperties();
+  var clave = 'aviso_' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, que + texto)).slice(0, 20);
+  var antes = Number(props.getProperty(clave) || 0);
+  if (Date.now() - antes < 6 * 3600 * 1000) return;
+  props.setProperty(clave, String(Date.now()));
+  try {
+    MailApp.sendEmail('lfisbein@gmail.com', 'Problema: ' + que,
+      'Ha fallado "' + que + '" (cuenta buenasysantasmadrid):\n\n' + texto +
+      '\n\nSi es un corte de Google, se arregla solo en la siguiente vuelta. Si este email se repite, avisar a Claude.');
+  } catch (e) { Logger.log('No se pudo mandar el aviso: ' + e); }
 }
