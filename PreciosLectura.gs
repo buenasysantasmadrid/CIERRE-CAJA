@@ -215,7 +215,7 @@ function leerYGuardarPrecios_(contenido, meta) {
     try {
       res.comparativa = apuntarComparativa_(lineas.map(function (x) {
         return { texto: x.l.texto, cant: x.cant, cobro: x.l.se_cobra_por, precio: x.precio };
-      }), { proveedor: proveedor, fecha: fecha, numero: numero, idArchivo: meta.idArchivo || '' });
+      }), { proveedor: proveedor, fecha: fecha, numero: numero, idArchivo: meta.idArchivo || '', desdeApp: !!meta.desdeApp });
     } catch (err) { res.errorComparativa = String(err && err.message || err); Logger.log('Comparativa: ' + err); }
   }
 

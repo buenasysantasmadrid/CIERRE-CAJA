@@ -565,6 +565,15 @@
   .turno-big button.noche{background:var(--nc-bg);color:var(--nc-ink);border:1.5px solid var(--nc-ink);}
 
   .pregunta-acciones{display:flex;flex-direction:column;gap:10px;}
+  .comp-lineas{display:flex;flex-direction:column;gap:10px;margin:0 0 16px;}
+  .comp-linea{border:1px solid #e3ded4;border-radius:14px;padding:10px 12px;}
+  .comp-linea.duda{border-color:#e0a800;background:#fff8e1;}
+  .comp-linea .comp-texto{font-size:.85rem;color:#777;margin-bottom:6px;}
+  .comp-linea .comp-fila{display:flex;gap:8px;align-items:center;}
+  .comp-linea select{flex:1;min-height:44px;}
+  .comp-linea .comp-kg{font-weight:600;white-space:nowrap;min-width:64px;text-align:right;}
+  .comp-duda{font-size:.85rem;color:#a06800;margin:0 0 12px;}
+  #compAceptar:disabled{opacity:.45;}
   .pregunta-acciones button{min-height:54px;border-radius:14px;font-size:1rem;}
   #preguntaNo{background:#fff;border:1.5px solid var(--line);}
   #preguntaOverlay.pequena .modal{max-width:300px;padding:16px;}
@@ -965,6 +974,20 @@
     <div class="pregunta-acciones">
       <button type="button" id="preguntaNo"></button>
       <button type="button" id="preguntaSi" class="btn-turno"></button>
+    </div>
+  </div>
+</div>
+
+<!-- ¿Cargamos esto en la Comparativa pollería y carnicería? (ComparativaCarne.gs) -->
+<div class="modal-overlay center-overlay" id="compOverlay">
+  <div class="modal" role="dialog" aria-modal="true">
+    <h3 style="margin-right:0;">¿Cargamos esto en la Comparativa pollería y carnicería?</h3>
+    <p id="compQuien" style="margin:-6px 0 12px;color:#777;font-size:.9rem;"></p>
+    <p class="comp-duda" id="compDuda"></p>
+    <div class="comp-lineas" id="compLineas"></div>
+    <div class="pregunta-acciones">
+      <button type="button" id="compCancelar">Cancelar (lo apunto a mano)</button>
+      <button type="button" id="compAceptar" class="btn-turno">Aceptar</button>
     </div>
   </div>
 </div>
@@ -3294,12 +3317,75 @@
           numero_factura: parsed.numero_factura || '', fecha: parsed.fecha || '', tipo_documento: parsed.tipo_documento || '' })
       ).then(function(resp){ return resp.json(); }).then(function(r){
         if(!r || r.ok === false) avisarErrorPorMail('una factura NO se guardó en Drive', 'La factura escaneada (' + descripcion + ') no se guardó en Drive: ' + ((r && r.error) || 'respuesta vacía') + '.\nHay que volver a escanearla.');
+        // Pollería, Mercandalucía o Las 3B: preguntar si va a la Comparativa.
+        var prop = r && r.precios && r.precios.comparativa && r.precios.comparativa.propuesta;
+        if(prop && prop.lineas && prop.lineas.length) preguntarComparativa(prop);
       }).catch(function(err){
         avisarErrorPorMail('una factura NO se guardó en Drive', 'La factura escaneada (' + descripcion + ') no llegó al Apps Script (' + (err && err.message || 'sin conexión') + ').\nHay que volver a escanearla.');
       });
     } catch(e){
       avisarErrorPorMail('una factura NO se guardó en Drive', 'Al preparar el PDF de la factura (' + descripcion + ') falló: ' + e.message + '.\nHay que volver a escanearla.');
     }
+  }
+
+  // "¿Cargamos esto en la Comparativa pollería y carnicería?" (27/11/2026,
+  // Luciana). Llega cuando ya se leyeron las líneas del albarán (unos
+  // segundos después de guardar). Lo que no se sabe qué es sale en amarillo
+  // y hasta elegirlo no se puede Aceptar. Cancelar = no se apunta (a mano).
+  // Si no se contesta, las líneas esperan en la pestaña POR CONFIRMAR.
+  var colaComparativa = [];
+  function preguntarComparativa(prop){
+    var ov = document.getElementById('compOverlay');
+    if(ov.classList.contains('open')){ colaComparativa.push(prop); return; }
+    var num = function(n){ return String(Math.round(n * 1000) / 1000).replace('.', ','); };
+    var f = String(prop.fecha || '').split('-');
+    document.getElementById('compQuien').textContent = prop.proveedor + ' · ' + (f.length === 3 ? f[2] + '/' + f[1] + '/' + f[0] : prop.fecha) + (prop.numero ? ' · nº ' + prop.numero : '');
+    var cont = document.getElementById('compLineas');
+    cont.innerHTML = '';
+    var selects = [];
+    prop.lineas.forEach(function(l){
+      var div = document.createElement('div');
+      div.className = 'comp-linea';
+      var opts = (l.sugerido ? '' : '<option value="">— Elegir —</option>') + prop.opciones.map(function(o){
+        return '<option' + (o === l.sugerido ? ' selected' : '') + '>' + escapeHtml(o) + '</option>';
+      }).join('');
+      var cobro = String(l.cobro || '');
+      div.innerHTML = '<div class="comp-texto">' + escapeHtml(l.texto) + (l.precio ? ' · ' + escapeHtml(l.precio.toFixed(2).replace('.', ',')) + ' €' + (/kg/i.test(cobro) ? '/kg' : '') : '') + '</div>' +
+        '<div class="comp-fila"><select>' + opts + '</select><span class="comp-kg">' + escapeHtml(num(l.cant) + ' ' + (/^kgs?$/i.test(cobro) ? 'kg' : cobro)) + '</span></div>';
+      var sel = div.querySelector('select');
+      sel.onchange = revisar;
+      selects.push({ sel: sel, div: div, id: l.id });
+      cont.appendChild(div);
+    });
+    var aceptar = document.getElementById('compAceptar');
+    var cancelar = document.getElementById('compCancelar');
+    function revisar(){
+      var faltan = 0;
+      selects.forEach(function(s){ var ok = !!s.sel.value; s.div.classList.toggle('duda', !ok); if(!ok) faltan++; });
+      aceptar.disabled = faltan > 0;
+      var duda = document.getElementById('compDuda');
+      duda.style.display = faltan ? 'block' : 'none';
+      duda.textContent = '⚠️ Hay ' + faltan + (faltan === 1 ? ' producto que no sé cuál es: elígelo.' : ' productos que no sé cuáles son: elígelos.');
+    }
+    revisar();
+    function cerrar(){ ov.classList.remove('open'); if(colaComparativa.length) setTimeout(function(){ preguntarComparativa(colaComparativa.shift()); }, 300); }
+    function mandar(cancelado){
+      aceptar.disabled = true; cancelar.disabled = true;
+      var cuerpo = { accionComparativaConfirmar: true, clave: prop.clave, fecha: prop.fecha, cancelar: !!cancelado,
+        lineas: selects.map(function(s){ return { id: s.id, producto: s.sel.value }; }) };
+      postConReintentos(JSON.stringify(cuerpo)).then(function(resp){ return resp.json(); }).then(function(r){
+        if(!r || r.ok === false) throw new Error((r && r.error) || 'respuesta vacía');
+        toast(cancelado ? 'No se apunta en la Comparativa' : 'Apuntado en la Comparativa');
+      }).catch(function(err){
+        toast('No se pudo apuntar en la Comparativa: queda en la pestaña POR CONFIRMAR');
+        avisarErrorPorMail('la Comparativa no se apuntó', 'Al contestar "¿Cargamos esto en la Comparativa?" (' + prop.proveedor + ', ' + prop.fecha + ') falló: ' + (err && err.message || 'sin conexión') + '.\nLas líneas siguen en la pestaña POR CONFIRMAR de la Comparativa.');
+      }).finally(function(){ cancelar.disabled = false; });
+      cerrar();
+    }
+    aceptar.onclick = function(){ if(!aceptar.disabled) mandar(false); };
+    cancelar.onclick = function(){ mandar(true); };
+    cancelar.disabled = false;
+    ov.classList.add('open');
   }
 
   // Al guardar un gasto que tiene una factura escaneada: ahora sí va el PDF

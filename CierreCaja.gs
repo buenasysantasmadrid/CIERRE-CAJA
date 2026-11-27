@@ -78,6 +78,14 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // La respuesta a "¿Cargamos esto en la Comparativa pollería y
+    // carnicería?" (Aceptar o Cancelar, ver ComparativaCarne.gs).
+    if (data.accionComparativaConfirmar) {
+      return ContentService
+        .createTextOutput(JSON.stringify(confirmarComparativa_(data)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // Entender un gasto dictado por voz (botón "Dictar gasto"). Tampoco
     // guarda nada: solo devuelve los campos.
     if (data.accionDictarGasto) {

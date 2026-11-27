@@ -35,9 +35,10 @@ function preciosFactura_(data) {
     var idFoto = res.foto ? idDeUrlDrive_(res.foto) : '';
     var numeroLeido = String(data.numero_factura || '').trim();
     if (idFoto) {
-      res.precios = leerPreciosDeArchivo_(DriveApp.getFileById(idFoto), null, { numero: numeroLeido, fecha: fecha, proveedorPedidos: data.proveedorPedidos || '' });
+      // desdeApp: la app enseña la ventana "¿Cargamos esto en la Comparativa?" (ComparativaCarne.gs).
+      res.precios = leerPreciosDeArchivo_(DriveApp.getFileById(idFoto), null, { numero: numeroLeido, fecha: fecha, proveedorPedidos: data.proveedorPedidos || '', desdeApp: true });
     } else {
-      res.precios = leerYGuardarPrecios_(imagenesFactura_(data), { proveedor: proveedor, detalle: String(data.detalle || '').trim(), fecha: fecha, numero: numeroLeido });
+      res.precios = leerYGuardarPrecios_(imagenesFactura_(data), { proveedor: proveedor, detalle: String(data.detalle || '').trim(), fecha: fecha, numero: numeroLeido, desdeApp: true });
     }
     if (res.precios && res.precios.errorPedidos) res.errorPrecios = res.precios.errorPedidos;
   } catch (err) { res.errorPrecios = String(err); }
