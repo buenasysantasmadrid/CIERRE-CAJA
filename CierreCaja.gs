@@ -1087,6 +1087,19 @@ function doGet(e) {
       : leerPreciosPendientes();
     return ContentService.createTextOutput(JSON.stringify(resPr)).setMimeType(ContentService.MimeType.JSON);
   }
+  // ?comparativa=instalar: crea la pestaña "POR CONFIRMAR" de la Comparativa
+  // carnicería y su activador; ?comparativa=ver: lo que falta elegir (ComparativaCarne.gs).
+  if (esClaude && parametros.comparativa) {
+    var resCo;
+    if (parametros.comparativa === 'instalar') {
+      var ssCo = planillaDelMenu_('COMPARATIVA_CARNE', hoyISO_(), 'Comparativa carnicería');
+      var hCo = hojaPorConfirmar_(ssCo);
+      asegurarActivadorComparativa_(ssCo.getId());
+      resCo = { ok: true, planilla: ssCo.getName(), pestana: hCo.getName(), filas: leerPorConfirmar_(hCo).length,
+        productos: gruposComparativa_(ssCo, hoyISO_(), {}).filas.grupos };
+    } else resCo = { ok: true, porConfirmar: carnePorConfirmar_() };
+    return ContentService.createTextOutput(JSON.stringify(resCo)).setMimeType(ContentService.MimeType.JSON);
+  }
   // ?tratamientos=AAAA: pestaña "CÓMO TRABAJA CADA PROVEEDOR" (TratamientoProveedores.gs).
   if (esClaude && parametros.tratamientos) {
     var idTrat = buscarEnIndice_('ALBARANES', String(parametros.tratamientos));

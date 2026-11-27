@@ -40,6 +40,7 @@ var PENDIENTES_SECCIONES_ = [
   ['habitual', '¿Falta alguna factura? (suele llegar cada mes)', '#b03a2e'],
   ['sinpdf', 'Facturas sin PDF en Drive', '#7f8c8d'],
   ['mal', 'PDF que se ven mal (volver a escanear)', '#7f8c8d'],
+  ['carne', 'Carne por confirmar (elegir el producto en la pestaña POR CONFIRMAR de la Comparativa)', '#7b241c'],
   ['precios', 'Precios dudosos (no cambian ningún precio: ver la pestaña PRECIOS del Índice)', '#6c3483'],
   ['sinpagar', 'Falta pagar', '#2471a3'],
   ['banco', 'Pagado por banco y sin factura', '#1a5276'],
@@ -264,6 +265,11 @@ function escribirPendientes_(ss, anio, faltan, mensuales) {
       poner('precios', x.proveedor, x.fecha, x.numero, '', x.que.join(' | ').slice(0, 450), x.url, 'precio|' + x.clave);
     });
   } catch (err) { log('precios', err); }
+
+  // 6c. Carne de los albaranes sin saber qué producto es (ComparativaCarne.gs).
+  try {
+    carnePorConfirmar_().forEach(function (x) { poner('carne', x.proveedor, x.fecha, x.numero, '', x.que, x.url, x.clave); });
+  } catch (err) { log('carne', err); }
 
   // 7. Errores de la app de la última semana.
   try {

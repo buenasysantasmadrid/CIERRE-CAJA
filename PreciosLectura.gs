@@ -209,6 +209,16 @@ function leerYGuardarPrecios_(contenido, meta) {
 
   var res = { ok: true, lineas: lineas.length, dudosas: guardado.dudosas, tipo: tipo, numero: numero, sinProductos: !lineas.length };
 
+  // Pollería, Mercandalucía y Las 3B: los kilos a la Comparativa carnicería
+  // (ComparativaCarne.gs). La factura del mes no (sería contar dos veces).
+  if (!meta.noComparativa && proveedorComparativa_(proveedor) && lineas.length) {
+    try {
+      res.comparativa = apuntarComparativa_(lineas.map(function (x) {
+        return { texto: x.l.texto, cant: x.cant, cobro: x.l.se_cobra_por, precio: x.precio };
+      }), { proveedor: proveedor, fecha: fecha, numero: numero, idArchivo: meta.idArchivo || '' });
+    } catch (err) { res.errorComparativa = String(err && err.message || err); Logger.log('Comparativa: ' + err); }
+  }
+
   // App de Pedidos: las dudosas van sin emparejar (no cambian el precio del producto).
   if (deCual && r.proveedor_pedidos === deCual && lineas.length) {
     try {
@@ -383,6 +393,8 @@ function contenidoDeArchivo_(archivo) {
 function leerPreciosDeArchivo_(archivo, mapa, extra) {
   var meta = metaDeArchivo_(archivo);
   if (extra) Object.keys(extra).forEach(function (k) { if (extra[k]) meta[k] = extra[k]; });
+  // La factura del mes (Bandejas.gs, nota "factura") no va a la Comparativa carnicería.
+  if (String(archivo.getDescription() || '').split('\n')[0].toLowerCase() === 'factura') meta.noComparativa = true;
   var r;
   try { r = leerYGuardarPrecios_(contenidoDeArchivo_(archivo), meta); }
   catch (err) { r = { ok: false, error: String(err && err.message || err) }; }
