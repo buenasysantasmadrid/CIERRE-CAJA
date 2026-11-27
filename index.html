@@ -5664,8 +5664,8 @@
       pedirAlSheet({ accionDiariaGuardar: true, planilla: p, fecha: fecha, valores: valores }).then(function(d){
         estadoMenu(idDiaria(p, 'Estado'), '');
         if(document.getElementById(idDiaria(p, 'Fecha')).value === fecha) pintarDiaria(p, d);
-        // Producción: al guardar se vuelve a la caja de hoy.
-        if(p === 'produccion'){
+        // Producción y Comparativa (carnes, 27/11/2026): al guardar se vuelve a la caja de hoy.
+        if(p === 'produccion' || p === 'carniceria'){
           document.getElementById(idDiaria(p, 'Screen')).classList.remove('open');
           document.body.classList.remove('no-scroll');
           iniciarSondeoSheet();

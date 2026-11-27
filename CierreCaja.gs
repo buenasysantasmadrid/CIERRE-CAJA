@@ -1095,6 +1095,20 @@ function doGet(e) {
       : leerPreciosPendientes();
     return ContentService.createTextOutput(JSON.stringify(resPr)).setMimeType(ContentService.MimeType.JSON);
   }
+  // ?rehacerDia=AAAA-MM-DD: vuelve a escribir la pestaña del día y la fila de
+  // Contabilidad con lo que hay en Registro (no toca Registro ni Movimientos).
+  if (esClaude && parametros.rehacerDia) {
+    var fRe = String(parametros.rehacerDia);
+    var ssRe = planillaCierreCaja_(fRe);
+    var diaRe = obtenerDiaJSON_(ssRe, fRe);
+    if (!diaRe || !diaRe.encontrado) return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'Ese día no está en Registro' })).setMimeType(ContentService.MimeType.JSON);
+    var dataRe = { fecha: fRe, negocio: diaRe.negocio, mediodia: diaRe.mediodia, noche: diaRe.noche };
+    completarCalculosDelEnvio_(dataRe);
+    var resRe = { ok: true, hojaDia: escribirHojaDelDiaComprobada_(ssRe, {
+      fecha: fRe, negocio: diaRe.negocio, mediodia: turnoParaHojaExacta_(diaRe.mediodia), noche: turnoParaHojaExacta_(diaRe.noche) }) };
+    resRe.contabilidad = escribirContabilidad_(dataRe);
+    return ContentService.createTextOutput(JSON.stringify(resRe)).setMimeType(ContentService.MimeType.JSON);
+  }
   // ?comparativa=instalar: crea la pestaña "POR CONFIRMAR" de la Comparativa
   // carnicería y su activador; ?comparativa=ver: lo que falta elegir (ComparativaCarne.gs).
   if (esClaude && parametros.comparativa) {
