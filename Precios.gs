@@ -30,11 +30,16 @@ function preciosFactura_(data) {
   }
   if (data.soloPdf) return res;
   try {
-    // Frutapro (no está en la app de Pedidos): sus precios van a la pestaña
-    // "Precios proveedores" del Índice (ver más abajo).
-    res.precios = proveedorConPreciosPropios_(proveedor)
-      ? guardarPreciosPropios_(data, proveedorConPreciosPropios_(proveedor), fecha, res.foto || '')
-      : mandarPreciosAPedidos_(data, proveedor, fecha, res.foto || '');
+    // Desde el 26/11/2026 todo pasa por PreciosLectura.gs (pestaña PRECIOS,
+    // y de ahí a Pedidos y a "Precios proveedores" para Frutapro).
+    var idFoto = res.foto ? idDeUrlDrive_(res.foto) : '';
+    var numeroLeido = String(data.numero_factura || '').trim();
+    if (idFoto) {
+      res.precios = leerPreciosDeArchivo_(DriveApp.getFileById(idFoto), null, { numero: numeroLeido, fecha: fecha, proveedorPedidos: data.proveedorPedidos || '' });
+    } else {
+      res.precios = leerYGuardarPrecios_(imagenesFactura_(data), { proveedor: proveedor, detalle: String(data.detalle || '').trim(), fecha: fecha, numero: numeroLeido });
+    }
+    if (res.precios && res.precios.errorPedidos) res.errorPrecios = res.precios.errorPedidos;
   } catch (err) { res.errorPrecios = String(err); }
   if (!res.errorPrecios && res.precios && res.precios.ok === false) res.errorPrecios = res.precios.error || 'error desconocido';
   if (res.errorPrecios) {
@@ -509,10 +514,14 @@ function guardarPreciosPropios_(data, proveedor, fecha, foto) {
   var r = pedirJsonAClaude_(imagenesFactura_(data).concat([{ type: 'text', text: instrucciones }]),
     ESQUEMA_LINEAS_SIN_CATALOGO_, 'medium', MODELO_BARATO_);
   if (!r.ok) return { ok: false, error: r.error };
-  var lineas = (r.lineas || []).filter(function (l) { return String(l.texto || '').trim() && Number(l.precio_unitario) > 0; });
-  if (!lineas.length) return { ok: true, lineas: 0 };
+  return escribirPreciosPropios_(proveedor, String(data.numero_factura || '').trim(), fecha, foto, r.lineas || []);
+}
 
-  var factura = String(data.numero_factura || '').trim();
+// lineas: [{ texto, producto, cantidad, unidad, precio_unitario }] (por kg o pieza suelta).
+function escribirPreciosPropios_(proveedor, factura, fecha, foto, lineas) {
+  lineas = (lineas || []).filter(function (l) { return String(l.texto || '').trim() && Number(l.precio_unitario) > 0; });
+  if (!lineas.length) return { ok: true, lineas: 0 };
+  factura = String(factura || '').trim();
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -648,23 +657,12 @@ function preciosDesdeDrive_(data) {
   if (hechas >= RELECTURAS_AL_DIA_) return { ok: false, error: 'Hoy ya se han leído muchas facturas. Prueba mañana.' };
   props.setProperty(claveDia, String(hechas + 1));
 
-  var blob = archivo.getBlob(), tipo = blob.getContentType();
-  var b64 = Utilities.base64Encode(blob.getBytes());
-  var carpeta = archivo.getParents().hasNext() ? archivo.getParents().next().getName() : '';
-  // Nombre: "<AAAA-MM-DD> <proveedor> [<súper>] <nº factura>.pdf"
-  var nombre = archivo.getName().replace(/\.(pdf|jpg|png)$/i, '');
-  var fecha = /^\d{4}-\d{2}-\d{2}/.test(nombre) ? nombre.slice(0, 10) : Utilities.formatDate(archivo.getDateCreated(), 'Europe/Madrid', 'yyyy-MM-dd');
-  var resto = nombre.replace(/^\d{4}-\d{2}-\d{2}\s*/, '');
-  if (carpeta && resto.indexOf(carpeta + ' ') === 0) resto = resto.slice(carpeta.length + 1);
-  var lectura = {
-    detalle: carpeta, numero_factura: resto.trim(), proveedorPedidos: String(data.proveedor || '').trim(),
-    reemplazar: !!data.reemplazar
-  };
-  if (tipo === 'application/pdf') lectura.pdfParaClaude = b64;
-  else { lectura.imageBase64 = b64; lectura.mediaType = tipo; }
-  var r = mandarPreciosAPedidos_(lectura, carpeta || 'Sin proveedor', fecha, archivo.getUrl());
-  if (r && r.noEsDePedidos) return { ok: false, error: 'En esa factura no se ha reconocido ningún producto de este proveedor' };
-  return r;
+  // Desde el 26/11/2026 con la lectura de PreciosLectura.gs (también deja la
+  // factura en la pestaña PRECIOS).
+  var r = leerPreciosDeArchivo_(archivo, null, { proveedorPedidos: String(data.proveedor || '').trim() });
+  if (!r.ok) return r;
+  if (!r.pedidos) return { ok: false, error: r.errorPedidos || 'En esa factura no se ha reconocido ningún producto de este proveedor' };
+  return r.pedidos;
 }
 
 // ============================================================================
